@@ -1,0 +1,2351 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, FormEvent } from "react";
+import { supabase } from "../lib/supabase";
+
+type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
+type ScoutStatus = "active" | "inactive" | "graduated";
+type AttendanceStatus =
+  | "present"
+  | "recognized"
+  | "late"
+  | "early_leave"
+  | "absent"
+  | "not_entered";
+type MeetingType = "regular";
+
+type UserProfile = {
+  role: UserRole;
+  organization_id: string | null;
+};
+
+type Organization = {
+  id: string;
+  name: string;
+};
+
+type Scout = {
+  id: string;
+  organization_id: string;
+  name: string;
+  member_no: string | null;
+  school_name: string | null;
+  grade: string | null;
+  status: ScoutStatus;
+};
+
+type Meeting = {
+  id: string;
+  organization_id: string;
+  meeting_date: string;
+  title: string;
+  meeting_type: string;
+  is_attendance_target: boolean;
+  note: string | null;
+};
+
+type AttendanceRecord = {
+  id: string;
+  organization_id: string;
+  meeting_id: string;
+  scout_id: string;
+  status: AttendanceStatus;
+  note: string | null;
+};
+
+type MeetingCreateForm = {
+  organization_id: string;
+  meeting_date: string;
+  title: string;
+  meeting_type: MeetingType;
+  is_attendance_target: boolean;
+  note: string;
+};
+
+type MeetingEditForm = {
+  meeting_date: string;
+  title: string;
+  meeting_type: MeetingType;
+  is_attendance_target: boolean;
+  note: string;
+};
+
+type AttendanceDraft = {
+  status: AttendanceStatus;
+  note: string;
+};
+
+type MeetingSortKey = "meeting_date" | "title" | "organization" | "meeting_type" | "target" | "note";
+type AttendanceSortKey = "member_no" | "name" | "school_grade" | "status" | "attendance_status";
+type SortDirection = "asc" | "desc";
+
+type RpcClient = {
+  rpc: (
+    functionName: string,
+    args: Record<string, unknown>,
+  ) => Promise<{
+    data: unknown;
+    error: { message: string } | null;
+  }>;
+};
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  super_admin: "최고관리자",
+  org_admin: "조직관리자",
+  leader: "지도자",
+  viewer: "조회전용",
+};
+
+const SCOUT_STATUS_LABELS: Record<ScoutStatus, string> = {
+  active: "활동",
+  inactive: "비활동",
+  graduated: "졸업",
+};
+
+const ATTENDANCE_STATUS_LABELS: Record<AttendanceStatus, string> = {
+  present: "출석",
+  recognized: "인정출석",
+  late: "지각",
+  early_leave: "조퇴",
+  absent: "결석",
+  not_entered: "미입력",
+};
+
+const ATTENDANCE_STATUS_OPTIONS: Array<{ value: AttendanceStatus; label: string }> = [
+  { value: "present", label: "출석" },
+  { value: "recognized", label: "인정출석" },
+  { value: "late", label: "지각" },
+  { value: "early_leave", label: "조퇴" },
+  { value: "absent", label: "결석" },
+  { value: "not_entered", label: "미입력" },
+];
+
+const MEETING_TYPE_LABELS: Record<string, string> = {
+  regular: "정기집회",
+};
+
+const MEETING_TYPE_OPTIONS: Array<{ value: MeetingType; label: string }> = [
+  { value: "regular", label: "정기집회" },
+];
+
+const ATTENDANCE_PASS_STATUSES: AttendanceStatus[] = [
+  "present",
+  "recognized",
+  "late",
+  "early_leave",
+];
+
+function isUserRole(value: unknown): value is UserRole {
+  return (
+    value === "super_admin" ||
+    value === "org_admin" ||
+    value === "leader" ||
+    value === "viewer"
+  );
+}
+
+function getTodayText() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getEmptyMeetingCreateForm(profile?: UserProfile | null): MeetingCreateForm {
+  return {
+    organization_id:
+      profile && profile.role !== "super_admin" ? profile.organization_id ?? "" : "",
+    meeting_date: getTodayText(),
+    title: "",
+    meeting_type: "regular",
+    is_attendance_target: true,
+    note: "",
+  };
+}
+
+function getMeetingEditForm(meeting: Meeting): MeetingEditForm {
+  return {
+    meeting_date: formatDate(meeting.meeting_date),
+    title: meeting.title,
+    meeting_type: meeting.meeting_type as MeetingType,
+    is_attendance_target: meeting.is_attendance_target,
+    note: meeting.note ?? "",
+  };
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "-";
+  return value.slice(0, 10);
+}
+
+function toNullableText(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function compareText(a: string, b: string) {
+  return a.localeCompare(b, "ko-KR", { numeric: true, sensitivity: "base" });
+}
+
+export default function MeetingsPage() {
+  const meetingListRef = useRef<HTMLElement | null>(null);
+  const attendanceSectionRef = useRef<HTMLElement | null>(null);
+
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [scouts, setScouts] = useState<Scout[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+
+  const [keyword, setKeyword] = useState("");
+  const [selectedMeetingType, setSelectedMeetingType] = useState<"" | string>("");
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
+  const [meetingSort, setMeetingSort] = useState<{
+    key: MeetingSortKey;
+    direction: SortDirection;
+  }>({ key: "meeting_date", direction: "desc" });
+  const [attendanceSort, setAttendanceSort] = useState<{
+    key: AttendanceSortKey;
+    direction: SortDirection;
+  }>({ key: "member_no", direction: "asc" });
+
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<MeetingCreateForm>(
+    getEmptyMeetingCreateForm(),
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [formErrorMessage, setFormErrorMessage] = useState("");
+
+  const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<MeetingEditForm | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editErrorMessage, setEditErrorMessage] = useState("");
+  const [archivingMeetingId, setArchivingMeetingId] = useState<string | null>(null);
+  const [archiveErrorMessage, setArchiveErrorMessage] = useState("");
+
+  const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, AttendanceDraft>>({});
+  const [attendanceSavingScoutId, setAttendanceSavingScoutId] = useState<string | null>(null);
+  const [attendanceErrorMessage, setAttendanceErrorMessage] = useState("");
+
+  const [bulkAttendanceStatus, setBulkAttendanceStatus] =
+    useState<AttendanceStatus>("present");
+  const [bulkAttendanceNote, setBulkAttendanceNote] = useState("");
+  const [bulkAttendanceSaving, setBulkAttendanceSaving] = useState(false);
+  const [selectedAttendanceScoutIds, setSelectedAttendanceScoutIds] = useState<string[]>([]);
+
+  const canManageMeetings =
+    profile?.role === "super_admin" ||
+    profile?.role === "org_admin" ||
+    profile?.role === "leader";
+
+  const isSuperAdmin = profile?.role === "super_admin";
+
+  const loadData = async () => {
+    setLoading(true);
+    setErrorMessage("");
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      setErrorMessage("로그인 사용자 정보를 확인하지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: profileData, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("role, organization_id")
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error("사용자 프로필 조회 오류:", profileError.message);
+      setErrorMessage("사용자 권한 정보를 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    if (!profileData || !isUserRole(profileData.role)) {
+      setErrorMessage("사용자 권한 정보가 올바르지 않습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const currentProfile: UserProfile = {
+      role: profileData.role,
+      organization_id: profileData.organization_id,
+    };
+
+    setProfile(currentProfile);
+    setCreateForm(getEmptyMeetingCreateForm(currentProfile));
+
+    const { data: organizationData, error: organizationError } = await supabase
+      .from("organizations")
+      .select("id, name")
+      .is("deleted_at", null)
+      .order("name", { ascending: true });
+
+    if (organizationError) {
+      console.error("조직 목록 조회 오류:", organizationError.message);
+    }
+
+    let scoutQuery = supabase
+      .from("scouts")
+      .select("id, organization_id, name, member_no, school_name, grade, status")
+      .is("deleted_at", null)
+      .order("name", { ascending: true });
+
+    let meetingQuery = supabase
+      .from("meetings")
+      .select("id, organization_id, meeting_date, title, meeting_type, is_attendance_target, note")
+      .is("deleted_at", null)
+      .order("meeting_date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    let attendanceQuery = supabase
+      .from("attendance")
+      .select("id, organization_id, meeting_id, scout_id, status, note")
+      .is("deleted_at", null);
+
+    if (currentProfile.role !== "super_admin") {
+      if (!currentProfile.organization_id) {
+        setErrorMessage("소속 조직 정보가 없어 집회/출석 정보를 조회할 수 없습니다.");
+        setLoading(false);
+        return;
+      }
+
+      scoutQuery = scoutQuery.eq("organization_id", currentProfile.organization_id);
+      meetingQuery = meetingQuery.eq("organization_id", currentProfile.organization_id);
+      attendanceQuery = attendanceQuery.eq("organization_id", currentProfile.organization_id);
+    }
+
+    const { data: scoutData, error: scoutError } = await scoutQuery;
+
+    if (scoutError) {
+      console.error("대원 목록 조회 오류:", scoutError.message);
+      setErrorMessage("대원 목록을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: meetingData, error: meetingError } = await meetingQuery;
+
+    if (meetingError) {
+      console.error("집회 목록 조회 오류:", meetingError.message);
+      setErrorMessage("집회 목록을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: attendanceData, error: attendanceError } = await attendanceQuery;
+
+    if (attendanceError) {
+      console.error("출석 목록 조회 오류:", attendanceError.message);
+      setErrorMessage("출석 정보를 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const loadedMeetings = (meetingData ?? []) as Meeting[];
+
+    setOrganizations((organizationData ?? []) as Organization[]);
+    setScouts((scoutData ?? []) as unknown as Scout[]);
+    setMeetings(loadedMeetings);
+    setAttendanceRecords((attendanceData ?? []) as unknown as AttendanceRecord[]);
+
+    setSelectedMeetingId((prevSelectedMeetingId) => {
+      if (
+        prevSelectedMeetingId &&
+        loadedMeetings.some((meeting) => meeting.id === prevSelectedMeetingId)
+      ) {
+        return prevSelectedMeetingId;
+      }
+
+      return loadedMeetings[0]?.id ?? null;
+    });
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const organizationNameMap = useMemo(() => {
+    return new Map(organizations.map((organization) => [organization.id, organization.name]));
+  }, [organizations]);
+
+  const selectedMeeting = useMemo(() => {
+    if (!selectedMeetingId) return null;
+    return meetings.find((meeting) => meeting.id === selectedMeetingId) ?? null;
+  }, [meetings, selectedMeetingId]);
+
+  const selectedMeetingAttendanceMap = useMemo(() => {
+    const map = new Map<string, AttendanceRecord>();
+
+    if (!selectedMeeting) return map;
+
+    attendanceRecords
+      .filter((attendance) => attendance.meeting_id === selectedMeeting.id)
+      .forEach((attendance) => {
+        map.set(attendance.scout_id, attendance);
+      });
+
+    return map;
+  }, [attendanceRecords, selectedMeeting]);
+
+  const meetingAttendanceCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+
+    attendanceRecords.forEach((attendance) => {
+      map.set(attendance.meeting_id, (map.get(attendance.meeting_id) ?? 0) + 1);
+    });
+
+    return map;
+  }, [attendanceRecords]);
+
+  const selectedMeetingScouts = useMemo(() => {
+    if (!selectedMeeting) return [];
+
+    return scouts
+      .filter((scout) => scout.organization_id === selectedMeeting.organization_id)
+      .sort((a, b) => {
+        const aMemberNo = a.member_no ?? "";
+        const bMemberNo = b.member_no ?? "";
+        const memberCompare = compareText(aMemberNo, bMemberNo);
+
+        if (memberCompare !== 0) return memberCompare;
+        return compareText(a.name, b.name);
+      });
+  }, [scouts, selectedMeeting]);
+
+  useEffect(() => {
+    setSelectedAttendanceScoutIds([]);
+  }, [selectedMeeting?.id]);
+
+  useEffect(() => {
+    const validScoutIds = new Set(selectedMeetingScouts.map((scout) => scout.id));
+
+    setSelectedAttendanceScoutIds((prev) =>
+      prev.filter((scoutId) => validScoutIds.has(scoutId)),
+    );
+  }, [selectedMeetingScouts]);
+
+  useEffect(() => {
+    if (!selectedMeeting) {
+      setAttendanceDrafts({});
+      return;
+    }
+
+    const nextDrafts: Record<string, AttendanceDraft> = {};
+
+    selectedMeetingScouts.forEach((scout) => {
+      const attendance = selectedMeetingAttendanceMap.get(scout.id);
+      nextDrafts[scout.id] = {
+        status: attendance?.status ?? "not_entered",
+        note: attendance?.note ?? "",
+      };
+    });
+
+    setAttendanceDrafts(nextDrafts);
+    setAttendanceErrorMessage("");
+  }, [selectedMeeting, selectedMeetingAttendanceMap, selectedMeetingScouts]);
+
+  const filteredMeetings = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+
+    const filtered = meetings.filter((meeting) => {
+      if (selectedMeetingType && meeting.meeting_type !== selectedMeetingType) {
+        return false;
+      }
+
+      if (!normalizedKeyword) return true;
+
+      const targetText = [
+        meeting.title,
+        meeting.meeting_date,
+        MEETING_TYPE_LABELS[meeting.meeting_type] ?? meeting.meeting_type,
+        meeting.is_attendance_target ? "출석 반영 대상" : "출석 반영 제외",
+        organizationNameMap.get(meeting.organization_id),
+        meeting.note,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return targetText.includes(normalizedKeyword);
+    });
+
+    const directionFactor = meetingSort.direction === "asc" ? 1 : -1;
+
+    return [...filtered].sort((a, b) => {
+      let result = 0;
+
+      if (meetingSort.key === "meeting_date") {
+        result = compareText(formatDate(a.meeting_date), formatDate(b.meeting_date));
+      } else if (meetingSort.key === "title") {
+        result = compareText(a.title, b.title);
+      } else if (meetingSort.key === "organization") {
+        result = compareText(
+          organizationNameMap.get(a.organization_id) ?? "",
+          organizationNameMap.get(b.organization_id) ?? "",
+        );
+      } else if (meetingSort.key === "meeting_type") {
+        result = compareText(
+          MEETING_TYPE_LABELS[a.meeting_type] ?? a.meeting_type,
+          MEETING_TYPE_LABELS[b.meeting_type] ?? b.meeting_type,
+        );
+      } else if (meetingSort.key === "target") {
+        result = Number(a.is_attendance_target) - Number(b.is_attendance_target);
+      } else if (meetingSort.key === "note") {
+        result = compareText(a.note ?? "", b.note ?? "");
+      }
+
+      if (result !== 0) return result * directionFactor;
+      return compareText(formatDate(b.meeting_date), formatDate(a.meeting_date));
+    });
+  }, [keyword, meetingSort, meetings, organizationNameMap, selectedMeetingType]);
+
+  const attendanceSummary = useMemo(() => {
+    const totalCount = selectedMeetingScouts.length;
+    const presentCount = selectedMeetingScouts.filter((scout) => {
+      const status = attendanceDrafts[scout.id]?.status ?? "not_entered";
+      return ATTENDANCE_PASS_STATUSES.includes(status);
+    }).length;
+    const absentCount = selectedMeetingScouts.filter((scout) => {
+      const status = attendanceDrafts[scout.id]?.status ?? "not_entered";
+      return status === "absent";
+    }).length;
+    const notEnteredCount = selectedMeetingScouts.filter((scout) => {
+      const status = attendanceDrafts[scout.id]?.status ?? "not_entered";
+      return status === "not_entered";
+    }).length;
+    const attendanceRate = totalCount > 0 ? Math.round((presentCount * 10000) / totalCount) / 100 : 0;
+
+    return {
+      totalCount,
+      presentCount,
+      absentCount,
+      notEnteredCount,
+      attendanceRate,
+    };
+  }, [attendanceDrafts, selectedMeetingScouts]);
+
+  const selectedAttendanceScoutIdSet = useMemo(() => {
+    return new Set(selectedAttendanceScoutIds);
+  }, [selectedAttendanceScoutIds]);
+
+  const selectedAttendanceScoutCount = useMemo(() => {
+    return selectedMeetingScouts.filter((scout) =>
+      selectedAttendanceScoutIdSet.has(scout.id),
+    ).length;
+  }, [selectedAttendanceScoutIdSet, selectedMeetingScouts]);
+
+  const sortedSelectedMeetingScouts = useMemo(() => {
+    const directionFactor = attendanceSort.direction === "asc" ? 1 : -1;
+
+    return [...selectedMeetingScouts].sort((a, b) => {
+      let result = 0;
+
+      if (attendanceSort.key === "member_no") {
+        result = compareText(a.member_no ?? "", b.member_no ?? "");
+      } else if (attendanceSort.key === "name") {
+        result = compareText(a.name, b.name);
+      } else if (attendanceSort.key === "school_grade") {
+        result = compareText(
+          `${a.school_name ?? ""} ${a.grade ?? ""}`,
+          `${b.school_name ?? ""} ${b.grade ?? ""}`,
+        );
+      } else if (attendanceSort.key === "status") {
+        result = compareText(SCOUT_STATUS_LABELS[a.status], SCOUT_STATUS_LABELS[b.status]);
+      } else if (attendanceSort.key === "attendance_status") {
+        result = compareText(
+          ATTENDANCE_STATUS_LABELS[attendanceDrafts[a.id]?.status ?? "not_entered"],
+          ATTENDANCE_STATUS_LABELS[attendanceDrafts[b.id]?.status ?? "not_entered"],
+        );
+      }
+
+      if (result !== 0) return result * directionFactor;
+      return compareText(a.member_no ?? "", b.member_no ?? "");
+    });
+  }, [attendanceDrafts, attendanceSort, selectedMeetingScouts]);
+
+  const isAllAttendanceScoutsSelected =
+    selectedMeetingScouts.length > 0 &&
+    selectedMeetingScouts.every((scout) => selectedAttendanceScoutIdSet.has(scout.id));
+
+  const getOrganizationName = (organizationId: string) => {
+    return organizationNameMap.get(organizationId) ?? "-";
+  };
+
+  const updateCreateForm = <K extends keyof MeetingCreateForm>(
+    field: K,
+    value: MeetingCreateForm[K],
+  ) => {
+    setCreateForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const updateEditForm = <K extends keyof MeetingEditForm>(
+    field: K,
+    value: MeetingEditForm[K],
+  ) => {
+    setEditForm((prev) => {
+      if (!prev) return prev;
+
+      return {
+        ...prev,
+        [field]: value,
+      };
+    });
+  };
+
+  const handleToggleMeetingSort = (key: MeetingSortKey) => {
+    setMeetingSort((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const handleToggleAttendanceSort = (key: AttendanceSortKey) => {
+    setAttendanceSort((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const getMeetingSortLabel = (key: MeetingSortKey) => {
+    if (meetingSort.key !== key) return "";
+    return meetingSort.direction === "asc" ? " ▲" : " ▼";
+  };
+
+  const getAttendanceSortLabel = (key: AttendanceSortKey) => {
+    if (attendanceSort.key !== key) return "";
+    return attendanceSort.direction === "asc" ? " ▲" : " ▼";
+  };
+
+  const handleSelectMeeting = (meetingId: string) => {
+    setSelectedMeetingId((prev) => (prev === meetingId ? meetingId : meetingId));
+
+    setTimeout(() => {
+      attendanceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  };
+
+  const handleOpenCreateForm = () => {
+    if (!canManageMeetings) return;
+
+    setCreateForm(getEmptyMeetingCreateForm(profile));
+    setFormErrorMessage("");
+    setEditErrorMessage("");
+    setArchiveErrorMessage("");
+    setEditingMeetingId(null);
+    setEditForm(null);
+    setIsCreateFormOpen(true);
+  };
+
+  const handleCloseCreateForm = () => {
+    if (submitting) return;
+
+    setCreateForm(getEmptyMeetingCreateForm(profile));
+    setFormErrorMessage("");
+    setIsCreateFormOpen(false);
+  };
+
+  const handleCloseEditForm = () => {
+    if (editSubmitting) return;
+
+    setEditingMeetingId(null);
+    setEditForm(null);
+    setEditErrorMessage("");
+  };
+
+  const handleClosePanel = () => {
+    handleCloseCreateForm();
+    handleCloseEditForm();
+  };
+
+  const handleCreateMeeting = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!profile || !canManageMeetings) {
+      setFormErrorMessage("집회/활동 등록 권한이 없습니다.");
+      return;
+    }
+
+    const organizationId =
+      profile.role === "super_admin" ? createForm.organization_id : profile.organization_id;
+
+    if (!organizationId) {
+      setFormErrorMessage("소속 조직을 선택해야 합니다.");
+      return;
+    }
+
+    if (!createForm.meeting_date) {
+      setFormErrorMessage("집회일을 입력해야 합니다.");
+      return;
+    }
+
+    if (!createForm.title.trim()) {
+      setFormErrorMessage("집회/활동명을 입력해야 합니다.");
+      return;
+    }
+
+    setSubmitting(true);
+    setFormErrorMessage("");
+
+    const rpcClient = supabase as unknown as RpcClient;
+
+    const { data, error } = await rpcClient.rpc("create_meeting_record", {
+      p_organization_id: organizationId,
+      p_meeting_date: createForm.meeting_date,
+      p_title: createForm.title.trim(),
+      p_meeting_type: createForm.meeting_type,
+      p_is_attendance_target: createForm.is_attendance_target,
+      p_note: toNullableText(createForm.note),
+    });
+
+    if (error) {
+      console.error("집회 등록 오류:", error.message);
+      setFormErrorMessage(`집회/활동 등록에 실패했습니다. ${error.message}`);
+      setSubmitting(false);
+      return;
+    }
+
+    const createdMeetingId = data as string;
+
+    setCreateForm(getEmptyMeetingCreateForm(profile));
+    setIsCreateFormOpen(false);
+    setSubmitting(false);
+
+    await loadData();
+    setSelectedMeetingId(createdMeetingId);
+  };
+
+  const handleStartEditMeeting = (meeting: Meeting) => {
+    if (!canManageMeetings) {
+      setEditErrorMessage("집회/활동 수정 권한이 없습니다.");
+      return;
+    }
+
+    setEditingMeetingId(meeting.id);
+    setSelectedMeetingId(meeting.id);
+    setEditForm(getMeetingEditForm(meeting));
+    setIsCreateFormOpen(false);
+    setFormErrorMessage("");
+    setEditErrorMessage("");
+    setArchiveErrorMessage("");
+  };
+
+  const handleUpdateMeeting = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!editingMeetingId) {
+      setEditErrorMessage("수정할 집회/활동을 선택해야 합니다.");
+      return;
+    }
+
+    if (!canManageMeetings) {
+      setEditErrorMessage("집회/활동 수정 권한이 없습니다.");
+      return;
+    }
+
+    if (!editForm) {
+      setEditErrorMessage("수정할 집회/활동 정보가 없습니다.");
+      return;
+    }
+
+    if (!editForm.meeting_date) {
+      setEditErrorMessage("집회일을 입력해야 합니다.");
+      return;
+    }
+
+    if (!editForm.title.trim()) {
+      setEditErrorMessage("집회/활동명을 입력해야 합니다.");
+      return;
+    }
+
+    setEditSubmitting(true);
+    setEditErrorMessage("");
+
+    const rpcClient = supabase as unknown as RpcClient;
+
+    const { error } = await rpcClient.rpc("update_meeting_record", {
+      p_meeting_id: editingMeetingId,
+      p_meeting_date: editForm.meeting_date,
+      p_title: editForm.title.trim(),
+      p_meeting_type: editForm.meeting_type,
+      p_is_attendance_target: editForm.is_attendance_target,
+      p_note: toNullableText(editForm.note),
+    });
+
+    if (error) {
+      console.error("집회 수정 오류:", error.message);
+      setEditErrorMessage(`집회/활동 수정에 실패했습니다. ${error.message}`);
+      setEditSubmitting(false);
+      return;
+    }
+
+    const updatedMeetingId = editingMeetingId;
+
+    setEditingMeetingId(null);
+    setEditForm(null);
+    setEditSubmitting(false);
+
+    await loadData();
+    setSelectedMeetingId(updatedMeetingId);
+  };
+
+  const handleArchiveMeeting = async (meeting: Meeting) => {
+    if (!canManageMeetings) {
+      setArchiveErrorMessage("집회/활동 삭제 권한이 없습니다.");
+      return;
+    }
+
+    const attendanceCount = meetingAttendanceCountMap.get(meeting.id) ?? 0;
+    const confirmMessage =
+      attendanceCount > 0
+        ? `이 집회에는 출석 기록 ${attendanceCount}건이 있습니다. 집회를 삭제하면 해당 출석 기록도 함께 삭제됩니다. 계속 진행할까요?`
+        : "이 집회/활동을 삭제할까요?";
+
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    setArchivingMeetingId(meeting.id);
+    setArchiveErrorMessage("");
+    setEditErrorMessage("");
+
+    const rpcClient = supabase as unknown as RpcClient;
+
+    const { error } = await rpcClient.rpc("archive_meeting_record", {
+      p_meeting_id: meeting.id,
+    });
+
+    if (error) {
+      console.error("집회 삭제 오류:", error.message);
+      setArchiveErrorMessage(`집회/활동 삭제에 실패했습니다. ${error.message}`);
+      setArchivingMeetingId(null);
+      return;
+    }
+
+    if (editingMeetingId === meeting.id) {
+      setEditingMeetingId(null);
+      setEditForm(null);
+    }
+
+    if (selectedMeetingId === meeting.id) {
+      setSelectedAttendanceScoutIds([]);
+      setAttendanceDrafts({});
+    }
+
+    setArchivingMeetingId(null);
+    await loadData();
+  };
+
+  const updateAttendanceDraft = (
+    scoutId: string,
+    field: keyof AttendanceDraft,
+    value: string,
+  ) => {
+    setAttendanceDrafts((prev) => ({
+      ...prev,
+      [scoutId]: {
+        status: prev[scoutId]?.status ?? "not_entered",
+        note: prev[scoutId]?.note ?? "",
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleToggleAttendanceScoutSelection = (scoutId: string, checked: boolean) => {
+    setSelectedAttendanceScoutIds((prev) => {
+      if (checked) {
+        if (prev.includes(scoutId)) return prev;
+        return [...prev, scoutId];
+      }
+
+      return prev.filter((selectedScoutId) => selectedScoutId !== scoutId);
+    });
+  };
+
+  const handleSelectAllAttendanceScouts = () => {
+    setSelectedAttendanceScoutIds(selectedMeetingScouts.map((scout) => scout.id));
+    setAttendanceErrorMessage("");
+  };
+
+  const handleClearAttendanceScoutSelection = () => {
+    setSelectedAttendanceScoutIds([]);
+    setAttendanceErrorMessage("");
+  };
+
+  const handleSaveAttendance = async (scoutId: string) => {
+    if (!selectedMeeting) {
+      setAttendanceErrorMessage("출석을 저장할 집회/활동을 선택해야 합니다.");
+      return;
+    }
+
+    if (!canManageMeetings) {
+      setAttendanceErrorMessage("출석 입력 권한이 없습니다.");
+      return;
+    }
+
+    const draft = attendanceDrafts[scoutId] ?? {
+      status: "not_entered" as AttendanceStatus,
+      note: "",
+    };
+
+    setAttendanceSavingScoutId(scoutId);
+    setAttendanceErrorMessage("");
+
+    const rpcClient = supabase as unknown as RpcClient;
+
+    const { error } = await rpcClient.rpc("set_attendance_record", {
+      p_meeting_id: selectedMeeting.id,
+      p_scout_id: scoutId,
+      p_status: draft.status,
+      p_note: toNullableText(draft.note),
+    });
+
+    if (error) {
+      console.error("출석 저장 오류:", error.message);
+      setAttendanceErrorMessage(`출석 저장에 실패했습니다. ${error.message}`);
+      setAttendanceSavingScoutId(null);
+      return;
+    }
+
+    setAttendanceSavingScoutId(null);
+    await loadData();
+  };
+
+  const handleApplyBulkAttendanceToDrafts = (target: "selected" | "selected_not_entered") => {
+    if (!selectedMeeting) {
+      setAttendanceErrorMessage("출석을 입력할 집회/활동을 선택해야 합니다.");
+      return;
+    }
+
+    if (selectedAttendanceScoutCount === 0) {
+      setAttendanceErrorMessage("출석 상태를 변경할 대원을 먼저 선택해야 합니다.");
+      return;
+    }
+
+    setAttendanceErrorMessage("");
+
+    const noteText = bulkAttendanceNote.trim();
+    const selectedScoutIds = new Set(selectedAttendanceScoutIds);
+
+    setAttendanceDrafts((prev) => {
+      const nextDrafts = { ...prev };
+
+      selectedMeetingScouts.forEach((scout) => {
+        if (!selectedScoutIds.has(scout.id)) {
+          return;
+        }
+
+        const currentDraft = nextDrafts[scout.id] ?? {
+          status: "not_entered" as AttendanceStatus,
+          note: "",
+        };
+
+        if (target === "selected_not_entered" && currentDraft.status !== "not_entered") {
+          return;
+        }
+
+        nextDrafts[scout.id] = {
+          status: bulkAttendanceStatus,
+          note: noteText.length > 0 ? noteText : currentDraft.note,
+        };
+      });
+
+      return nextDrafts;
+    });
+  };
+
+  const handleSaveSelectedAttendance = async () => {
+    if (!selectedMeeting) {
+      setAttendanceErrorMessage("출석을 저장할 집회/활동을 선택해야 합니다.");
+      return;
+    }
+
+    if (!canManageMeetings) {
+      setAttendanceErrorMessage("출석 입력 권한이 없습니다.");
+      return;
+    }
+
+    if (selectedAttendanceScoutCount === 0) {
+      setAttendanceErrorMessage("출석을 저장할 대원을 먼저 선택해야 합니다.");
+      return;
+    }
+
+    const targetScouts = selectedMeetingScouts.filter((scout) =>
+      selectedAttendanceScoutIdSet.has(scout.id),
+    );
+
+    setBulkAttendanceSaving(true);
+    setAttendanceErrorMessage("");
+
+    const rpcClient = supabase as unknown as RpcClient;
+
+    for (const scout of targetScouts) {
+      const draft = attendanceDrafts[scout.id] ?? {
+        status: "not_entered" as AttendanceStatus,
+        note: "",
+      };
+
+      const { error } = await rpcClient.rpc("set_attendance_record", {
+        p_meeting_id: selectedMeeting.id,
+        p_scout_id: scout.id,
+        p_status: draft.status,
+        p_note: toNullableText(draft.note),
+      });
+
+      if (error) {
+        console.error("선택 대원 출석 저장 오류:", error.message);
+        setAttendanceErrorMessage(
+          `선택 대원 출석 저장에 실패했습니다. 대원=${scout.name}, 오류=${error.message}`,
+        );
+        setBulkAttendanceSaving(false);
+        return;
+      }
+    }
+
+    setBulkAttendanceSaving(false);
+    await loadData();
+  };
+
+  const getAttendanceBadgeStyle = (status: AttendanceStatus): CSSProperties => {
+    if (status === "present" || status === "recognized") {
+      return {
+        ...attendanceBadgeStyle,
+        backgroundColor: "#dcfce7",
+        borderColor: "#bbf7d0",
+        color: "#166534",
+      };
+    }
+
+    if (status === "late" || status === "early_leave") {
+      return {
+        ...attendanceBadgeStyle,
+        backgroundColor: "#fef9c3",
+        borderColor: "#fde68a",
+        color: "#854d0e",
+      };
+    }
+
+    if (status === "absent") {
+      return {
+        ...attendanceBadgeStyle,
+        backgroundColor: "#fee2e2",
+        borderColor: "#fecaca",
+        color: "#b91c1c",
+      };
+    }
+
+    return attendanceBadgeStyle;
+  };
+
+  const renderMeetingSortButton = (key: MeetingSortKey, label: string) => (
+    <button
+      type="button"
+      style={sortableHeaderButtonStyle}
+      onClick={() => handleToggleMeetingSort(key)}
+    >
+      {label}{getMeetingSortLabel(key)}
+    </button>
+  );
+
+  const renderAttendanceSortButton = (key: AttendanceSortKey, label: string) => (
+    <button
+      type="button"
+      style={sortableHeaderButtonStyle}
+      onClick={() => handleToggleAttendanceSort(key)}
+    >
+      {label}{getAttendanceSortLabel(key)}
+    </button>
+  );
+
+  const isPanelOpen = isCreateFormOpen || Boolean(editingMeetingId && editForm);
+
+  return (
+    <div>
+      <div style={pageHeaderStyle}>
+        <div>
+          <h1 style={pageTitleStyle}>집회/출석 관리</h1>
+          <p style={pageDescriptionStyle}>
+            집회와 활동을 등록하고 대원별 출석 상태를 관리합니다. 출석 반영 집회는 참고 지표에 반영됩니다.
+          </p>
+        </div>
+
+        <div style={headerActionStyle}>
+          {profile && <div style={roleBadgeStyle}>{ROLE_LABELS[profile.role]}</div>}
+        </div>
+      </div>
+
+      <div style={summaryGridStyle}>
+        <section style={summaryCardStyle}>
+          <h2 style={summaryTitleStyle}>등록 집회</h2>
+          <p style={summaryValueStyle}>{meetings.length}건</p>
+          <p style={summaryDescriptionStyle}>현재 관리 중인 집회와 활동입니다.</p>
+        </section>
+
+        <section style={summaryCardStyle}>
+          <h2 style={summaryTitleStyle}>출석 반영 집회</h2>
+          <p style={summaryValueStyle}>
+            {meetings.filter((meeting) => meeting.is_attendance_target).length}건
+          </p>
+          <p style={summaryDescriptionStyle}>출석 참고 지표에 포함되는 집회입니다.</p>
+        </section>
+
+        <section style={selectedMeeting ? summaryCardBlueStyle : summaryCardStyle}>
+          <h2 style={summaryTitleStyle}>선택 집회 출석률</h2>
+          <p style={summaryValueStyle}>
+            {selectedMeeting ? `${attendanceSummary.attendanceRate}%` : "-"}
+          </p>
+          <p style={summaryDescriptionStyle}>
+            출석, 인정출석, 지각, 조퇴는 출석 인정으로 계산합니다.
+          </p>
+        </section>
+
+        <section style={selectedMeeting ? summaryCardOrangeStyle : summaryCardStyle}>
+          <h2 style={summaryTitleStyle}>미입력 대원</h2>
+          <p style={summaryValueStyle}>
+            {selectedMeeting ? `${attendanceSummary.notEnteredCount}명` : "-"}
+          </p>
+          <p style={summaryDescriptionStyle}>선택한 집회에서 아직 입력되지 않은 대원입니다.</p>
+        </section>
+      </div>
+
+      <section ref={meetingListRef} style={contentCardStyle}>
+        <div style={toolbarStyle}>
+          <div>
+            <h2 style={sectionTitleStyle}>집회/활동 목록</h2>
+            <p style={sectionDescriptionStyle}>
+              출석 참고 지표에 반영할 집회와 활동을 등록·관리합니다.
+            </p>
+          </div>
+
+          <div style={toolbarRightStyle}>
+            <select
+              style={filterSelectStyle}
+              value={selectedMeetingType}
+              onChange={(event) => setSelectedMeetingType(event.target.value)}
+            >
+              <option value="">전체 유형</option>
+              {MEETING_TYPE_OPTIONS.map((meetingType) => (
+                <option key={meetingType.value} value={meetingType.value}>
+                  {meetingType.label}
+                </option>
+              ))}
+            </select>
+
+            <input
+              style={searchInputStyle}
+              type="search"
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder="집회명, 일자, 소속 검색"
+            />
+
+            <button type="button" style={secondaryButtonStyle} onClick={loadData}>
+              새로고침
+            </button>
+
+            {canManageMeetings && (
+              <button type="button" style={primaryButtonStyle} onClick={handleOpenCreateForm}>
+                집회/활동 등록
+              </button>
+            )}
+          </div>
+        </div>
+
+        {editErrorMessage && <div style={errorBoxStyle}>{editErrorMessage}</div>}
+        {archiveErrorMessage && <div style={errorBoxStyle}>{archiveErrorMessage}</div>}
+
+        {loading && <div style={emptyStateStyle}>집회/출석 정보를 불러오는 중입니다...</div>}
+
+        {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
+
+        {!loading && !errorMessage && filteredMeetings.length === 0 && (
+          <div style={emptyStateStyle}>조회되는 집회/활동이 없습니다.</div>
+        )}
+
+        {!loading && !errorMessage && filteredMeetings.length > 0 && (
+          <div style={tableWrapStyle}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>{renderMeetingSortButton("meeting_date", "집회일")}</th>
+                  <th style={thStyle}>{renderMeetingSortButton("title", "집회/활동명")}</th>
+                  {isSuperAdmin && (
+                    <th style={thStyle}>{renderMeetingSortButton("organization", "소속")}</th>
+                  )}
+                  <th style={thStyle}>{renderMeetingSortButton("meeting_type", "유형")}</th>
+                  <th style={thStyle}>{renderMeetingSortButton("target", "출석 반영")}</th>
+                  <th style={thStyle}>{renderMeetingSortButton("note", "비고")}</th>
+                  <th style={thStyle}>관리</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredMeetings.map((meeting) => (
+                  <tr
+                    key={meeting.id}
+                    style={
+                      selectedMeetingId === meeting.id
+                        ? selectedClickableMeetingRowStyle
+                        : clickableMeetingRowStyle
+                    }
+                    onClick={() => handleSelectMeeting(meeting.id)}
+                    title="이 행을 선택하면 아래에 출석 입력 목록이 표시됩니다."
+                  >
+                    <td style={tdStyle}>{formatDate(meeting.meeting_date)}</td>
+                    <td style={strongTdStyle}>{meeting.title}</td>
+                    {isSuperAdmin && (
+                      <td style={tdStyle}>{getOrganizationName(meeting.organization_id)}</td>
+                    )}
+                    <td style={tdStyle}>
+                      {MEETING_TYPE_LABELS[meeting.meeting_type] ?? meeting.meeting_type}
+                    </td>
+                    <td style={tdStyle}>
+                      <span
+                        style={
+                          meeting.is_attendance_target
+                            ? targetBadgeStyle
+                            : nonTargetBadgeStyle
+                        }
+                      >
+                        {meeting.is_attendance_target ? "반영" : "제외"}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>{meeting.note ?? "-"}</td>
+                    <td style={tdStyle}>
+                      <div
+                        style={rowActionStyle}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {canManageMeetings && (
+                          <>
+                            <button
+                              type="button"
+                              style={smallButtonStyle}
+                              onClick={() => handleStartEditMeeting(meeting)}
+                              disabled={editSubmitting || archivingMeetingId === meeting.id}
+                            >
+                              수정
+                            </button>
+
+                            <button
+                              type="button"
+                              style={smallDangerButtonStyle}
+                              onClick={() => handleArchiveMeeting(meeting)}
+                              disabled={editSubmitting || archivingMeetingId === meeting.id}
+                            >
+                              {archivingMeetingId === meeting.id ? "삭제 중" : "삭제"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section ref={attendanceSectionRef} style={detailCardStyle}>
+        <div style={detailHeaderStyle}>
+          <div>
+            <h2 style={sectionTitleStyle}>출석 입력</h2>
+            <p style={sectionDescriptionStyle}>
+              집회 목록에서 집회를 선택하면 해당 집회의 대원별 출석을 입력할 수 있습니다.
+            </p>
+          </div>
+        </div>
+
+        {!selectedMeeting && <div style={emptyStateStyle}>출석을 입력할 집회를 목록에서 선택하세요.</div>}
+
+        {selectedMeeting && (
+          <>
+            <div style={selectedMeetingHeaderStyle}>
+              <div>
+                <h3 style={selectedMeetingTitleStyle}>{selectedMeeting.title}</h3>
+                <p style={selectedMeetingDescriptionStyle}>
+                  {formatDate(selectedMeeting.meeting_date)} · {getOrganizationName(selectedMeeting.organization_id)} · {MEETING_TYPE_LABELS[selectedMeeting.meeting_type] ?? selectedMeeting.meeting_type}
+                </p>
+              </div>
+
+              <span
+                style={
+                  selectedMeeting.is_attendance_target
+                    ? targetBadgeStyle
+                    : nonTargetBadgeStyle
+                }
+              >
+                {selectedMeeting.is_attendance_target
+                  ? "출석 참고 지표 반영"
+                  : "출석 반영 제외"}
+              </span>
+            </div>
+
+            <div style={attendanceSummaryGridStyle}>
+              <section style={miniSummaryCardStyle}>
+                <h3 style={miniSummaryTitleStyle}>대상 대원</h3>
+                <p style={miniSummaryValueStyle}>{attendanceSummary.totalCount}명</p>
+              </section>
+              <section style={miniSummaryCardStyle}>
+                <h3 style={miniSummaryTitleStyle}>출석 인정</h3>
+                <p style={miniSummaryValueStyle}>{attendanceSummary.presentCount}명</p>
+              </section>
+              <section style={miniSummaryCardStyle}>
+                <h3 style={miniSummaryTitleStyle}>결석</h3>
+                <p style={miniSummaryValueStyle}>{attendanceSummary.absentCount}명</p>
+              </section>
+              <section style={miniSummaryCardStyle}>
+                <h3 style={miniSummaryTitleStyle}>미입력</h3>
+                <p style={miniSummaryValueStyle}>{attendanceSummary.notEnteredCount}명</p>
+              </section>
+            </div>
+
+            <p style={attendanceGuideStyle}>
+              출석 인정에는 출석, 인정출석, 지각, 조퇴가 포함됩니다. 출석률은 참고 지표이며 진급 판정 조건에는 직접 반영되지 않습니다.
+            </p>
+
+            {attendanceErrorMessage && <div style={errorBoxStyle}>{attendanceErrorMessage}</div>}
+
+            {canManageMeetings && (
+              <div style={bulkPanelStyle}>
+                <div style={bulkHeaderStyle}>
+                  <div>
+                    <h3 style={bulkTitleStyle}>출석 선택 일괄 입력</h3>
+                    <p style={bulkDescriptionStyle}>
+                      대원 선택 후 출석 상태와 비고를 한꺼번에 적용하고 저장할 수 있습니다.
+                    </p>
+                  </div>
+
+                  <span style={selectedCountBadgeStyle}>
+                    선택 {selectedAttendanceScoutCount}명 / 전체 {selectedMeetingScouts.length}명
+                  </span>
+                </div>
+
+                <div style={bulkControlRowStyle}>
+                  <div style={bulkButtonGroupStyle}>
+                    <button
+                      type="button"
+                      style={secondaryButtonStyle}
+                      onClick={handleSelectAllAttendanceScouts}
+                    >
+                      전체 선택
+                    </button>
+                    <button
+                      type="button"
+                      style={secondaryButtonStyle}
+                      onClick={handleClearAttendanceScoutSelection}
+                    >
+                      선택 해제
+                    </button>
+                  </div>
+
+                  <div style={bulkFieldGridStyle}>
+                    <label style={compactFieldLabelStyle}>
+                      일괄 적용 상태
+                      <select
+                        style={inputStyle}
+                        value={bulkAttendanceStatus}
+                        onChange={(event) =>
+                          setBulkAttendanceStatus(event.target.value as AttendanceStatus)
+                        }
+                      >
+                        {ATTENDANCE_STATUS_OPTIONS.map((status) => (
+                          <option key={status.value} value={status.value}>
+                            {status.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label style={compactFieldLabelStyle}>
+                      일괄 비고
+                      <input
+                        style={inputStyle}
+                        value={bulkAttendanceNote}
+                        onChange={(event) => setBulkAttendanceNote(event.target.value)}
+                        placeholder="비고를 일괄 적용할 때만 입력"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div style={bulkActionRowStyle}>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={() => handleApplyBulkAttendanceToDrafts("selected")}
+                  >
+                    선택 대원에 적용
+                  </button>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={() => handleApplyBulkAttendanceToDrafts("selected_not_entered")}
+                  >
+                    미입력 대원만 적용
+                  </button>
+                  <button
+                    type="button"
+                    style={submitButtonStyle}
+                    onClick={handleSaveSelectedAttendance}
+                    disabled={bulkAttendanceSaving}
+                  >
+                    {bulkAttendanceSaving ? "저장 중..." : "선택 대원 저장"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div style={tableWrapStyle}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={centerThStyle}>
+                      <input
+                        type="checkbox"
+                        checked={isAllAttendanceScoutsSelected}
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            handleSelectAllAttendanceScouts();
+                          } else {
+                            handleClearAttendanceScoutSelection();
+                          }
+                        }}
+                        disabled={!canManageMeetings || selectedMeetingScouts.length === 0}
+                        aria-label="전체 대원 선택"
+                      />
+                    </th>
+                    <th style={thStyle}>{renderAttendanceSortButton("member_no", "대원번호")}</th>
+                    <th style={thStyle}>{renderAttendanceSortButton("name", "이름")}</th>
+                    <th style={thStyle}>{renderAttendanceSortButton("school_grade", "소속/학년")}</th>
+                    <th style={thStyle}>{renderAttendanceSortButton("status", "상태")}</th>
+                    <th style={thStyle}>{renderAttendanceSortButton("attendance_status", "출석 상태")}</th>
+                    <th style={thStyle}>비고</th>
+                    {canManageMeetings && <th style={thStyle}>저장</th>}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {sortedSelectedMeetingScouts.map((scout) => {
+                    const draft = attendanceDrafts[scout.id] ?? {
+                      status: "not_entered" as AttendanceStatus,
+                      note: "",
+                    };
+                    const isSelected = selectedAttendanceScoutIdSet.has(scout.id);
+
+                    return (
+                      <tr key={scout.id} style={isSelected ? selectedAttendanceRowStyle : rowStyle}>
+                        <td style={centerTdStyle}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(event) =>
+                              handleToggleAttendanceScoutSelection(scout.id, event.target.checked)
+                            }
+                            disabled={!canManageMeetings}
+                            aria-label={`${scout.name} 선택`}
+                          />
+                        </td>
+                        <td style={tdStyle}>{scout.member_no ?? "-"}</td>
+                        <td style={strongTdStyle}>{scout.name}</td>
+                        <td style={tdStyle}>
+                          {[scout.school_name, scout.grade].filter(Boolean).join(" / ") || "-"}
+                        </td>
+                        <td style={tdStyle}>{SCOUT_STATUS_LABELS[scout.status]}</td>
+                        <td style={tdStyle}>
+                          {canManageMeetings ? (
+                            <select
+                              style={attendanceSelectStyle}
+                              value={draft.status}
+                              onChange={(event) =>
+                                updateAttendanceDraft(
+                                  scout.id,
+                                  "status",
+                                  event.target.value as AttendanceStatus,
+                                )
+                              }
+                            >
+                              {ATTENDANCE_STATUS_OPTIONS.map((status) => (
+                                <option key={status.value} value={status.value}>
+                                  {status.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span style={getAttendanceBadgeStyle(draft.status)}>
+                              {ATTENDANCE_STATUS_LABELS[draft.status]}
+                            </span>
+                          )}
+                        </td>
+                        <td style={tdStyle}>
+                          {canManageMeetings ? (
+                            <input
+                              style={noteInputStyle}
+                              value={draft.note}
+                              onChange={(event) =>
+                                updateAttendanceDraft(scout.id, "note", event.target.value)
+                              }
+                              placeholder="비고"
+                            />
+                          ) : (
+                            draft.note || "-"
+                          )}
+                        </td>
+                        {canManageMeetings && (
+                          <td style={tdStyle}>
+                            <button
+                              type="button"
+                              style={smallButtonStyle}
+                              onClick={() => handleSaveAttendance(scout.id)}
+                              disabled={attendanceSavingScoutId === scout.id || bulkAttendanceSaving}
+                            >
+                              {attendanceSavingScoutId === scout.id ? "저장 중" : "저장"}
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
+
+      {isPanelOpen && (
+        <div style={panelBackdropStyle}>
+          <aside style={slidePanelStyle}>
+            {isCreateFormOpen && canManageMeetings && (
+              <form style={panelFormStyle} onSubmit={handleCreateMeeting}>
+                <div style={panelHeaderStyle}>
+                  <div>
+                    <h3 style={panelTitleStyle}>집회/활동 등록</h3>
+                    <p style={panelDescriptionStyle}>
+                      출석 반영을 선택하면 이 집회가 출석 참고 지표에 포함됩니다.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleClosePanel}
+                    disabled={submitting}
+                  >
+                    닫기
+                  </button>
+                </div>
+
+                <div style={panelBodyStyle}>
+                  {formErrorMessage && <div style={errorBoxStyle}>{formErrorMessage}</div>}
+
+                  {isSuperAdmin && (
+                    <label style={fieldLabelStyle}>
+                      소속 조직 <span style={requiredStyle}>*</span>
+                      <select
+                        style={inputStyle}
+                        value={createForm.organization_id}
+                        onChange={(event) => updateCreateForm("organization_id", event.target.value)}
+                        required
+                      >
+                        <option value="">소속 조직 선택</option>
+                        {organizations.map((organization) => (
+                          <option key={organization.id} value={organization.id}>
+                            {organization.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                  <label style={fieldLabelStyle}>
+                    집회일 <span style={requiredStyle}>*</span>
+                    <input
+                      style={inputStyle}
+                      type="date"
+                      value={createForm.meeting_date}
+                      onChange={(event) => updateCreateForm("meeting_date", event.target.value)}
+                      required
+                    />
+                  </label>
+
+                  <label style={fieldLabelStyle}>
+                    집회/활동명 <span style={requiredStyle}>*</span>
+                    <input
+                      style={inputStyle}
+                      value={createForm.title}
+                      onChange={(event) => updateCreateForm("title", event.target.value)}
+                      placeholder="예: 7월 정기집회"
+                      required
+                    />
+                  </label>
+
+                  <label style={fieldLabelStyle}>
+                    유형
+                    <select
+                      style={inputStyle}
+                      value={createForm.meeting_type}
+                      onChange={(event) => updateCreateForm("meeting_type", event.target.value as MeetingType)}
+                    >
+                      {MEETING_TYPE_OPTIONS.map((meetingType) => (
+                        <option key={meetingType.value} value={meetingType.value}>
+                          {meetingType.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={checkboxLabelStyle}>
+                    <input
+                      type="checkbox"
+                      checked={createForm.is_attendance_target}
+                      onChange={(event) => updateCreateForm("is_attendance_target", event.target.checked)}
+                    />
+                    출석 참고 지표에 반영
+                  </label>
+
+                  <label style={fieldLabelStyle}>
+                    비고
+                    <textarea
+                      style={textareaStyle}
+                      value={createForm.note}
+                      onChange={(event) => updateCreateForm("note", event.target.value)}
+                      placeholder="특이사항이 있으면 입력하세요."
+                    />
+                  </label>
+                </div>
+
+                <div style={panelFooterStyle}>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleClosePanel}
+                    disabled={submitting}
+                  >
+                    취소
+                  </button>
+                  <button type="submit" style={submitButtonStyle} disabled={submitting}>
+                    {submitting ? "등록 중..." : "등록 저장"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {editingMeetingId && editForm && canManageMeetings && (
+              <form style={panelFormStyle} onSubmit={handleUpdateMeeting}>
+                <div style={panelHeaderStyle}>
+                  <div>
+                    <h3 style={panelTitleStyle}>집회/활동 수정</h3>
+                    <p style={panelDescriptionStyle}>
+                      선택한 집회/활동의 일자, 이름, 유형, 출석 반영 여부를 수정합니다.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleClosePanel}
+                    disabled={editSubmitting}
+                  >
+                    닫기
+                  </button>
+                </div>
+
+                <div style={panelBodyStyle}>
+                  {editErrorMessage && <div style={errorBoxStyle}>{editErrorMessage}</div>}
+
+                  <label style={fieldLabelStyle}>
+                    집회일 <span style={requiredStyle}>*</span>
+                    <input
+                      style={inputStyle}
+                      type="date"
+                      value={editForm.meeting_date}
+                      onChange={(event) => updateEditForm("meeting_date", event.target.value)}
+                      required
+                    />
+                  </label>
+
+                  <label style={fieldLabelStyle}>
+                    집회/활동명 <span style={requiredStyle}>*</span>
+                    <input
+                      style={inputStyle}
+                      value={editForm.title}
+                      onChange={(event) => updateEditForm("title", event.target.value)}
+                      placeholder="예: 7월 정기집회"
+                      required
+                    />
+                  </label>
+
+                  <label style={fieldLabelStyle}>
+                    유형
+                    <select
+                      style={inputStyle}
+                      value={editForm.meeting_type}
+                      onChange={(event) => updateEditForm("meeting_type", event.target.value as MeetingType)}
+                    >
+                      {MEETING_TYPE_OPTIONS.map((meetingType) => (
+                        <option key={meetingType.value} value={meetingType.value}>
+                          {meetingType.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={checkboxLabelStyle}>
+                    <input
+                      type="checkbox"
+                      checked={editForm.is_attendance_target}
+                      onChange={(event) => updateEditForm("is_attendance_target", event.target.checked)}
+                    />
+                    출석 참고 지표에 반영
+                  </label>
+
+                  <label style={fieldLabelStyle}>
+                    비고
+                    <textarea
+                      style={textareaStyle}
+                      value={editForm.note}
+                      onChange={(event) => updateEditForm("note", event.target.value)}
+                      placeholder="특이사항이 있으면 입력하세요."
+                    />
+                  </label>
+                </div>
+
+                <div style={panelFooterStyle}>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleClosePanel}
+                    disabled={editSubmitting}
+                  >
+                    취소
+                  </button>
+                  <button type="submit" style={submitButtonStyle} disabled={editSubmitting}>
+                    {editSubmitting ? "수정 중..." : "수정 저장"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const pageHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "24px",
+  marginBottom: "24px",
+};
+
+const pageTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "30px",
+  fontWeight: 800,
+  color: "#0f172a",
+};
+
+const pageDescriptionStyle: CSSProperties = {
+  marginTop: "8px",
+  marginBottom: 0,
+  color: "#475569",
+  lineHeight: 1.6,
+};
+
+const headerActionStyle: CSSProperties = {
+  display: "flex",
+  gap: "8px",
+  alignItems: "center",
+};
+
+const roleBadgeStyle: CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: "999px",
+  backgroundColor: "#dbeafe",
+  color: "#1d4ed8",
+  fontSize: "14px",
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
+
+const summaryGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "16px",
+  marginBottom: "32px",
+};
+
+const summaryCardStyle: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "12px",
+  padding: "20px",
+  backgroundColor: "#ffffff",
+};
+
+const summaryCardBlueStyle: CSSProperties = {
+  ...summaryCardStyle,
+  borderColor: "#bfdbfe",
+  backgroundColor: "#eff6ff",
+};
+
+const summaryCardOrangeStyle: CSSProperties = {
+  ...summaryCardStyle,
+  borderColor: "#fed7aa",
+  backgroundColor: "#fff7ed",
+};
+
+const summaryTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "15px",
+  color: "#475569",
+};
+
+const summaryValueStyle: CSSProperties = {
+  marginTop: "12px",
+  marginBottom: 0,
+  fontSize: "26px",
+  fontWeight: 800,
+  color: "#0f172a",
+};
+
+const summaryDescriptionStyle: CSSProperties = {
+  marginTop: "8px",
+  marginBottom: 0,
+  color: "#64748b",
+  fontSize: "14px",
+  lineHeight: 1.5,
+};
+
+const contentCardStyle: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "12px",
+  padding: "20px",
+  backgroundColor: "#ffffff",
+};
+
+const detailCardStyle: CSSProperties = {
+  ...contentCardStyle,
+  marginTop: "24px",
+};
+
+const toolbarStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "16px",
+  marginBottom: "20px",
+};
+
+const toolbarRightStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+  gap: "8px",
+  alignItems: "center",
+};
+
+const sectionTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "22px",
+  fontWeight: 800,
+  color: "#0f172a",
+};
+
+const sectionDescriptionStyle: CSSProperties = {
+  marginTop: "6px",
+  marginBottom: 0,
+  color: "#64748b",
+  lineHeight: 1.5,
+};
+
+const filterSelectStyle: CSSProperties = {
+  minWidth: "140px",
+  padding: "10px 12px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  backgroundColor: "#ffffff",
+};
+
+const searchInputStyle: CSSProperties = {
+  width: "280px",
+  padding: "10px 12px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+};
+
+const primaryButtonStyle: CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: "8px",
+  border: "none",
+  backgroundColor: "#2563eb",
+  color: "#ffffff",
+  fontWeight: 700,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const secondaryButtonStyle: CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: "8px",
+  border: "1px solid #cbd5e1",
+  backgroundColor: "#ffffff",
+  color: "#334155",
+  fontWeight: 700,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const submitButtonStyle: CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: "8px",
+  border: "none",
+  backgroundColor: "#16a34a",
+  color: "#ffffff",
+  fontWeight: 700,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const smallButtonStyle: CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: "7px",
+  border: "1px solid #cbd5e1",
+  backgroundColor: "#ffffff",
+  color: "#334155",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const smallDangerButtonStyle: CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: "7px",
+  border: "none",
+  backgroundColor: "#dc2626",
+  color: "#ffffff",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const emptyStateStyle: CSSProperties = {
+  padding: "32px",
+  borderRadius: "12px",
+  backgroundColor: "#f8fafc",
+  color: "#64748b",
+  textAlign: "center",
+};
+
+const errorBoxStyle: CSSProperties = {
+  padding: "16px",
+  borderRadius: "10px",
+  backgroundColor: "#fef2f2",
+  color: "#b91c1c",
+  fontWeight: 700,
+  marginBottom: "16px",
+  lineHeight: 1.5,
+};
+
+const tableWrapStyle: CSSProperties = {
+  overflowX: "auto",
+};
+
+const tableStyle: CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  fontSize: "14px",
+};
+
+const thStyle: CSSProperties = {
+  padding: "12px",
+  borderBottom: "1px solid #e5e7eb",
+  backgroundColor: "#f8fafc",
+  color: "#334155",
+  textAlign: "left",
+  whiteSpace: "nowrap",
+};
+
+const centerThStyle: CSSProperties = {
+  ...thStyle,
+  textAlign: "center",
+  width: "52px",
+};
+
+const sortableHeaderButtonStyle: CSSProperties = {
+  padding: 0,
+  border: "none",
+  backgroundColor: "transparent",
+  color: "#334155",
+  fontWeight: 800,
+  cursor: "pointer",
+  font: "inherit",
+};
+
+const tdStyle: CSSProperties = {
+  padding: "12px",
+  borderBottom: "1px solid #e5e7eb",
+  color: "#475569",
+  whiteSpace: "nowrap",
+};
+
+const centerTdStyle: CSSProperties = {
+  ...tdStyle,
+  textAlign: "center",
+};
+
+const strongTdStyle: CSSProperties = {
+  ...tdStyle,
+  color: "#0f172a",
+  fontWeight: 800,
+};
+
+const rowStyle: CSSProperties = {};
+
+const clickableMeetingRowStyle: CSSProperties = {
+  cursor: "pointer",
+};
+
+const selectedClickableMeetingRowStyle: CSSProperties = {
+  cursor: "pointer",
+  backgroundColor: "#eff6ff",
+};
+
+const selectedAttendanceRowStyle: CSSProperties = {
+  backgroundColor: "#f8fafc",
+};
+
+const rowActionStyle: CSSProperties = {
+  display: "flex",
+  gap: "6px",
+  alignItems: "center",
+};
+
+const targetBadgeStyle: CSSProperties = {
+  display: "inline-flex",
+  padding: "4px 8px",
+  borderRadius: "999px",
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+  fontSize: "12px",
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
+
+const nonTargetBadgeStyle: CSSProperties = {
+  ...targetBadgeStyle,
+  backgroundColor: "#f1f5f9",
+  color: "#475569",
+};
+
+const detailHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "16px",
+  alignItems: "flex-start",
+  marginBottom: "16px",
+};
+
+const selectedMeetingHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "16px",
+  padding: "16px",
+  borderRadius: "12px",
+  backgroundColor: "#f8fafc",
+  marginBottom: "14px",
+};
+
+const selectedMeetingTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "18px",
+  fontWeight: 800,
+  color: "#0f172a",
+};
+
+const selectedMeetingDescriptionStyle: CSSProperties = {
+  marginTop: "8px",
+  marginBottom: 0,
+  color: "#64748b",
+  lineHeight: 1.5,
+};
+
+const attendanceSummaryGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "12px",
+  marginBottom: "10px",
+};
+
+const miniSummaryCardStyle: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "10px",
+  padding: "14px",
+  backgroundColor: "#f8fafc",
+};
+
+const miniSummaryTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "13px",
+  color: "#64748b",
+  fontWeight: 800,
+};
+
+const miniSummaryValueStyle: CSSProperties = {
+  marginTop: "8px",
+  marginBottom: 0,
+  fontSize: "20px",
+  fontWeight: 800,
+  color: "#0f172a",
+};
+
+const attendanceGuideStyle: CSSProperties = {
+  marginTop: "0",
+  marginBottom: "14px",
+  color: "#64748b",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const bulkPanelStyle: CSSProperties = {
+  padding: "16px",
+  border: "1px solid #bfdbfe",
+  borderRadius: "12px",
+  backgroundColor: "#eff6ff",
+  marginBottom: "16px",
+};
+
+const bulkHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "16px",
+  alignItems: "flex-start",
+  marginBottom: "14px",
+};
+
+const bulkTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "16px",
+  fontWeight: 800,
+  color: "#0f172a",
+};
+
+const bulkDescriptionStyle: CSSProperties = {
+  marginTop: "6px",
+  marginBottom: 0,
+  color: "#64748b",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const selectedCountBadgeStyle: CSSProperties = {
+  display: "inline-flex",
+  padding: "8px 10px",
+  borderRadius: "999px",
+  backgroundColor: "#dbeafe",
+  color: "#1d4ed8",
+  fontWeight: 800,
+  fontSize: "13px",
+  whiteSpace: "nowrap",
+};
+
+const bulkControlRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "auto 1fr",
+  gap: "12px",
+  alignItems: "end",
+};
+
+const bulkButtonGroupStyle: CSSProperties = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+};
+
+const bulkFieldGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(180px, 260px) 1fr",
+  gap: "10px",
+};
+
+const bulkActionRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  flexWrap: "wrap",
+  gap: "8px",
+  marginTop: "14px",
+};
+
+const compactFieldLabelStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "6px",
+  color: "#334155",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
+const fieldLabelStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "6px",
+  color: "#334155",
+  fontSize: "14px",
+  fontWeight: 700,
+  marginTop: "12px",
+};
+
+const inputStyle: CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "10px 12px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  backgroundColor: "#ffffff",
+};
+
+const textareaStyle: CSSProperties = {
+  ...inputStyle,
+  minHeight: "100px",
+  resize: "vertical",
+};
+
+const checkboxLabelStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  marginTop: "16px",
+  color: "#334155",
+  fontSize: "14px",
+  fontWeight: 700,
+};
+
+const requiredStyle: CSSProperties = {
+  color: "#dc2626",
+};
+
+const attendanceSelectStyle: CSSProperties = {
+  width: "120px",
+  padding: "8px 10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  backgroundColor: "#ffffff",
+};
+
+const noteInputStyle: CSSProperties = {
+  width: "200px",
+  padding: "8px 10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  backgroundColor: "#ffffff",
+};
+
+const attendanceBadgeStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: "56px",
+  padding: "4px 8px",
+  border: "1px solid #e5e7eb",
+  borderRadius: "999px",
+  backgroundColor: "#f8fafc",
+  color: "#475569",
+  fontSize: "12px",
+  fontWeight: 800,
+};
+
+const panelBackdropStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 50,
+  backgroundColor: "rgba(15, 23, 42, 0.18)",
+  pointerEvents: "auto",
+};
+
+const slidePanelStyle: CSSProperties = {
+  position: "fixed",
+  top: "24px",
+  right: "24px",
+  bottom: "24px",
+  width: "min(520px, calc(100vw - 48px))",
+  maxWidth: "calc(100vw - 48px)",
+  boxSizing: "border-box",
+  borderRadius: "16px",
+  backgroundColor: "#ffffff",
+  boxShadow: "0 20px 60px rgba(15, 23, 42, 0.25)",
+  overflow: "hidden",
+};
+
+const panelFormStyle: CSSProperties = {
+  height: "100%",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const panelHeaderStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  gap: "12px",
+  alignItems: "flex-start",
+  padding: "20px",
+  borderBottom: "1px solid #e5e7eb",
+};
+
+const panelTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "21px",
+  fontWeight: 800,
+  color: "#0f172a",
+};
+
+const panelDescriptionStyle: CSSProperties = {
+  marginTop: "6px",
+  marginBottom: 0,
+  color: "#64748b",
+  lineHeight: 1.5,
+};
+
+const panelBodyStyle: CSSProperties = {
+  flex: 1,
+  overflowY: "auto",
+  overflowX: "hidden",
+  padding: "20px",
+  boxSizing: "border-box",
+};
+
+const panelFooterStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "8px",
+  padding: "16px 20px",
+  borderTop: "1px solid #e5e7eb",
+  backgroundColor: "#ffffff",
+};
