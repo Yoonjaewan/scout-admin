@@ -42,6 +42,139 @@ type Badge = {
   name: string;
   category_id: string | null;
   sort_order: number | null;
+  is_general_badge: boolean;
+};
+
+type RankRequirement = {
+  id: string;
+  from_rank_id: string;
+  to_rank_id: string;
+  required_months: number | null;
+  required_attendance_rate: number | null;
+  required_general_badge_count: number | null;
+  requires_wsep_or_mop: boolean | null;
+};
+
+type ScoutRankHistory = {
+  id: string;
+  organization_id: string;
+  scout_id: string;
+  rank_id: string;
+  approved_at: string;
+  approval_type: string;
+  note: string | null;
+};
+
+type ScoutBadgeRecord = {
+  id: string;
+  organization_id: string;
+  scout_id: string;
+  badge_id: string;
+  acquired_at: string;
+  approved_at: string | null;
+  instructor_name: string | null;
+  leader_confirmed: boolean;
+  note: string | null;
+  created_at: string;
+};
+
+type ProgramType = "WSEP" | "MoP";
+
+type ProgramCompletion = {
+  id: string;
+  organization_id: string;
+  scout_id: string;
+  program_type: ProgramType;
+  completed_at: string;
+  certificate_no: string | null;
+  approved_at: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+
+type PromotionReview = {
+  id: string;
+  organization_id: string;
+  scout_id: string;
+  from_rank_id: string;
+  to_rank_id: string;
+  review_date: string;
+  base_date: string | null;
+  available_at: string | null;
+  required_months: number;
+  days_remaining: number | null;
+  period_passed: boolean;
+  attendance_total_count: number;
+  attendance_present_count: number;
+  attendance_rate: number;
+  attendance_passed: boolean;
+  required_badges_passed: boolean;
+  general_badges_passed: boolean;
+  program_passed: boolean;
+  final_passed: boolean;
+  missing_items: unknown;
+  note: string | null;
+  created_at: string | null;
+};
+
+type Meeting = {
+  id: string;
+  organization_id: string;
+  meeting_date: string;
+  title: string;
+  meeting_type: string;
+  is_attendance_target: boolean;
+  note: string | null;
+};
+
+type AttendanceStatus =
+  | "present"
+  | "recognized"
+  | "late"
+  | "early_leave"
+  | "absent"
+  | "not_entered";
+
+type AttendanceRecord = {
+  id: string;
+  organization_id: string;
+  meeting_id: string;
+  scout_id: string;
+  status: AttendanceStatus;
+  note: string | null;
+};
+
+type IntegratedSection =
+  | "profile"
+  | "rank"
+  | "badges"
+  | "programs"
+  | "attendance"
+  | "review";
+
+type RankQuickForm = {
+  rank_id: string;
+  approved_at: string;
+  rank_approval_dates: RankApprovalDateMap;
+  note: string;
+};
+
+type BadgeQuickForm = {
+  badge_id: string;
+  acquired_at: string;
+  approved_at: string;
+  instructor_name: string;
+  leader_confirmed: boolean;
+  note: string;
+};
+
+type ProgramQuickForm = {
+  program_type: ProgramType;
+  completed_at: string;
+  certificate_no: string;
+  approved_at: string;
+  note: string;
 };
 
 type Organization = {
@@ -49,11 +182,16 @@ type Organization = {
   name: string;
 };
 
+type RankApprovalDateMap = Record<string, string>;
+
 type ScoutCreateForm = {
   organization_id: string;
   name: string;
   grade: string;
   joined_at: string;
+  current_rank_id: string;
+  current_rank_approved_at: string;
+  rank_approval_dates: RankApprovalDateMap;
   is_from_cub_scout: boolean;
   cub_promotion_completed: boolean;
   beginner_course_exempted: boolean;
@@ -67,6 +205,9 @@ type ScoutEditForm = {
   joined_at: string;
   name: string;
   grade: string;
+  current_rank_id: string;
+  current_rank_approved_at: string;
+  rank_approval_dates: RankApprovalDateMap;
   is_from_cub_scout: boolean;
   cub_promotion_completed: boolean;
   beginner_course_exempted: boolean;
@@ -142,6 +283,9 @@ type ScoutSortConfig = {
 };
 
 const EXCEL_BADGE_PAIR_COUNT = 12;
+
+const DATE_INPUT_MIN = "1900-01-01";
+const DATE_INPUT_MAX = "2099-12-31";
 
 const EXCEL_TEMPLATE_HEADERS = [
   "대원번호",
@@ -243,6 +387,44 @@ const SCOUT_STATUS_OPTIONS: Array<{ value: ScoutStatus; label: string }> = [
   { value: "graduated", label: "졸업" },
 ];
 
+const PROGRAM_TYPE_OPTIONS: Array<{ value: ProgramType; label: string; description: string }> = [
+  {
+    value: "WSEP",
+    label: "WSEP",
+    description: "세계스카우트 자연환경 프로그램",
+  },
+  {
+    value: "MoP",
+    label: "MoP",
+    description: "Messengers of Peace 프로그램",
+  },
+];
+
+const ATTENDANCE_STATUS_LABELS: Record<AttendanceStatus, string> = {
+  present: "출석",
+  recognized: "인정출석",
+  late: "지각",
+  early_leave: "조퇴",
+  absent: "결석",
+  not_entered: "미입력",
+};
+
+const ATTENDANCE_PASS_STATUSES: AttendanceStatus[] = [
+  "present",
+  "recognized",
+  "late",
+  "early_leave",
+];
+
+const INTEGRATED_SECTION_OPTIONS: Array<{ value: IntegratedSection; label: string }> = [
+  { value: "profile", label: "기본정보" },
+  { value: "rank", label: "진급/급위" },
+  { value: "badges", label: "기능장" },
+  { value: "programs", label: "프로그램" },
+  { value: "attendance", label: "출석/활동" },
+  { value: "review", label: "진급판정" },
+];
+
 const STATUS_COLOR_STYLES: Record<
   ScoutStatus,
   Pick<CSSProperties, "backgroundColor" | "color" | "borderColor">
@@ -299,6 +481,93 @@ const CUB_RANK_BY_GRADE_NUMBER: Record<number, string> = {
   5: "곰",
   6: "무지개",
 };
+
+const SCOUT_ADVANCEMENT_RANK_KEYS = [
+  "beginner",
+  "second",
+  "first",
+  "star",
+  "mugunghwa",
+  "beom",
+] as const;
+
+type ScoutAdvancementRankKey = (typeof SCOUT_ADVANCEMENT_RANK_KEYS)[number];
+
+type RequiredBadgeGuide = {
+  targetRankKey: Exclude<ScoutAdvancementRankKey, "beginner">;
+  label: string;
+  badgeNames: string[];
+};
+
+const REQUIRED_BADGE_GUIDES: RequiredBadgeGuide[] = [
+  {
+    targetRankKey: "second",
+    label: "초급 → 2급",
+    badgeNames: ["시민장", "하이킹장"],
+  },
+  {
+    targetRankKey: "first",
+    label: "2급 → 1급",
+    badgeNames: ["야영장", "야외취사장", "측정지도장", "응급처치장"],
+  },
+  {
+    targetRankKey: "star",
+    label: "1급 → 별",
+    badgeNames: ["안전장", "전통예절장", "개척장"],
+  },
+  {
+    targetRankKey: "mugunghwa",
+    label: "별 → 무궁화",
+    badgeNames: ["수영장", "환경보전장", "세계우애장"],
+  },
+  {
+    targetRankKey: "beom",
+    label: "무궁화 → 범",
+    badgeNames: ["학업장", "구조장", "생존장"],
+  },
+];
+
+const GENERAL_BADGE_REQUIRED_COUNT_BY_TARGET_RANK: Record<
+  Exclude<ScoutAdvancementRankKey, "beginner">,
+  number
+> = {
+  second: 0,
+  first: 1,
+  star: 2,
+  mugunghwa: 3,
+  beom: 3,
+};
+
+const REQUIRED_BADGE_NAME_SET = new Set(
+  REQUIRED_BADGE_GUIDES.flatMap((guide) => guide.badgeNames).map((name) =>
+    normalizeBadgeGuideName(name),
+  ),
+);
+
+
+function normalizeBadgeGuideName(value: string | null | undefined) {
+  return (value ?? "").replace(/\s+/g, "").trim();
+}
+
+function getScoutAdvancementRankKey(rankName: string | null | undefined): ScoutAdvancementRankKey | null {
+  if (!rankName) return null;
+
+  const normalized = rankName.replace(/[\s·_()-]/g, "").toLowerCase();
+
+  if (normalized.includes("초급") || normalized.includes("beginner")) return "beginner";
+  if (normalized.includes("2급") || normalized.includes("이급") || normalized.includes("rank2") || normalized.includes("second")) return "second";
+  if (normalized.includes("1급") || normalized.includes("일급") || normalized.includes("rank1") || normalized.includes("first")) return "first";
+  if (normalized.includes("별") || normalized.includes("star")) return "star";
+  if (normalized.includes("무궁화") || normalized.includes("mugunghwa")) return "mugunghwa";
+  if (normalized.includes("범") || normalized.includes("beom") || normalized.includes("tiger")) return "beom";
+
+  return null;
+}
+
+function getScoutAdvancementRankIndexByKey(rankKey: ScoutAdvancementRankKey | null) {
+  if (!rankKey) return -1;
+  return SCOUT_ADVANCEMENT_RANK_KEYS.indexOf(rankKey);
+}
 
 function getGradeNumber(value: string | null | undefined) {
   if (!value) return null;
@@ -371,6 +640,42 @@ function getTodayText() {
   return `${year}-${month}-${day}`;
 }
 
+function normalizeDateInputValue(value: string) {
+  if (!value) return "";
+
+  const match = value.match(/^([+-]?\d{4,})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+
+  const normalizedYear = match[1].replace(/^\+/, "").slice(0, 4);
+  return `${normalizedYear}-${match[2]}-${match[3]}`;
+}
+
+function limitDateInputYear(event: FormEvent<HTMLInputElement>) {
+  const input = event.currentTarget;
+  const normalizedValue = normalizeDateInputValue(input.value);
+
+  if (normalizedValue !== input.value) {
+    input.value = normalizedValue;
+  }
+}
+
+function isManagedDateValueValid(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (value < DATE_INPUT_MIN || value > DATE_INPUT_MAX) return false;
+
+  const [yearText, monthText, dayText] = value.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
 function getEmptyCreateForm(profile?: UserProfile | null): ScoutCreateForm {
   return {
     organization_id:
@@ -378,6 +683,9 @@ function getEmptyCreateForm(profile?: UserProfile | null): ScoutCreateForm {
     name: "",
     grade: "",
     joined_at: getTodayText(),
+    current_rank_id: "",
+    current_rank_approved_at: "",
+    rank_approval_dates: {},
     is_from_cub_scout: false,
     cub_promotion_completed: false,
     beginner_course_exempted: false,
@@ -393,9 +701,42 @@ function getEmptyEditForm(): ScoutEditForm {
     joined_at: "",
     name: "",
     grade: "",
+    current_rank_id: "",
+    current_rank_approved_at: "",
+    rank_approval_dates: {},
     is_from_cub_scout: false,
     cub_promotion_completed: false,
     beginner_course_exempted: false,
+    note: "",
+  };
+}
+
+function getEmptyRankQuickForm(): RankQuickForm {
+  return {
+    rank_id: "",
+    approved_at: getTodayText(),
+    rank_approval_dates: {},
+    note: "",
+  };
+}
+
+function getEmptyBadgeQuickForm(): BadgeQuickForm {
+  return {
+    badge_id: "",
+    acquired_at: getTodayText(),
+    approved_at: "",
+    instructor_name: "",
+    leader_confirmed: false,
+    note: "",
+  };
+}
+
+function getEmptyProgramQuickForm(): ProgramQuickForm {
+  return {
+    program_type: "WSEP",
+    completed_at: getTodayText(),
+    certificate_no: "",
+    approved_at: "",
     note: "",
   };
 }
@@ -415,7 +756,14 @@ export default function ScoutsPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [scouts, setScouts] = useState<Scout[]>([]);
   const [ranks, setRanks] = useState<Rank[]>([]);
+  const [rankRequirements, setRankRequirements] = useState<RankRequirement[]>([]);
   const [badges, setBadges] = useState<Badge[]>([]);
+  const [rankHistories, setRankHistories] = useState<ScoutRankHistory[]>([]);
+  const [scoutBadges, setScoutBadges] = useState<ScoutBadgeRecord[]>([]);
+  const [programCompletions, setProgramCompletions] = useState<ProgramCompletion[]>([]);
+  const [promotionReviews, setPromotionReviews] = useState<PromotionReview[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [keyword, setKeyword] = useState("");
   const [sectionFilter, setSectionFilter] = useState<ScoutSectionFilter>("all");
@@ -438,8 +786,25 @@ export default function ScoutsPage() {
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editErrorMessage, setEditErrorMessage] = useState("");
 
+  const [integratedScoutId, setIntegratedScoutId] = useState<string | null>(null);
+  const [integratedSection, setIntegratedSection] = useState<IntegratedSection>("profile");
+  const [rankQuickForm, setRankQuickForm] = useState<RankQuickForm>(getEmptyRankQuickForm());
+  const [badgeQuickForm, setBadgeQuickForm] = useState<BadgeQuickForm>(getEmptyBadgeQuickForm());
+  const [programQuickForm, setProgramQuickForm] = useState<ProgramQuickForm>(getEmptyProgramQuickForm());
+  const [integratedSubmitting, setIntegratedSubmitting] = useState(false);
+  const [integratedErrorMessage, setIntegratedErrorMessage] = useState("");
+  const [integratedSuccessMessage, setIntegratedSuccessMessage] = useState("");
+  const [integratedReviewDate, setIntegratedReviewDate] = useState(getTodayText());
+  const [integratedReviewSubmitting, setIntegratedReviewSubmitting] = useState(false);
+  const [integratedReviewErrorMessage, setIntegratedReviewErrorMessage] = useState("");
+  const [integratedReviewSuccessMessage, setIntegratedReviewSuccessMessage] = useState("");
+  const [integratedApprovalDate, setIntegratedApprovalDate] = useState(getTodayText());
+  const [integratedApprovalNote, setIntegratedApprovalNote] = useState("");
+  const [integratedApprovalSubmitting, setIntegratedApprovalSubmitting] = useState(false);
+  const [integratedApprovalErrorMessage, setIntegratedApprovalErrorMessage] = useState("");
+
   useEffect(() => {
-    if ((!isCreateFormOpen && !isEditFormOpen) || typeof document === "undefined") return;
+    if ((!isCreateFormOpen && !isEditFormOpen && !integratedScoutId) || typeof document === "undefined") return;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -447,7 +812,7 @@ export default function ScoutsPage() {
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [isCreateFormOpen, isEditFormOpen]);
+  }, [isCreateFormOpen, isEditFormOpen, integratedScoutId]);
 
   const [statusUpdatingScoutId, setStatusUpdatingScoutId] = useState<string | null>(null);
   const [statusErrorMessage, setStatusErrorMessage] = useState("");
@@ -523,6 +888,46 @@ export default function ScoutsPage() {
       .is("deleted_at", null)
       .order("name", { ascending: true });
 
+    let rankHistoryQuery = supabase
+      .from("scout_rank_histories")
+      .select("id, organization_id, scout_id, rank_id, approved_at, approval_type, note")
+      .is("deleted_at", null)
+      .order("approved_at", { ascending: false });
+
+    let scoutBadgeQuery = supabase
+      .from("scout_badges")
+      .select("id, organization_id, scout_id, badge_id, acquired_at, approved_at, instructor_name, leader_confirmed, note, created_at")
+      .is("deleted_at", null)
+      .order("acquired_at", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    let programCompletionQuery = supabase
+      .from("program_completions")
+      .select("id, organization_id, scout_id, program_type, completed_at, certificate_no, approved_at, note, created_at")
+      .is("deleted_at", null)
+      .order("completed_at", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    let promotionReviewQuery = supabase
+      .from("promotion_reviews")
+      .select(
+        "id, organization_id, scout_id, from_rank_id, to_rank_id, review_date, base_date, available_at, required_months, days_remaining, period_passed, attendance_total_count, attendance_present_count, attendance_rate, attendance_passed, required_badges_passed, general_badges_passed, program_passed, final_passed, missing_items, note, created_at",
+      )
+      .is("deleted_at", null)
+      .order("review_date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    let meetingQuery = supabase
+      .from("meetings")
+      .select("id, organization_id, meeting_date, title, meeting_type, is_attendance_target, note")
+      .is("deleted_at", null)
+      .order("meeting_date", { ascending: false });
+
+    let attendanceQuery = supabase
+      .from("attendance")
+      .select("id, organization_id, meeting_id, scout_id, status, note")
+      .is("deleted_at", null);
+
     if (currentProfile.role !== "super_admin") {
       if (!currentProfile.organization_id) {
         setErrorMessage("소속 조직 정보가 없어 대원 목록을 조회할 수 없습니다.");
@@ -531,6 +936,12 @@ export default function ScoutsPage() {
       }
 
       scoutQuery = scoutQuery.eq("organization_id", currentProfile.organization_id);
+      rankHistoryQuery = rankHistoryQuery.eq("organization_id", currentProfile.organization_id);
+      scoutBadgeQuery = scoutBadgeQuery.eq("organization_id", currentProfile.organization_id);
+      programCompletionQuery = programCompletionQuery.eq("organization_id", currentProfile.organization_id);
+      promotionReviewQuery = promotionReviewQuery.eq("organization_id", currentProfile.organization_id);
+      meetingQuery = meetingQuery.eq("organization_id", currentProfile.organization_id);
+      attendanceQuery = attendanceQuery.eq("organization_id", currentProfile.organization_id);
     }
 
     const { data: scoutData, error: scoutError } = await scoutQuery;
@@ -554,9 +965,22 @@ export default function ScoutsPage() {
       return;
     }
 
+    const { data: requirementData, error: requirementError } = await supabase
+      .from("rank_requirements")
+      .select(
+        "id, from_rank_id, to_rank_id, required_months, required_attendance_rate, required_general_badge_count, requires_wsep_or_mop",
+      );
+
+    if (requirementError) {
+      console.error("진급요건 조회 오류:", requirementError.message);
+      setErrorMessage("급위별 일반기능장 기준을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
     const { data: badgeData, error: badgeError } = await supabase
       .from("badges")
-      .select("id, name, category_id, sort_order")
+      .select("id, name, category_id, sort_order, is_general_badge")
       .order("sort_order", { ascending: true, nullsFirst: false })
       .order("name", { ascending: true });
 
@@ -577,9 +1001,72 @@ export default function ScoutsPage() {
       console.error("조직 목록 조회 오류:", organizationError.message);
     }
 
+    const { data: rankHistoryData, error: rankHistoryError } = await rankHistoryQuery;
+
+    if (rankHistoryError) {
+      console.error("진급이력 조회 오류:", rankHistoryError.message);
+      setErrorMessage("대원별 진급 이력을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: scoutBadgeData, error: scoutBadgeError } = await scoutBadgeQuery;
+
+    if (scoutBadgeError) {
+      console.error("기능장 취득현황 조회 오류:", scoutBadgeError.message);
+      setErrorMessage("대원별 기능장 취득현황을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: programCompletionData, error: programCompletionError } =
+      await programCompletionQuery;
+
+    if (programCompletionError) {
+      console.error("프로그램 이수현황 조회 오류:", programCompletionError.message);
+      setErrorMessage("대원별 프로그램 이수현황을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: promotionReviewData, error: promotionReviewError } =
+      await promotionReviewQuery;
+
+    if (promotionReviewError) {
+      console.error("진급판정 조회 오류:", promotionReviewError.message);
+      setErrorMessage("대원별 진급판정 결과를 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: meetingData, error: meetingError } = await meetingQuery;
+
+    if (meetingError) {
+      console.error("집회 목록 조회 오류:", meetingError.message);
+      setErrorMessage("집회 목록을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: attendanceData, error: attendanceError } = await attendanceQuery;
+
+    if (attendanceError) {
+      console.error("출석현황 조회 오류:", attendanceError.message);
+      setErrorMessage("대원별 출석현황을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
     setScouts((scoutData ?? []) as unknown as Scout[]);
     setRanks((rankData ?? []) as unknown as Rank[]);
+    setRankRequirements((requirementData ?? []) as unknown as RankRequirement[]);
     setBadges((badgeData ?? []) as unknown as Badge[]);
+    setRankHistories((rankHistoryData ?? []) as unknown as ScoutRankHistory[]);
+    setScoutBadges((scoutBadgeData ?? []) as unknown as ScoutBadgeRecord[]);
+    setProgramCompletions((programCompletionData ?? []) as unknown as ProgramCompletion[]);
+    setPromotionReviews((promotionReviewData ?? []) as unknown as PromotionReview[]);
+    setMeetings((meetingData ?? []) as unknown as Meeting[]);
+    setAttendanceRecords((attendanceData ?? []) as unknown as AttendanceRecord[]);
     const loadedOrganizations = (organizationData ?? []) as unknown as Organization[];
     setOrganizations(loadedOrganizations);
     if (currentProfile.role === "super_admin" && !bulkOrganizationId && loadedOrganizations.length > 0) {
@@ -718,6 +1205,648 @@ export default function ScoutsPage() {
   const organizationNameMap = useMemo(() => {
     return new Map(organizations.map((organization) => [organization.id, organization.name]));
   }, [organizations]);
+
+  const badgeNameMap = useMemo(() => {
+    return new Map(badges.map((badge) => [badge.id, badge.name]));
+  }, [badges]);
+
+  const rankHistoriesByScoutId = useMemo(() => {
+    const map = new Map<string, ScoutRankHistory[]>();
+
+    rankHistories.forEach((history) => {
+      const current = map.get(history.scout_id) ?? [];
+      current.push(history);
+      map.set(history.scout_id, current);
+    });
+
+    return map;
+  }, [rankHistories]);
+
+  const scoutBadgesByScoutId = useMemo(() => {
+    const map = new Map<string, ScoutBadgeRecord[]>();
+
+    scoutBadges.forEach((record) => {
+      const current = map.get(record.scout_id) ?? [];
+      current.push(record);
+      map.set(record.scout_id, current);
+    });
+
+    return map;
+  }, [scoutBadges]);
+
+  const programCompletionsByScoutId = useMemo(() => {
+    const map = new Map<string, ProgramCompletion[]>();
+
+    programCompletions.forEach((completion) => {
+      const current = map.get(completion.scout_id) ?? [];
+      current.push(completion);
+      map.set(completion.scout_id, current);
+    });
+
+    return map;
+  }, [programCompletions]);
+
+  const promotionReviewsByScoutId = useMemo(() => {
+    const map = new Map<string, PromotionReview[]>();
+
+    promotionReviews.forEach((review) => {
+      const current = map.get(review.scout_id) ?? [];
+      current.push(review);
+      map.set(review.scout_id, current);
+    });
+
+    map.forEach((items) => {
+      items.sort((a, b) => {
+        const dateCompare = b.review_date.localeCompare(a.review_date);
+        if (dateCompare !== 0) return dateCompare;
+        return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+      });
+    });
+
+    return map;
+  }, [promotionReviews]);
+
+  const attendanceRecordByMeetingAndScoutMap = useMemo(() => {
+    const map = new Map<string, AttendanceRecord>();
+
+    attendanceRecords.forEach((record) => {
+      map.set(`${record.meeting_id}:${record.scout_id}`, record);
+    });
+
+    return map;
+  }, [attendanceRecords]);
+
+  const attendanceStatsByScoutId = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        targetMeetingCount: number;
+        enteredCount: number;
+        presentCount: number;
+        absentCount: number;
+        notEnteredCount: number;
+        attendanceRate: number;
+        recentItems: Array<{
+          meetingId: string;
+          meetingDate: string;
+          title: string;
+          status: AttendanceStatus;
+          note: string | null;
+        }>;
+      }
+    >();
+
+    scouts.forEach((scout) => {
+      const targetMeetings = meetings
+        .filter(
+          (meeting) =>
+            meeting.organization_id === scout.organization_id &&
+            meeting.is_attendance_target,
+        )
+        .sort((a, b) => b.meeting_date.localeCompare(a.meeting_date));
+
+      let presentCount = 0;
+      let absentCount = 0;
+      let enteredCount = 0;
+      let notEnteredCount = 0;
+
+      const recentItems = targetMeetings.slice(0, 8).map((meeting) => {
+        const record = attendanceRecordByMeetingAndScoutMap.get(
+          `${meeting.id}:${scout.id}`,
+        );
+        const status = record?.status ?? "not_entered";
+
+        return {
+          meetingId: meeting.id,
+          meetingDate: meeting.meeting_date,
+          title: meeting.title,
+          status,
+          note: record?.note ?? null,
+        };
+      });
+
+      targetMeetings.forEach((meeting) => {
+        const record = attendanceRecordByMeetingAndScoutMap.get(
+          `${meeting.id}:${scout.id}`,
+        );
+        const status = record?.status ?? "not_entered";
+
+        if (status === "not_entered") {
+          notEnteredCount += 1;
+          return;
+        }
+
+        enteredCount += 1;
+
+        if (ATTENDANCE_PASS_STATUSES.includes(status)) {
+          presentCount += 1;
+        }
+
+        if (status === "absent") {
+          absentCount += 1;
+        }
+      });
+
+      const attendanceRate =
+        enteredCount > 0 ? Math.round((presentCount * 10000) / enteredCount) / 100 : 0;
+
+      map.set(scout.id, {
+        targetMeetingCount: targetMeetings.length,
+        enteredCount,
+        presentCount,
+        absentCount,
+        notEnteredCount,
+        attendanceRate,
+        recentItems,
+      });
+    });
+
+    return map;
+  }, [attendanceRecordByMeetingAndScoutMap, meetings, scouts]);
+
+  const integratedScout = useMemo(() => {
+    if (!integratedScoutId) return null;
+    return scouts.find((scout) => scout.id === integratedScoutId) ?? null;
+  }, [integratedScoutId, scouts]);
+
+  const integratedScoutRankHistories = useMemo(() => {
+    if (!integratedScout) return [];
+    return rankHistoriesByScoutId.get(integratedScout.id) ?? [];
+  }, [integratedScout, rankHistoriesByScoutId]);
+
+  const integratedScoutBadges = useMemo(() => {
+    if (!integratedScout) return [];
+    return scoutBadgesByScoutId.get(integratedScout.id) ?? [];
+  }, [integratedScout, scoutBadgesByScoutId]);
+
+
+  const integratedBadgeGuide = useMemo(() => {
+    if (!integratedScout) return null;
+
+    const currentRank = integratedScout.current_rank_id
+      ? rankMap.get(integratedScout.current_rank_id) ?? null
+      : null;
+    const currentRankKey = getScoutAdvancementRankKey(currentRank?.rank_name);
+    const currentRankIndex = getScoutAdvancementRankIndexByKey(currentRankKey);
+
+    if (!currentRank || currentRankIndex < 0) return null;
+
+    const acquiredBadgeNameSet = new Set(
+      integratedScoutBadges
+        .map((record) => normalizeBadgeGuideName(badgeNameMap.get(record.badge_id)))
+        .filter(Boolean),
+    );
+
+    const generalBadgeCount = integratedScoutBadges.filter((record) => {
+      const badgeName = normalizeBadgeGuideName(badgeNameMap.get(record.badge_id));
+      return Boolean(badgeName) && !REQUIRED_BADGE_NAME_SET.has(badgeName);
+    }).length;
+
+    const buildGuideGroup = (guide: RequiredBadgeGuide, kind: "current" | "next") => {
+      const badgeItems = guide.badgeNames.map((badgeName) => {
+        const acquired = acquiredBadgeNameSet.has(normalizeBadgeGuideName(badgeName));
+        return {
+          name: badgeName,
+          acquired,
+        };
+      });
+
+      return {
+        ...guide,
+        kind,
+        badgeItems,
+        requiredBadgeMissingCount: badgeItems.filter((item) => !item.acquired).length,
+        generalRequiredCount:
+          GENERAL_BADGE_REQUIRED_COUNT_BY_TARGET_RANK[guide.targetRankKey],
+      };
+    };
+
+    let allocatedGeneralBadgeCount = 0;
+
+    const currentGroups = REQUIRED_BADGE_GUIDES.filter((guide) => {
+      const guideIndex = getScoutAdvancementRankIndexByKey(guide.targetRankKey);
+      return guideIndex > 0 && guideIndex <= currentRankIndex;
+    }).map((guide) => {
+      const group = buildGuideGroup(guide, "current");
+      const remainingGeneralBadgeCount = Math.max(
+        generalBadgeCount - allocatedGeneralBadgeCount,
+        0,
+      );
+      const generalRegisteredCount = Math.min(
+        group.generalRequiredCount,
+        remainingGeneralBadgeCount,
+      );
+      const generalMissingCount = Math.max(
+        group.generalRequiredCount - generalRegisteredCount,
+        0,
+      );
+
+      allocatedGeneralBadgeCount += group.generalRequiredCount;
+
+      return {
+        ...group,
+        generalRegisteredCount,
+        generalMissingCount,
+        totalMissingCount:
+          group.requiredBadgeMissingCount + generalMissingCount,
+      };
+    });
+
+    const nextGuide = REQUIRED_BADGE_GUIDES.find((guide) => {
+      return getScoutAdvancementRankIndexByKey(guide.targetRankKey) === currentRankIndex + 1;
+    });
+
+    const nextGroup = nextGuide
+      ? (() => {
+          const group = buildGuideGroup(nextGuide, "next");
+          const availableGeneralBadgeCount = Math.max(
+            generalBadgeCount - allocatedGeneralBadgeCount,
+            0,
+          );
+          const generalRegisteredCount = Math.min(
+            group.generalRequiredCount,
+            availableGeneralBadgeCount,
+          );
+          const generalMissingCount = Math.max(
+            group.generalRequiredCount - generalRegisteredCount,
+            0,
+          );
+
+          return {
+            ...group,
+            generalRegisteredCount,
+            generalMissingCount,
+            totalMissingCount:
+              group.requiredBadgeMissingCount + generalMissingCount,
+            availableGeneralBadgeCount,
+          };
+        })()
+      : null;
+
+    const currentGeneralRequiredCount = currentGroups.reduce(
+      (total, group) => total + group.generalRequiredCount,
+      0,
+    );
+    const currentGeneralMissingCount = currentGroups.reduce(
+      (total, group) => total + group.generalMissingCount,
+      0,
+    );
+
+    return {
+      currentRankName: currentRank.rank_name,
+      currentGroups,
+      currentMissingCount: currentGroups.reduce(
+        (total, group) => total + group.totalMissingCount,
+        0,
+      ),
+      currentGeneralRequiredCount,
+      currentGeneralMissingCount,
+      generalBadgeCount,
+      availableGeneralBadgeCount: Math.max(
+        generalBadgeCount - currentGeneralRequiredCount,
+        0,
+      ),
+      nextGroup,
+    };
+  }, [
+    badgeNameMap,
+    integratedScout,
+    integratedScoutBadges,
+    rankMap,
+  ]);
+
+  const integratedScoutPrograms = useMemo(() => {
+    if (!integratedScout) return [];
+    return programCompletionsByScoutId.get(integratedScout.id) ?? [];
+  }, [integratedScout, programCompletionsByScoutId]);
+
+  const integratedAttendanceStats = useMemo(() => {
+    if (!integratedScout) return null;
+    return attendanceStatsByScoutId.get(integratedScout.id) ?? null;
+  }, [attendanceStatsByScoutId, integratedScout]);
+
+
+  const integratedNextRank = useMemo(() => {
+    if (!integratedScout?.current_rank_id) return null;
+
+    const currentRank = rankMap.get(integratedScout.current_rank_id) ?? null;
+    const currentRankKey = getScoutAdvancementRankKey(currentRank?.rank_name);
+    const currentRankIndex = getScoutAdvancementRankIndexByKey(currentRankKey);
+
+    if (currentRankIndex < 0 || currentRankIndex >= SCOUT_ADVANCEMENT_RANK_KEYS.length - 1) {
+      return null;
+    }
+
+    const nextRankKey = SCOUT_ADVANCEMENT_RANK_KEYS[currentRankIndex + 1];
+    return (
+      ranks.find(
+        (rank) => getScoutAdvancementRankKey(rank.rank_name) === nextRankKey,
+      ) ?? null
+    );
+  }, [integratedScout, rankMap, ranks]);
+
+  const integratedNextRequirement = useMemo(() => {
+    if (!integratedScout?.current_rank_id || !integratedNextRank) return null;
+
+    return (
+      rankRequirements.find(
+        (requirement) =>
+          requirement.from_rank_id === integratedScout.current_rank_id &&
+          requirement.to_rank_id === integratedNextRank.id,
+      ) ??
+      rankRequirements.find(
+        (requirement) => requirement.to_rank_id === integratedNextRank.id,
+      ) ??
+      null
+    );
+  }, [integratedNextRank, integratedScout, rankRequirements]);
+
+  const integratedScoutReviews = useMemo(() => {
+    if (!integratedScout) return [];
+    return promotionReviewsByScoutId.get(integratedScout.id) ?? [];
+  }, [integratedScout, promotionReviewsByScoutId]);
+
+  const integratedCurrentStepReviews = useMemo(() => {
+    if (!integratedScout?.current_rank_id || !integratedNextRank) return [];
+
+    return integratedScoutReviews.filter(
+      (review) =>
+        review.from_rank_id === integratedScout.current_rank_id &&
+        review.to_rank_id === integratedNextRank.id,
+    );
+  }, [integratedNextRank, integratedScout, integratedScoutReviews]);
+
+  const integratedLatestReview = integratedCurrentStepReviews[0] ?? null;
+
+  const integratedProgramRequired = useMemo(() => {
+    return getScoutAdvancementRankKey(integratedNextRank?.rank_name) === "beom";
+  }, [integratedNextRank]);
+
+  const getLatestRankHistoryForScout = (scout: Scout, rankId: string | null) => {
+    if (!rankId) return null;
+
+    return (
+      (rankHistoriesByScoutId.get(scout.id) ?? [])
+        .filter((history) => history.rank_id === rankId)
+        .sort((a, b) => b.approved_at.localeCompare(a.approved_at))[0] ?? null
+    );
+  };
+
+
+  const getRankChainKey = (rank: Rank | null | undefined) => {
+    return getScoutAdvancementRankKey(rank?.rank_name);
+  };
+
+  const getRequiredRankHistoryRanks = (currentRankId: string) => {
+    if (!currentRankId) return [];
+
+    const selectedRank = rankMap.get(currentRankId);
+    if (!selectedRank) return [];
+
+    const selectedRankKey = getRankChainKey(selectedRank);
+    const selectedRankIndex = getScoutAdvancementRankIndexByKey(selectedRankKey);
+
+    if (selectedRankIndex < 0) {
+      return [selectedRank];
+    }
+
+    const rankByKey = new Map<ScoutAdvancementRankKey, Rank>();
+
+    [...ranks]
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .forEach((rank) => {
+        const rankKey = getRankChainKey(rank);
+        if (!rankKey || rankByKey.has(rankKey)) return;
+        rankByKey.set(rankKey, rank);
+      });
+
+    return SCOUT_ADVANCEMENT_RANK_KEYS.slice(0, selectedRankIndex + 1)
+      .map((rankKey) => rankByKey.get(rankKey) ?? null)
+      .filter((rank): rank is Rank => rank !== null);
+  };
+
+  const getRankApprovalDateMapForScout = (scout: Scout | null) => {
+    const dateMap: RankApprovalDateMap = {};
+
+    if (!scout) return dateMap;
+
+    [...(rankHistoriesByScoutId.get(scout.id) ?? [])]
+      .sort((a, b) => b.approved_at.localeCompare(a.approved_at))
+      .forEach((history) => {
+        if (!dateMap[history.rank_id]) {
+          dateMap[history.rank_id] = history.approved_at.slice(0, 10);
+        }
+      });
+
+    return dateMap;
+  };
+
+  const buildRankApprovalDateMapForRankSelection = ({
+    currentRankId,
+    previousCurrentRankId,
+    previousCurrentApprovedAt,
+    previousDateMap,
+    scout,
+  }: {
+    currentRankId: string;
+    previousCurrentRankId?: string;
+    previousCurrentApprovedAt?: string;
+    previousDateMap?: RankApprovalDateMap;
+    scout?: Scout | null;
+  }) => {
+    if (!currentRankId) return {};
+
+    const scoutDateMap = getRankApprovalDateMapForScout(scout ?? null);
+    const nextDateMap: RankApprovalDateMap = {};
+
+    getRequiredRankHistoryRanks(currentRankId).forEach((rank) => {
+      nextDateMap[rank.id] =
+        previousDateMap?.[rank.id] ??
+        scoutDateMap[rank.id] ??
+        (rank.id === previousCurrentRankId ? previousCurrentApprovedAt ?? "" : "");
+    });
+
+    return nextDateMap;
+  };
+
+  const getRankApprovalDateInputItems = (
+    currentRankId: string,
+    dateMap: RankApprovalDateMap,
+  ) => {
+    return getRequiredRankHistoryRanks(currentRankId).map((rank) => ({
+      rank,
+      approvedAt: dateMap[rank.id] ?? "",
+    }));
+  };
+
+  const getMissingRequiredRankApprovalDates = (
+    currentRankId: string,
+    dateMap: RankApprovalDateMap,
+  ) => {
+    return getRankApprovalDateInputItems(currentRankId, dateMap).filter(
+      (item) => !item.approvedAt,
+    );
+  };
+
+
+  const getInvalidRankApprovalDates = (
+    currentRankId: string,
+    dateMap: RankApprovalDateMap,
+  ) => {
+    return getRankApprovalDateInputItems(currentRankId, dateMap).filter(
+      (item) => item.approvedAt && !isManagedDateValueValid(item.approvedAt),
+    );
+  };
+
+  const getInvalidRankApprovalDateOrder = (
+    currentRankId: string,
+    dateMap: RankApprovalDateMap,
+  ) => {
+    const items = getRankApprovalDateInputItems(currentRankId, dateMap);
+
+    for (let index = 1; index < items.length; index += 1) {
+      const previous = items[index - 1];
+      const current = items[index];
+
+      if (previous.approvedAt && current.approvedAt && current.approvedAt < previous.approvedAt) {
+        return { previous, current };
+      }
+    }
+
+    return null;
+  };
+
+  const getRankHistoryItemsForSave = (
+    currentRankId: string,
+    dateMap: RankApprovalDateMap,
+  ) => {
+    return getRankApprovalDateInputItems(currentRankId, dateMap).map((item) => ({
+      rankId: item.rank.id,
+      rankName: item.rank.rank_name,
+      approvedAt: item.approvedAt,
+    }));
+  };
+
+  const getRankChainNotice = (currentRankId: string) => {
+    if (!currentRankId) return "";
+
+    const selectedRank = rankMap.get(currentRankId) ?? null;
+    const selectedRankKey = getRankChainKey(selectedRank);
+
+    if (!selectedRank || !selectedRankKey) {
+      return "선택한 급위의 인가일을 등록합니다.";
+    }
+
+    const requiredRanks = getRequiredRankHistoryRanks(currentRankId);
+    const rankNames = requiredRanks.map((rank) => rank.rank_name).join(" → ");
+
+    return `현재급위가 ${selectedRank.rank_name}이면 ${rankNames}까지의 인가 이력이 필요합니다.`;
+  };
+
+  const updateCreateCurrentRankId = (currentRankId: string) => {
+    setCreateForm((prev) => {
+      const rankApprovalDates = buildRankApprovalDateMapForRankSelection({
+        currentRankId,
+        previousCurrentRankId: prev.current_rank_id,
+        previousCurrentApprovedAt: prev.current_rank_approved_at,
+        previousDateMap: prev.rank_approval_dates,
+      });
+
+      return {
+        ...prev,
+        current_rank_id: currentRankId,
+        current_rank_approved_at: currentRankId ? rankApprovalDates[currentRankId] ?? "" : "",
+        rank_approval_dates: rankApprovalDates,
+      };
+    });
+  };
+
+  const updateCreateRankApprovalDate = (rankId: string, approvedAt: string) => {
+    setCreateForm((prev) => {
+      const rankApprovalDates = {
+        ...prev.rank_approval_dates,
+        [rankId]: approvedAt,
+      };
+
+      return {
+        ...prev,
+        current_rank_approved_at:
+          rankId === prev.current_rank_id ? approvedAt : prev.current_rank_approved_at,
+        rank_approval_dates: rankApprovalDates,
+      };
+    });
+  };
+
+  const updateEditCurrentRankId = (currentRankId: string) => {
+    const currentScout = scouts.find((scout) => scout.id === editForm.id) ?? null;
+
+    setEditForm((prev) => {
+      const rankApprovalDates = buildRankApprovalDateMapForRankSelection({
+        currentRankId,
+        previousCurrentRankId: prev.current_rank_id,
+        previousCurrentApprovedAt: prev.current_rank_approved_at,
+        previousDateMap: prev.rank_approval_dates,
+        scout: currentScout,
+      });
+
+      return {
+        ...prev,
+        current_rank_id: currentRankId,
+        current_rank_approved_at: currentRankId ? rankApprovalDates[currentRankId] ?? "" : "",
+        rank_approval_dates: rankApprovalDates,
+      };
+    });
+  };
+
+  const updateEditRankApprovalDate = (rankId: string, approvedAt: string) => {
+    setEditForm((prev) => {
+      const rankApprovalDates = {
+        ...prev.rank_approval_dates,
+        [rankId]: approvedAt,
+      };
+
+      return {
+        ...prev,
+        current_rank_approved_at:
+          rankId === prev.current_rank_id ? approvedAt : prev.current_rank_approved_at,
+        rank_approval_dates: rankApprovalDates,
+      };
+    });
+  };
+
+  const updateRankQuickCurrentRankId = (currentRankId: string) => {
+    setRankQuickForm((prev) => {
+      const rankApprovalDates = buildRankApprovalDateMapForRankSelection({
+        currentRankId,
+        previousCurrentRankId: prev.rank_id,
+        previousCurrentApprovedAt: prev.approved_at,
+        previousDateMap: prev.rank_approval_dates,
+        scout: integratedScout,
+      });
+
+      return {
+        ...prev,
+        rank_id: currentRankId,
+        approved_at: currentRankId ? rankApprovalDates[currentRankId] ?? "" : "",
+        rank_approval_dates: rankApprovalDates,
+      };
+    });
+  };
+
+  const updateRankQuickApprovalDate = (rankId: string, approvedAt: string) => {
+    setRankQuickForm((prev) => {
+      const rankApprovalDates = {
+        ...prev.rank_approval_dates,
+        [rankId]: approvedAt,
+      };
+
+      return {
+        ...prev,
+        approved_at: rankId === prev.rank_id ? approvedAt : prev.approved_at,
+        rank_approval_dates: rankApprovalDates,
+      };
+    });
+  };
 
   const scoutByMemberNo = useMemo(() => {
     const map = new Map<string, Scout>();
@@ -949,6 +2078,54 @@ export default function ScoutsPage() {
       return;
     }
 
+    if (!isManagedDateValueValid(createForm.joined_at)) {
+      setFormErrorMessage(`입단일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`);
+      return;
+    }
+
+    if (!createForm.current_rank_id && Object.values(createForm.rank_approval_dates).some(Boolean)) {
+      setFormErrorMessage("진급 인가일을 입력하려면 현재급위를 먼저 선택해야 합니다.");
+      return;
+    }
+
+    if (createForm.current_rank_id) {
+      const missingRankDates = getMissingRequiredRankApprovalDates(
+        createForm.current_rank_id,
+        createForm.rank_approval_dates,
+      );
+
+      if (missingRankDates.length > 0) {
+        setFormErrorMessage(
+          `${missingRankDates.map((item) => item.rank.rank_name).join(", ")} 인가일을 입력해야 합니다.`,
+        );
+        return;
+      }
+
+      const invalidRankDates = getInvalidRankApprovalDates(
+        createForm.current_rank_id,
+        createForm.rank_approval_dates,
+      );
+
+      if (invalidRankDates.length > 0) {
+        setFormErrorMessage(
+          `${invalidRankDates.map((item) => item.rank.rank_name).join(", ")} 인가일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`,
+        );
+        return;
+      }
+
+      const invalidDateOrder = getInvalidRankApprovalDateOrder(
+        createForm.current_rank_id,
+        createForm.rank_approval_dates,
+      );
+
+      if (invalidDateOrder) {
+        setFormErrorMessage(
+          `${invalidDateOrder.current.rank.rank_name} 인가일은 ${invalidDateOrder.previous.rank.rank_name} 인가일보다 빠를 수 없습니다.`,
+        );
+        return;
+      }
+    }
+
     const organizationNameForSave = organizationNameMap.get(organizationId);
 
     if (!organizationNameForSave) {
@@ -1002,13 +2179,35 @@ export default function ScoutsPage() {
       createForm.grade,
     );
 
-    setScouts((prevScouts) =>
-      [...prevScouts, createdScout].sort((a, b) => a.name.localeCompare(b.name)),
-    );
+    if (createForm.current_rank_id) {
+      try {
+        await saveRankHistoryChain({
+          scoutId: createdScout.id,
+          organizationId,
+          currentRankId: createForm.current_rank_id,
+          rankItems: getRankHistoryItemsForSave(
+            createForm.current_rank_id,
+            createForm.rank_approval_dates,
+          ),
+          note: "대원 등록 시 입력",
+        });
+      } catch (error) {
+        console.error("대원 등록 후 진급 이력 저장 오류:", error);
+        setFormErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "대원은 등록되었지만 진급 이력을 저장하지 못했습니다.",
+        );
+        setSubmitting(false);
+        await loadData();
+        return;
+      }
+    }
 
     setCreateForm(getEmptyCreateForm(profile));
     setIsCreateFormOpen(false);
     setSubmitting(false);
+    await loadData();
   };
 
   const handleOpenEditForm = (scout: Scout) => {
@@ -1025,6 +2224,12 @@ export default function ScoutsPage() {
       joined_at: scout.joined_at,
       name: scout.name,
       grade: scout.grade ?? "",
+      current_rank_id: scout.current_rank_id ?? "",
+      current_rank_approved_at: getRankHistoryApprovedDate(scout, scout.current_rank_id),
+      rank_approval_dates: buildRankApprovalDateMapForRankSelection({
+        currentRankId: scout.current_rank_id ?? "",
+        scout,
+      }),
       is_from_cub_scout: scout.is_from_cub_scout,
       cub_promotion_completed: scout.cub_promotion_completed,
       beginner_course_exempted: scout.beginner_course_exempted,
@@ -1109,6 +2314,49 @@ export default function ScoutsPage() {
       return;
     }
 
+    if (!editForm.current_rank_id && Object.values(editForm.rank_approval_dates).some(Boolean)) {
+      setEditErrorMessage("진급 인가일을 입력하려면 현재급위를 먼저 선택해야 합니다.");
+      return;
+    }
+
+    if (editForm.current_rank_id) {
+      const missingRankDates = getMissingRequiredRankApprovalDates(
+        editForm.current_rank_id,
+        editForm.rank_approval_dates,
+      );
+
+      if (missingRankDates.length > 0) {
+        setEditErrorMessage(
+          `${missingRankDates.map((item) => item.rank.rank_name).join(", ")} 인가일을 입력해야 합니다.`,
+        );
+        return;
+      }
+
+      const invalidRankDates = getInvalidRankApprovalDates(
+        editForm.current_rank_id,
+        editForm.rank_approval_dates,
+      );
+
+      if (invalidRankDates.length > 0) {
+        setEditErrorMessage(
+          `${invalidRankDates.map((item) => item.rank.rank_name).join(", ")} 인가일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`,
+        );
+        return;
+      }
+
+      const invalidDateOrder = getInvalidRankApprovalDateOrder(
+        editForm.current_rank_id,
+        editForm.rank_approval_dates,
+      );
+
+      if (invalidDateOrder) {
+        setEditErrorMessage(
+          `${invalidDateOrder.current.rank.rank_name} 인가일은 ${invalidDateOrder.previous.rank.rank_name} 인가일보다 빠를 수 없습니다.`,
+        );
+        return;
+      }
+    }
+
     const beginnerCourseExempted = getAutoBeginnerExempted(
       editForm.grade,
       editForm.is_from_cub_scout,
@@ -1153,15 +2401,35 @@ export default function ScoutsPage() {
       editForm.grade,
     );
 
-    setScouts((prevScouts) =>
-      prevScouts
-        .map((scout) => (scout.id === editedScout.id ? editedScout : scout))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    );
+    if (editForm.current_rank_id) {
+      try {
+        await saveRankHistoryChain({
+          scoutId: editedScout.id,
+          organizationId: editedScout.organization_id,
+          currentRankId: editForm.current_rank_id,
+          rankItems: getRankHistoryItemsForSave(
+            editForm.current_rank_id,
+            editForm.rank_approval_dates,
+          ),
+          note: "대원 기본정보 수정 시 입력",
+        });
+      } catch (error) {
+        console.error("대원 수정 후 진급 이력 저장 오류:", error);
+        setEditErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "대원 기본정보는 수정되었지만 진급 이력을 저장하지 못했습니다.",
+        );
+        setEditSubmitting(false);
+        await loadData();
+        return;
+      }
+    }
 
     setEditForm(getEmptyEditForm());
     setIsEditFormOpen(false);
     setEditSubmitting(false);
+    await loadData();
   };
 
   const handleUpdateScoutStatus = async (scout: Scout, nextStatus: ScoutStatus) => {
@@ -1238,6 +2506,553 @@ export default function ScoutsPage() {
 
   const getOrganizationName = (organizationId: string) => {
     return organizationNameMap.get(organizationId) ?? "-";
+  };
+
+  const getProgramTypeLabel = (programType: ProgramType) => {
+    return PROGRAM_TYPE_OPTIONS.find((option) => option.value === programType)?.label ?? programType;
+  };
+
+  const getProgramTypeDescription = (programType: ProgramType) => {
+    return PROGRAM_TYPE_OPTIONS.find((option) => option.value === programType)?.description ?? programType;
+  };
+
+  const getRankHistoryApprovedDate = (scout: Scout, rankId: string | null) => {
+    return getLatestRankHistoryForScout(scout, rankId)?.approved_at.slice(0, 10) ?? "";
+  };
+
+  const saveRankHistoryRecord = async ({
+    scoutId,
+    organizationId,
+    rankId,
+    approvedAt,
+    note,
+  }: {
+    scoutId: string;
+    organizationId: string;
+    rankId: string;
+    approvedAt: string;
+    note?: string | null;
+  }) => {
+    const { data: existingHistory, error: historyLookupError } = await supabase
+      .from("scout_rank_histories")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("scout_id", scoutId)
+      .eq("rank_id", rankId)
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    if (historyLookupError) {
+      throw new Error(`진급 이력 확인에 실패했습니다. ${historyLookupError.message}`);
+    }
+
+    const cleanNote = note && note.trim().length > 0 ? note.trim() : null;
+
+    if (existingHistory) {
+      const { error: historyUpdateError } = await supabase
+        .from("scout_rank_histories")
+        .update({
+          approved_at: approvedAt,
+          approval_type: "normal",
+          note: cleanNote,
+        })
+        .eq("id", existingHistory.id);
+
+      if (historyUpdateError) {
+        throw new Error(`진급 이력 수정에 실패했습니다. ${historyUpdateError.message}`);
+      }
+
+      return;
+    }
+
+    const { error: historyInsertError } = await supabase
+      .from("scout_rank_histories")
+      .insert({
+        organization_id: organizationId,
+        scout_id: scoutId,
+        rank_id: rankId,
+        approved_at: approvedAt,
+        approval_type: "normal",
+        note: cleanNote,
+      });
+
+    if (historyInsertError) {
+      throw new Error(`진급 이력 등록에 실패했습니다. ${historyInsertError.message}`);
+    }
+  };
+
+  const saveRankHistoryChain = async ({
+    scoutId,
+    organizationId,
+    currentRankId,
+    rankItems,
+    note,
+  }: {
+    scoutId: string;
+    organizationId: string;
+    currentRankId: string;
+    rankItems: Array<{ rankId: string; rankName: string; approvedAt: string }>;
+    note?: string | null;
+  }) => {
+    if (!currentRankId) return;
+
+    if (rankItems.length === 0) {
+      throw new Error("저장할 진급 이력이 없습니다. 현재급위를 다시 선택해 주세요.");
+    }
+
+    const missingRankItem = rankItems.find((item) => !item.approvedAt);
+
+    if (missingRankItem) {
+      throw new Error(`${missingRankItem.rankName} 인가일을 입력해야 합니다.`);
+    }
+
+    for (const item of rankItems) {
+      await saveRankHistoryRecord({
+        scoutId,
+        organizationId,
+        rankId: item.rankId,
+        approvedAt: item.approvedAt,
+        note: note ?? "대원 통합관리에서 입력",
+      });
+    }
+
+    const { error: currentRankUpdateError } = await supabase
+      .from("scouts")
+      .update({ current_rank_id: currentRankId })
+      .eq("id", scoutId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null);
+
+    if (currentRankUpdateError) {
+      throw new Error(`현재급위 반영에 실패했습니다. ${currentRankUpdateError.message}`);
+    }
+  };
+
+  const handleOpenIntegratedManagement = (scout: Scout) => {
+    setIsCreateFormOpen(false);
+    setIsEditFormOpen(false);
+    setFormErrorMessage("");
+    setEditErrorMessage("");
+    setIntegratedErrorMessage("");
+    setIntegratedSuccessMessage("");
+    setIntegratedReviewDate(getTodayText());
+    setIntegratedReviewErrorMessage("");
+    setIntegratedReviewSuccessMessage("");
+    setIntegratedApprovalDate(getTodayText());
+    setIntegratedApprovalNote("");
+    setIntegratedApprovalErrorMessage("");
+    setIntegratedSection("profile");
+    setIntegratedScoutId(scout.id);
+    const rankApprovalDates = buildRankApprovalDateMapForRankSelection({
+      currentRankId: scout.current_rank_id ?? "",
+      scout,
+    });
+
+    setRankQuickForm({
+      rank_id: scout.current_rank_id ?? "",
+      approved_at:
+        scout.current_rank_id && rankApprovalDates[scout.current_rank_id]
+          ? rankApprovalDates[scout.current_rank_id]
+          : getTodayText(),
+      rank_approval_dates: rankApprovalDates,
+      note: "",
+    });
+    setBadgeQuickForm(getEmptyBadgeQuickForm());
+    setProgramQuickForm(getEmptyProgramQuickForm());
+  };
+
+  const handleCloseIntegratedManagement = () => {
+    if (integratedSubmitting) return;
+
+    setIntegratedScoutId(null);
+    setIntegratedSection("profile");
+    setIntegratedErrorMessage("");
+    setIntegratedSuccessMessage("");
+    setIntegratedReviewDate(getTodayText());
+    setIntegratedReviewErrorMessage("");
+    setIntegratedReviewSuccessMessage("");
+    setIntegratedApprovalDate(getTodayText());
+    setIntegratedApprovalNote("");
+    setIntegratedApprovalErrorMessage("");
+    setRankQuickForm(getEmptyRankQuickForm());
+    setBadgeQuickForm(getEmptyBadgeQuickForm());
+    setProgramQuickForm(getEmptyProgramQuickForm());
+  };
+
+  const updateRankQuickForm = <K extends keyof RankQuickForm>(
+    field: K,
+    value: RankQuickForm[K],
+  ) => {
+    setRankQuickForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const updateBadgeQuickForm = <K extends keyof BadgeQuickForm>(
+    field: K,
+    value: BadgeQuickForm[K],
+  ) => {
+    setBadgeQuickForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const updateProgramQuickForm = <K extends keyof ProgramQuickForm>(
+    field: K,
+    value: ProgramQuickForm[K],
+  ) => {
+    setProgramQuickForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSaveIntegratedRank = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!integratedScout || !canManageScouts) {
+      setIntegratedErrorMessage("현재급위 저장 권한이 없습니다.");
+      return;
+    }
+
+    if (!rankQuickForm.rank_id) {
+      setIntegratedErrorMessage("현재급위를 선택해야 합니다.");
+      return;
+    }
+
+    const missingRankDates = getMissingRequiredRankApprovalDates(
+      rankQuickForm.rank_id,
+      rankQuickForm.rank_approval_dates,
+    );
+
+    if (missingRankDates.length > 0) {
+      setIntegratedErrorMessage(
+        `${missingRankDates.map((item) => item.rank.rank_name).join(", ")} 인가일을 입력해야 합니다.`,
+      );
+      return;
+    }
+
+    const invalidRankDates = getInvalidRankApprovalDates(
+      rankQuickForm.rank_id,
+      rankQuickForm.rank_approval_dates,
+    );
+
+    if (invalidRankDates.length > 0) {
+      setIntegratedErrorMessage(
+        `${invalidRankDates.map((item) => item.rank.rank_name).join(", ")} 인가일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`,
+      );
+      return;
+    }
+
+    const invalidDateOrder = getInvalidRankApprovalDateOrder(
+      rankQuickForm.rank_id,
+      rankQuickForm.rank_approval_dates,
+    );
+
+    if (invalidDateOrder) {
+      setIntegratedErrorMessage(
+        `${invalidDateOrder.current.rank.rank_name} 인가일은 ${invalidDateOrder.previous.rank.rank_name} 인가일보다 빠를 수 없습니다.`,
+      );
+      return;
+    }
+
+    setIntegratedSubmitting(true);
+    setIntegratedErrorMessage("");
+    setIntegratedSuccessMessage("");
+
+    try {
+      await saveRankHistoryChain({
+        scoutId: integratedScout.id,
+        organizationId: integratedScout.organization_id,
+        currentRankId: rankQuickForm.rank_id,
+        rankItems: getRankHistoryItemsForSave(
+          rankQuickForm.rank_id,
+          rankQuickForm.rank_approval_dates,
+        ),
+        note: rankQuickForm.note,
+      });
+
+      setIntegratedSuccessMessage("현재급위와 해당 급위까지의 진급 이력을 저장했습니다.");
+      await loadData();
+    } catch (error) {
+      console.error("현재급위 저장 오류:", error);
+      setIntegratedErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "현재급위 저장 중 문제가 발생했습니다.",
+      );
+    } finally {
+      setIntegratedSubmitting(false);
+    }
+  };
+
+  const handleCreateIntegratedBadge = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!integratedScout || !canManageScouts) {
+      setIntegratedErrorMessage("기능장 등록 권한이 없습니다.");
+      return;
+    }
+
+    if (!badgeQuickForm.badge_id) {
+      setIntegratedErrorMessage("기능장을 선택해야 합니다.");
+      return;
+    }
+
+    if (!badgeQuickForm.acquired_at) {
+      setIntegratedErrorMessage("취득일을 입력해야 합니다.");
+      return;
+    }
+
+    if (!isManagedDateValueValid(badgeQuickForm.acquired_at)) {
+      setIntegratedErrorMessage(`취득일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`);
+      return;
+    }
+
+    if (badgeQuickForm.approved_at && !isManagedDateValueValid(badgeQuickForm.approved_at)) {
+      setIntegratedErrorMessage(`인가일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`);
+      return;
+    }
+
+    if (badgeQuickForm.approved_at && badgeQuickForm.approved_at < badgeQuickForm.acquired_at) {
+      setIntegratedErrorMessage("인가일은 취득일보다 빠를 수 없습니다.");
+      return;
+    }
+
+    setIntegratedSubmitting(true);
+    setIntegratedErrorMessage("");
+    setIntegratedSuccessMessage("");
+
+    const rpcClient = supabase as unknown as {
+      rpc: (
+        functionName: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+
+    const { error } = await rpcClient.rpc("create_scout_badge_record", {
+      p_scout_id: integratedScout.id,
+      p_badge_id: badgeQuickForm.badge_id,
+      p_acquired_at: badgeQuickForm.acquired_at,
+      p_approved_at: badgeQuickForm.approved_at || null,
+      p_instructor_name:
+        badgeQuickForm.instructor_name.trim().length > 0
+          ? badgeQuickForm.instructor_name.trim()
+          : null,
+      p_leader_confirmed: badgeQuickForm.leader_confirmed,
+      p_note:
+        badgeQuickForm.note.trim().length > 0 ? badgeQuickForm.note.trim() : null,
+    });
+
+    if (error) {
+      console.error("통합관리 기능장 등록 오류:", error.message);
+      setIntegratedErrorMessage(`기능장 등록에 실패했습니다. ${error.message}`);
+      setIntegratedSubmitting(false);
+      return;
+    }
+
+    setBadgeQuickForm(getEmptyBadgeQuickForm());
+    setIntegratedSuccessMessage("기능장 취득기록을 등록했습니다.");
+    setIntegratedSubmitting(false);
+    await loadData();
+  };
+
+  const handleCreateIntegratedProgram = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!integratedScout || !canManageScouts) {
+      setIntegratedErrorMessage("프로그램 이수 등록 권한이 없습니다.");
+      return;
+    }
+
+    if (!programQuickForm.completed_at) {
+      setIntegratedErrorMessage("이수일을 입력해야 합니다.");
+      return;
+    }
+
+    if (!isManagedDateValueValid(programQuickForm.completed_at)) {
+      setIntegratedErrorMessage(`이수일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`);
+      return;
+    }
+
+    if (programQuickForm.approved_at && !isManagedDateValueValid(programQuickForm.approved_at)) {
+      setIntegratedErrorMessage(`승인일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`);
+      return;
+    }
+
+    if (programQuickForm.approved_at && programQuickForm.approved_at < programQuickForm.completed_at) {
+      setIntegratedErrorMessage("승인일은 이수일보다 빠를 수 없습니다.");
+      return;
+    }
+
+    const duplicateProgram = integratedScoutPrograms.some(
+      (completion) => completion.program_type === programQuickForm.program_type,
+    );
+
+    if (duplicateProgram) {
+      setIntegratedErrorMessage("선택한 프로그램 이수 기록이 이미 있습니다.");
+      return;
+    }
+
+    setIntegratedSubmitting(true);
+    setIntegratedErrorMessage("");
+    setIntegratedSuccessMessage("");
+
+    const rpcClient = supabase as unknown as {
+      rpc: (
+        functionName: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+
+    const { error } = await rpcClient.rpc("create_program_completion_record", {
+      p_scout_id: integratedScout.id,
+      p_program_type: programQuickForm.program_type,
+      p_completed_at: programQuickForm.completed_at,
+      p_certificate_no:
+        programQuickForm.certificate_no.trim().length > 0
+          ? programQuickForm.certificate_no.trim()
+          : null,
+      p_approved_at: programQuickForm.approved_at || null,
+      p_note:
+        programQuickForm.note.trim().length > 0
+          ? programQuickForm.note.trim()
+          : null,
+    });
+
+    if (error) {
+      console.error("통합관리 프로그램 등록 오류:", error.message);
+      setIntegratedErrorMessage(`프로그램 이수 등록에 실패했습니다. ${error.message}`);
+      setIntegratedSubmitting(false);
+      return;
+    }
+
+    setProgramQuickForm(getEmptyProgramQuickForm());
+    setIntegratedSuccessMessage("프로그램 이수기록을 등록했습니다.");
+    setIntegratedSubmitting(false);
+    await loadData();
+  };
+
+  const handleRunIntegratedPromotionReview = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+
+    if (!integratedScout || !canManageScouts) {
+      setIntegratedReviewErrorMessage("진급 판정 권한이 없습니다.");
+      return;
+    }
+
+    if (!integratedScout.current_rank_id) {
+      setIntegratedReviewErrorMessage("현재급위를 먼저 등록해야 합니다.");
+      return;
+    }
+
+    if (!integratedNextRank) {
+      setIntegratedReviewErrorMessage("다음 급위가 없어 진급 판정을 실행할 수 없습니다.");
+      return;
+    }
+
+    if (!isManagedDateValueValid(integratedReviewDate)) {
+      setIntegratedReviewErrorMessage(
+        `판정일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`,
+      );
+      return;
+    }
+
+    setIntegratedReviewSubmitting(true);
+    setIntegratedReviewErrorMessage("");
+    setIntegratedReviewSuccessMessage("");
+    setIntegratedApprovalErrorMessage("");
+
+    const rpcClient = supabase as unknown as {
+      rpc: (
+        functionName: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+
+    try {
+      const { error } = await rpcClient.rpc("review_scout_promotion", {
+        p_scout_id: integratedScout.id,
+        p_review_date: integratedReviewDate,
+      });
+
+      if (error) {
+        console.error("통합관리 진급 판정 오류:", error.message);
+        setIntegratedReviewErrorMessage(`진급 판정에 실패했습니다. ${error.message}`);
+        return;
+      }
+
+      await loadData();
+      setIntegratedReviewSuccessMessage("진급 판정을 완료했습니다.");
+    } catch (error) {
+      console.error("통합관리 진급 판정 실행 오류:", error);
+      setIntegratedReviewErrorMessage(
+        error instanceof Error
+          ? `진급 판정 실행 중 오류가 발생했습니다. ${error.message}`
+          : "진급 판정 실행 중 오류가 발생했습니다.",
+      );
+    } finally {
+      setIntegratedReviewSubmitting(false);
+    }
+  };
+
+  const handleApproveIntegratedPromotion = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+
+    if (!integratedScout || !canManageScouts) {
+      setIntegratedApprovalErrorMessage("진급 인가 권한이 없습니다.");
+      return;
+    }
+
+    if (!integratedLatestReview || !integratedLatestReview.final_passed) {
+      setIntegratedApprovalErrorMessage("진급 가능한 최신 판정 결과가 없습니다.");
+      return;
+    }
+
+    if (!isManagedDateValueValid(integratedApprovalDate)) {
+      setIntegratedApprovalErrorMessage(
+        `인가일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`,
+      );
+      return;
+    }
+
+    setIntegratedApprovalSubmitting(true);
+    setIntegratedApprovalErrorMessage("");
+    setIntegratedReviewSuccessMessage("");
+
+    const rpcClient = supabase as unknown as {
+      rpc: (
+        functionName: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+
+    const { error } = await rpcClient.rpc("approve_scout_promotion", {
+      p_promotion_review_id: integratedLatestReview.id,
+      p_approved_at: integratedApprovalDate,
+      p_note: toNullableText(integratedApprovalNote),
+    });
+
+    if (error) {
+      console.error("통합관리 진급 인가 오류:", error.message);
+      setIntegratedApprovalErrorMessage(`진급 인가 저장에 실패했습니다. ${error.message}`);
+      setIntegratedApprovalSubmitting(false);
+      return;
+    }
+
+    setIntegratedApprovalSubmitting(false);
+    setIntegratedApprovalDate(getTodayText());
+    setIntegratedApprovalNote("");
+    setIntegratedReviewSuccessMessage(
+      `${integratedNextRank?.rank_name ?? "다음 급위"} 진급 인가를 저장했습니다.`,
+    );
+    await loadData();
   };
 
   const getCreateFormOrganizationName = () => {
@@ -1408,9 +3223,7 @@ export default function ScoutsPage() {
   };
 
   const isValidDateText = (value: string) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-    const date = new Date(`${value}T00:00:00`);
-    return !Number.isNaN(date.getTime());
+    return isManagedDateValueValid(value);
   };
 
   const parseBooleanValue = (value: unknown, defaultValue = false): ParsedBoolean => {
@@ -2275,7 +4088,7 @@ export default function ScoutsPage() {
 
             {isSuperAdmin && (
               <label style={{ ...fieldLabelStyle, maxWidth: "420px", marginBottom: "12px" }}>
-                <span style={fieldLabelTextStyle}>엑셀 적용 <span style={fieldLabelTextStyle}>소속 조직 <span style={requiredStyle}>*</span></span></span>
+                <span style={fieldLabelTextStyle}>엑셀 적용 소속 조직 <span style={requiredStyle}>*</span></span>
                 <select
                   style={inputStyle}
                   value={bulkOrganizationId}
@@ -2548,8 +4361,13 @@ export default function ScoutsPage() {
                     <input
                       style={inputStyle}
                       type="date"
+                      min={DATE_INPUT_MIN}
+                      max={DATE_INPUT_MAX}
                       value={createForm.joined_at}
-                      onChange={(event) => updateCreateForm("joined_at", event.target.value)}
+                      onInput={limitDateInputYear}
+                      onChange={(event) =>
+                        updateCreateForm("joined_at", normalizeDateInputValue(event.target.value))
+                      }
                       required
                     />
                   </label>
@@ -2592,6 +4410,57 @@ export default function ScoutsPage() {
                       readOnly
                     />
                   </label>
+
+                  <label style={fieldLabelStyle}>
+                    현재급위
+                    <select
+                      style={inputStyle}
+                      value={createForm.current_rank_id}
+                      onChange={(event) => updateCreateCurrentRankId(event.target.value)}
+                    >
+                      <option value="">현재급위 선택</option>
+                      {ranks.map((rank) => (
+                        <option key={rank.id} value={rank.id}>
+                          {rank.rank_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {createForm.current_rank_id && (
+                    <div style={rankHistoryInputPanelStyle}>
+                      <div style={rankHistoryInputHeaderStyle}>
+                        <strong>진급 이력 입력</strong>
+                        <span>{getRankChainNotice(createForm.current_rank_id)}</span>
+                      </div>
+                      <div style={rankHistoryInputGridStyle}>
+                        {getRankApprovalDateInputItems(
+                          createForm.current_rank_id,
+                          createForm.rank_approval_dates,
+                        ).map(({ rank, approvedAt }) => (
+                          <label key={rank.id} style={fieldLabelStyle}>
+                            <span style={fieldLabelTextStyle}>
+                              {rank.rank_name} 인가일 <span style={requiredStyle}>*</span>
+                            </span>
+                            <input
+                              style={inputStyle}
+                              type="date"
+                              min={DATE_INPUT_MIN}
+                              max={DATE_INPUT_MAX}
+                              value={approvedAt}
+                              onInput={limitDateInputYear}
+                              onChange={(event) =>
+                                updateCreateRankApprovalDate(
+                                  rank.id,
+                                  normalizeDateInputValue(event.target.value),
+                                )
+                              }
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {getCreateFormCubRankNotice() && (
@@ -2649,8 +4518,8 @@ export default function ScoutsPage() {
 
                 <div style={helpTextBoxStyle}>
                   <div>초등학교 대원은 학년에 따라 컵스카우트 급위가 자동 표시됩니다.</div>
-                  <div>컵스카우트 출신 대원이 스카우트로 전환된 경우 초급과정은 면제로 표시할 수 있습니다.</div>
-                  <div>초급 인가 기록과 인가일은 진급 관리에서 별도로 등록해야 합니다.</div>
+                  <div>스카우트 이상 대원은 현재급위와 인가일을 함께 입력하면 진급 이력에 바로 반영됩니다.</div>
+                  <div>현재급위 인가일은 예상 진급일과 진급 판정 기준일 계산에 사용됩니다.</div>
                 </div>
 
                 <label style={fieldLabelStyle}>
@@ -2793,6 +4662,57 @@ export default function ScoutsPage() {
                   </select>
                 </label>
 
+                <label style={fieldLabelStyle}>
+                  현재급위
+                  <select
+                    style={inputStyle}
+                    value={editForm.current_rank_id}
+                    onChange={(event) => updateEditCurrentRankId(event.target.value)}
+                  >
+                    <option value="">현재급위 선택</option>
+                    {ranks.map((rank) => (
+                      <option key={rank.id} value={rank.id}>
+                        {rank.rank_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {editForm.current_rank_id && (
+                  <div style={rankHistoryInputPanelStyle}>
+                    <div style={rankHistoryInputHeaderStyle}>
+                      <strong>진급 이력 입력</strong>
+                      <span>{getRankChainNotice(editForm.current_rank_id)}</span>
+                    </div>
+                    <div style={rankHistoryInputGridStyle}>
+                      {getRankApprovalDateInputItems(
+                        editForm.current_rank_id,
+                        editForm.rank_approval_dates,
+                      ).map(({ rank, approvedAt }) => (
+                        <label key={rank.id} style={fieldLabelStyle}>
+                          <span style={fieldLabelTextStyle}>
+                            {rank.rank_name} 인가일 <span style={requiredStyle}>*</span>
+                          </span>
+                          <input
+                            style={inputStyle}
+                            type="date"
+                            min={DATE_INPUT_MIN}
+                            max={DATE_INPUT_MAX}
+                            value={approvedAt}
+                            onInput={limitDateInputYear}
+                            onChange={(event) =>
+                              updateEditRankApprovalDate(
+                                rank.id,
+                                normalizeDateInputValue(event.target.value),
+                              )
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {getEditFormCubRankNotice() && (
                   <div style={autoRankNoticeStyle}>{getEditFormCubRankNotice()}</div>
                 )}
@@ -2849,8 +4769,8 @@ export default function ScoutsPage() {
 
               <div style={helpTextBoxStyle}>
                 <div>초등학교 대원은 학년에 따라 컵스카우트 급위가 자동 표시됩니다.</div>
-                <div>컵스카우트 출신 대원이 스카우트로 전환된 경우 초급과정은 면제로 표시할 수 있습니다.</div>
-                <div>초급 인가 기록과 인가일은 진급 관리에서 별도로 등록해야 합니다.</div>
+                <div>스카우트 이상 대원은 현재급위와 인가일을 함께 저장하면 진급 이력에 반영됩니다.</div>
+                <div>현재급위 인가일이 없으면 예상 진급일과 진급 판정 기준을 계산할 수 없습니다.</div>
               </div>
 
               <label style={fieldLabelStyle}>
@@ -2886,6 +4806,986 @@ export default function ScoutsPage() {
           document.body,
         )}
 
+        {integratedScout &&
+          typeof document !== "undefined" &&
+          createPortal(
+            <div
+              style={modalOverlayStyle}
+              role="presentation"
+              onClick={handleCloseIntegratedManagement}
+            >
+              <section
+                style={integratedModalPanelStyle}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div style={modalHeaderStyle}>
+                  <div>
+                    <h3 style={formTitleStyle}>
+                      대원 통합관리 · {integratedScout.name}
+                    </h3>
+                    <p style={formDescriptionStyle}>
+                      기본정보, 현재급위, 기능장, 프로그램 이수, 출석률을 한 화면에서 확인하고 관리합니다.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    style={modalCloseButtonStyle}
+                    onClick={handleCloseIntegratedManagement}
+                    disabled={integratedSubmitting}
+                    aria-label="대원 통합관리 닫기"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div style={integratedSummaryGridStyle}>
+                  <div style={integratedSummaryCardStyle}>
+                    <span style={integratedSummaryLabelStyle}>대원번호</span>
+                    <strong style={integratedSummaryValueStyle}>
+                      {integratedScout.member_no ?? "-"}
+                    </strong>
+                  </div>
+                  <div style={integratedSummaryCardStyle}>
+                    <span style={integratedSummaryLabelStyle}>학년 / 구분</span>
+                    <strong style={integratedSummaryValueStyle}>
+                      {integratedScout.grade ?? "-"} · {getScoutSectionLabelByGrade(integratedScout.grade)}
+                    </strong>
+                  </div>
+                  <div style={integratedSummaryCardStyle}>
+                    <span style={integratedSummaryLabelStyle}>현재급위</span>
+                    <strong style={integratedSummaryValueStyle}>
+                      {getScoutCurrentRankDisplay(integratedScout)}
+                    </strong>
+                  </div>
+                  <div style={integratedSummaryCardStyle}>
+                    <span style={integratedSummaryLabelStyle}>전체 출석률</span>
+                    <strong style={integratedSummaryValueStyle}>
+                      {integratedAttendanceStats
+                        ? `${integratedAttendanceStats.attendanceRate.toFixed(1)}%`
+                        : "-"}
+                    </strong>
+                    <small style={integratedSummaryHelpStyle}>
+                      {integratedAttendanceStats
+                        ? `출석 ${integratedAttendanceStats.presentCount}회 / 입력완료 ${integratedAttendanceStats.enteredCount}회`
+                        : "출석 자료 없음"}
+                    </small>
+                  </div>
+                </div>
+
+                <div style={integratedTabListStyle}>
+                  {INTEGRATED_SECTION_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      style={
+                        integratedSection === option.value
+                          ? integratedTabActiveStyle
+                          : integratedTabButtonStyle
+                      }
+                      onClick={() => {
+                        setIntegratedSection(option.value);
+                        setIntegratedErrorMessage("");
+                        setIntegratedSuccessMessage("");
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+
+                {integratedErrorMessage && (
+                  <div style={errorBoxStyle}>{integratedErrorMessage}</div>
+                )}
+
+                {integratedSuccessMessage && (
+                  <div style={successBoxStyle}>{integratedSuccessMessage}</div>
+                )}
+
+                {integratedSection === "profile" && (
+                  <div style={integratedSectionStyle}>
+                    <div style={integratedInfoGridStyle}>
+                      <div style={integratedInfoItemStyle}>
+                        <span>대원명</span>
+                        <strong>{integratedScout.name}</strong>
+                      </div>
+                      <div style={integratedInfoItemStyle}>
+                        <span>소속대</span>
+                        <strong>{integratedScout.school_name ?? getOrganizationName(integratedScout.organization_id)}</strong>
+                      </div>
+                      <div style={integratedInfoItemStyle}>
+                        <span>입단일</span>
+                        <strong>{formatDate(integratedScout.joined_at)}</strong>
+                      </div>
+                      <div style={integratedInfoItemStyle}>
+                        <span>상태</span>
+                        <strong>{getStatusLabel(integratedScout.status)}</strong>
+                      </div>
+                      <div style={integratedInfoItemStyle}>
+                        <span>컵스카우트 출신</span>
+                        <strong>{integratedScout.is_from_cub_scout ? "예" : "아니오"}</strong>
+                      </div>
+                      <div style={integratedInfoItemStyle}>
+                        <span>초급과정 면제</span>
+                        <strong>{integratedScout.beginner_course_exempted ? "면제" : "-"}</strong>
+                      </div>
+                    </div>
+
+                    <div style={helpTextBoxStyle}>
+                      <div>대원 기본정보는 진급, 기능장, 프로그램, 출석 기록의 기준 정보입니다.</div>
+                      <div>현재급위 인가일이 없으면 예상 진급일과 진급 판정 기준일을 계산할 수 없습니다.</div>
+                    </div>
+
+                    {canManageScouts && (
+                      <div style={formActionStyle}>
+                        <button
+                          type="button"
+                          style={secondaryButtonStyle}
+                          onClick={() => {
+                            handleCloseIntegratedManagement();
+                            handleOpenEditForm(integratedScout);
+                          }}
+                        >
+                          기본정보 수정
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {integratedSection === "rank" && (
+                  <div style={integratedSectionStyle}>
+                    {canManageScouts && (
+                      <form style={integratedInlineFormStyle} onSubmit={handleSaveIntegratedRank}>
+                        <label style={fieldLabelStyle}>
+                          <span style={fieldLabelTextStyle}>
+                            현재급위 <span style={requiredStyle}>*</span>
+                          </span>
+                          <select
+                            style={inputStyle}
+                            value={rankQuickForm.rank_id}
+                            onChange={(event) =>
+                              updateRankQuickCurrentRankId(event.target.value)
+                            }
+                          >
+                            <option value="">현재급위 선택</option>
+                            {ranks.map((rank) => (
+                              <option key={rank.id} value={rank.id}>
+                                {rank.rank_name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        {rankQuickForm.rank_id && (
+                          <div style={rankHistoryInputPanelStyle}>
+                            <div style={rankHistoryInputHeaderStyle}>
+                              <strong>진급 이력 입력</strong>
+                              <span>{getRankChainNotice(rankQuickForm.rank_id)}</span>
+                            </div>
+                            <div style={rankHistoryInputGridStyle}>
+                              {getRankApprovalDateInputItems(
+                                rankQuickForm.rank_id,
+                                rankQuickForm.rank_approval_dates,
+                              ).map(({ rank, approvedAt }) => (
+                                <label key={rank.id} style={fieldLabelStyle}>
+                                  <span style={fieldLabelTextStyle}>
+                                    {rank.rank_name} 인가일 <span style={requiredStyle}>*</span>
+                                  </span>
+                                  <input
+                                    style={inputStyle}
+                                    type="date"
+                                    min={DATE_INPUT_MIN}
+                                    max={DATE_INPUT_MAX}
+                                    value={approvedAt}
+                                    onInput={limitDateInputYear}
+                                    onChange={(event) =>
+                                      updateRankQuickApprovalDate(
+                                        rank.id,
+                                        normalizeDateInputValue(event.target.value),
+                                      )
+                                    }
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <label style={fieldLabelStyle}>
+                          비고
+                          <input
+                            style={inputStyle}
+                            value={rankQuickForm.note}
+                            onChange={(event) =>
+                              updateRankQuickForm("note", event.target.value)
+                            }
+                            placeholder="예: 기존 기록 입력, 정정 등"
+                          />
+                        </label>
+
+                        <div style={integratedFormButtonCellStyle}>
+                          <button
+                            type="submit"
+                            style={submitButtonStyle}
+                            disabled={integratedSubmitting}
+                          >
+                            {integratedSubmitting ? "저장 중..." : "진급 이력 저장"}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    <div style={subsectionHeaderStyle}>
+                      <h4 style={subsectionTitleStyle}>진급 이력</h4>
+                      <span style={subsectionCountStyle}>
+                        {integratedScoutRankHistories.length}건
+                      </span>
+                    </div>
+
+                    {integratedScoutRankHistories.length === 0 ? (
+                      <div style={emptyStateStyle}>등록된 진급 이력이 없습니다.</div>
+                    ) : (
+                      <div style={compactTableWrapStyle}>
+                        <table style={tableStyle}>
+                          <thead>
+                            <tr>
+                              <th style={thStyle}>급위</th>
+                              <th style={thStyle}>인가일</th>
+                              <th style={thStyle}>구분</th>
+                              <th style={thStyle}>비고</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {integratedScoutRankHistories.map((history) => (
+                              <tr key={history.id}>
+                                <td style={strongTdStyle}>
+                                  {rankNameMap.get(history.rank_id) ?? "-"}
+                                </td>
+                                <td style={tdStyle}>{formatDate(history.approved_at)}</td>
+                                <td style={tdStyle}>{history.approval_type || "일반"}</td>
+                                <td style={tdStyle}>{history.note ?? "-"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {integratedSection === "badges" && (
+                  <div style={integratedSectionStyle}>
+                    {integratedBadgeGuide && (
+                      <div style={badgeGuidePanelStyle}>
+                        <div style={badgeGuideHeaderStyle}>
+                          <strong>현재급위 기준 기능장 확인</strong>
+                          <span>현재급위 {integratedBadgeGuide.currentRankName}</span>
+                        </div>
+                        <p style={badgeGuideDescriptionStyle}>
+                          현재급위가 {integratedBadgeGuide.currentRankName}이면 현재급위까지의 진급 단계에 맞는 기능장 취득기록이 등록되어 있어야 합니다.
+                          아래 목록에서 필수기능장과 일반기능장 필요 수를 함께 확인한 뒤 기능장을 등록하세요.
+                        </p>
+
+                        <div style={badgeGuideGeneralSummaryStyle}>
+                          <span>
+                            등록 일반기능장 <strong>{integratedBadgeGuide.generalBadgeCount}개</strong>
+                          </span>
+                          <span>
+                            현재급위까지 필요 <strong>{integratedBadgeGuide.currentGeneralRequiredCount}개</strong>
+                          </span>
+                          <span
+                            style={
+                              integratedBadgeGuide.currentGeneralMissingCount > 0
+                                ? badgeGuideGeneralSummaryMissingStyle
+                                : badgeGuideGeneralSummaryCompleteStyle
+                            }
+                          >
+                            {integratedBadgeGuide.currentGeneralMissingCount > 0
+                              ? `일반기능장 부족 ${integratedBadgeGuide.currentGeneralMissingCount}개`
+                              : "일반기능장 수 충족"}
+                          </span>
+                        </div>
+
+                        {integratedBadgeGuide.currentGroups.length > 0 ? (
+                          <div style={badgeGuideGridStyle}>
+                            {integratedBadgeGuide.currentGroups.map((group) => (
+                              <div key={group.targetRankKey} style={badgeGuideGroupStyle}>
+                                <div style={badgeGuideGroupHeaderStyle}>
+                                  <strong>{group.label}</strong>
+                                  <span
+                                    style={
+                                      group.totalMissingCount > 0
+                                        ? badgeGuideMissingCountStyle
+                                        : badgeGuideCompleteCountStyle
+                                    }
+                                  >
+                                    {group.totalMissingCount > 0
+                                      ? `누락 ${group.totalMissingCount}개`
+                                      : "완료"}
+                                  </span>
+                                </div>
+                                <div style={badgeGuideBadgeListStyle}>
+                                  {group.badgeItems.map((item) => (
+                                    <span
+                                      key={item.name}
+                                      style={
+                                        item.acquired
+                                          ? badgeGuideBadgeCompleteStyle
+                                          : badgeGuideBadgeMissingStyle
+                                      }
+                                    >
+                                      {item.acquired ? "✓" : "!"} {item.name}
+                                    </span>
+                                  ))}
+                                </div>
+                                <div style={badgeGuideGeneralRequirementStyle}>
+                                  <strong>일반기능장</strong>
+                                  {group.generalMissingCount > 0 ? (
+                                    <span style={badgeGuideGeneralRequirementMissingStyle}>
+                                      필요 {group.generalRequiredCount}개 · 등록 반영 {group.generalRegisteredCount ?? 0}개 · 부족 {group.generalMissingCount}개
+                                    </span>
+                                  ) : (
+                                    <span style={badgeGuideGeneralRequirementCompleteStyle}>
+                                      필요 {group.generalRequiredCount}개 · 등록 반영 {group.generalRegisteredCount ?? 0}개 · 충족
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={badgeGuideEmptyStyle}>
+                            현재급위까지 별도로 확인할 필수 기능장 기준이 없습니다.
+                          </div>
+                        )}
+
+                        {integratedBadgeGuide.nextGroup && (
+                          <div style={badgeGuideNextBoxStyle}>
+                            <strong>다음 진급 준비 기능장</strong>
+                            <span>
+                              필수기능장 · {integratedBadgeGuide.nextGroup.label}: {integratedBadgeGuide.nextGroup.badgeNames.join(", ")}
+                            </span>
+                            <span>
+                              일반기능장 · 필요 {integratedBadgeGuide.nextGroup.generalRequiredCount}개 · 현재 등록 여유 {integratedBadgeGuide.nextGroup.availableGeneralBadgeCount}개 · 부족 {integratedBadgeGuide.nextGroup.generalMissingCount}개
+                            </span>
+                          </div>
+                        )}
+
+                        <div style={badgeGuideFootnoteStyle}>
+                          일반기능장 수는 현재 등록된 일반기능장을 이전 진급 단계부터 순서대로 배분해 표시합니다.
+                          취득 시기와 실제 사용 이력의 인정 여부는 진급관리 판정에서 최종 확인합니다.
+                        </div>
+                      </div>
+                    )}
+
+                    {canManageScouts && (
+                      <form style={integratedInlineFormStyle} onSubmit={handleCreateIntegratedBadge}>
+                        <label style={fieldLabelStyle}>
+                          <span style={fieldLabelTextStyle}>
+                            기능장 <span style={requiredStyle}>*</span>
+                          </span>
+                          <select
+                            style={inputStyle}
+                            value={badgeQuickForm.badge_id}
+                            onChange={(event) =>
+                              updateBadgeQuickForm("badge_id", event.target.value)
+                            }
+                          >
+                            <option value="">기능장 선택</option>
+                            {badges.map((badge) => (
+                              <option key={badge.id} value={badge.id}>
+                                {badge.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label style={fieldLabelStyle}>
+                          <span style={fieldLabelTextStyle}>
+                            취득일 <span style={requiredStyle}>*</span>
+                          </span>
+                          <input
+                            style={inputStyle}
+                            type="date"
+                            min={DATE_INPUT_MIN}
+                            max={DATE_INPUT_MAX}
+                            value={badgeQuickForm.acquired_at}
+                            onInput={limitDateInputYear}
+                            onChange={(event) =>
+                              updateBadgeQuickForm(
+                                "acquired_at",
+                                normalizeDateInputValue(event.target.value),
+                              )
+                            }
+                          />
+                        </label>
+
+                        <label style={fieldLabelStyle}>
+                          인가일
+                          <input
+                            style={inputStyle}
+                            type="date"
+                            min={DATE_INPUT_MIN}
+                            max={DATE_INPUT_MAX}
+                            value={badgeQuickForm.approved_at}
+                            onInput={limitDateInputYear}
+                            onChange={(event) =>
+                              updateBadgeQuickForm(
+                                "approved_at",
+                                normalizeDateInputValue(event.target.value),
+                              )
+                            }
+                          />
+                        </label>
+
+                        <label style={checkboxLabelStyle}>
+                          <input
+                            type="checkbox"
+                            checked={badgeQuickForm.leader_confirmed}
+                            onChange={(event) =>
+                              updateBadgeQuickForm("leader_confirmed", event.target.checked)
+                            }
+                          />
+                          지도자 확인
+                        </label>
+
+                        <label style={fieldLabelStyle}>
+                          지도자/비고
+                          <input
+                            style={inputStyle}
+                            value={badgeQuickForm.instructor_name}
+                            onChange={(event) =>
+                              updateBadgeQuickForm("instructor_name", event.target.value)
+                            }
+                            placeholder="지도자명"
+                          />
+                        </label>
+
+                        <div style={integratedFormButtonCellStyle}>
+                          <button
+                            type="submit"
+                            style={submitButtonStyle}
+                            disabled={integratedSubmitting}
+                          >
+                            {integratedSubmitting ? "등록 중..." : "기능장 등록"}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    <div style={subsectionHeaderStyle}>
+                      <h4 style={subsectionTitleStyle}>기능장 취득현황</h4>
+                      <span style={subsectionCountStyle}>
+                        {integratedScoutBadges.length}건
+                      </span>
+                    </div>
+
+                    {integratedScoutBadges.length === 0 ? (
+                      <div style={emptyStateStyle}>등록된 기능장 취득기록이 없습니다.</div>
+                    ) : (
+                      <div style={compactTableWrapStyle}>
+                        <table style={tableStyle}>
+                          <thead>
+                            <tr>
+                              <th style={thStyle}>기능장</th>
+                              <th style={thStyle}>취득일</th>
+                              <th style={thStyle}>인가일</th>
+                              <th style={thStyle}>지도자 확인</th>
+                              <th style={thStyle}>비고</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {integratedScoutBadges.map((record) => (
+                              <tr key={record.id}>
+                                <td style={strongTdStyle}>
+                                  {badgeNameMap.get(record.badge_id) ?? "-"}
+                                </td>
+                                <td style={tdStyle}>{formatDate(record.acquired_at)}</td>
+                                <td style={tdStyle}>{formatDate(record.approved_at)}</td>
+                                <td style={tdStyle}>
+                                  {record.leader_confirmed ? "확인" : "-"}
+                                </td>
+                                <td style={tdStyle}>{record.note ?? "-"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {integratedSection === "programs" && (
+                  <div style={integratedSectionStyle}>
+                    {canManageScouts && (
+                      <form style={integratedInlineFormStyle} onSubmit={handleCreateIntegratedProgram}>
+                        <label style={programSelectFieldStyle}>
+                          <span style={fieldLabelTextStyle}>
+                            프로그램 <span style={requiredStyle}>*</span>
+                          </span>
+                          <select
+                            style={programSelectStyle}
+                            value={programQuickForm.program_type}
+                            onChange={(event) =>
+                              updateProgramQuickForm(
+                                "program_type",
+                                event.target.value as ProgramType,
+                              )
+                            }
+                          >
+                            {PROGRAM_TYPE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label} · {option.description}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label style={fieldLabelStyle}>
+                          <span style={fieldLabelTextStyle}>
+                            이수일 <span style={requiredStyle}>*</span>
+                          </span>
+                          <input
+                            style={inputStyle}
+                            type="date"
+                            min={DATE_INPUT_MIN}
+                            max={DATE_INPUT_MAX}
+                            value={programQuickForm.completed_at}
+                            onInput={limitDateInputYear}
+                            onChange={(event) =>
+                              updateProgramQuickForm(
+                                "completed_at",
+                                normalizeDateInputValue(event.target.value),
+                              )
+                            }
+                          />
+                        </label>
+
+                        <label style={fieldLabelStyle}>
+                          수료증번호
+                          <input
+                            style={inputStyle}
+                            value={programQuickForm.certificate_no}
+                            onChange={(event) =>
+                              updateProgramQuickForm("certificate_no", event.target.value)
+                            }
+                            placeholder="수료증번호"
+                          />
+                        </label>
+
+                        <label style={fieldLabelStyle}>
+                          승인일
+                          <input
+                            style={inputStyle}
+                            type="date"
+                            min={DATE_INPUT_MIN}
+                            max={DATE_INPUT_MAX}
+                            value={programQuickForm.approved_at}
+                            onInput={limitDateInputYear}
+                            onChange={(event) =>
+                              updateProgramQuickForm(
+                                "approved_at",
+                                normalizeDateInputValue(event.target.value),
+                              )
+                            }
+                          />
+                        </label>
+
+                        <div style={integratedFormButtonCellStyle}>
+                          <button
+                            type="submit"
+                            style={submitButtonStyle}
+                            disabled={integratedSubmitting}
+                          >
+                            {integratedSubmitting ? "등록 중..." : "프로그램 등록"}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    <div style={subsectionHeaderStyle}>
+                      <h4 style={subsectionTitleStyle}>프로그램 이수현황</h4>
+                      <span style={subsectionCountStyle}>
+                        {integratedScoutPrograms.length}건
+                      </span>
+                    </div>
+
+                    {integratedScoutPrograms.length === 0 ? (
+                      <div style={emptyStateStyle}>등록된 프로그램 이수기록이 없습니다.</div>
+                    ) : (
+                      <div style={compactTableWrapStyle}>
+                        <table style={tableStyle}>
+                          <thead>
+                            <tr>
+                              <th style={thStyle}>프로그램</th>
+                              <th style={thStyle}>이수일</th>
+                              <th style={thStyle}>수료증번호</th>
+                              <th style={thStyle}>승인일</th>
+                              <th style={thStyle}>비고</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {integratedScoutPrograms.map((completion) => (
+                              <tr key={completion.id}>
+                                <td style={strongTdStyle}>
+                                  {getProgramTypeLabel(completion.program_type)}
+                                  <div style={mutedCellTextStyle}>
+                                    {getProgramTypeDescription(completion.program_type)}
+                                  </div>
+                                </td>
+                                <td style={tdStyle}>{formatDate(completion.completed_at)}</td>
+                                <td style={tdStyle}>{completion.certificate_no ?? "-"}</td>
+                                <td style={tdStyle}>{formatDate(completion.approved_at)}</td>
+                                <td style={tdStyle}>{completion.note ?? "-"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {integratedSection === "attendance" && (
+                  <div style={integratedSectionStyle}>
+                    <div style={integratedAttendanceSummaryStyle}>
+                      <div>
+                        <span>출석 대상 집회</span>
+                        <strong>{integratedAttendanceStats?.targetMeetingCount ?? 0}회</strong>
+                      </div>
+                      <div>
+                        <span>입력 완료</span>
+                        <strong>{integratedAttendanceStats?.enteredCount ?? 0}회</strong>
+                      </div>
+                      <div>
+                        <span>출석 인정</span>
+                        <strong>{integratedAttendanceStats?.presentCount ?? 0}회</strong>
+                      </div>
+                      <div>
+                        <span>결석</span>
+                        <strong>{integratedAttendanceStats?.absentCount ?? 0}회</strong>
+                      </div>
+                      <div>
+                        <span>미입력</span>
+                        <strong>{integratedAttendanceStats?.notEnteredCount ?? 0}회</strong>
+                      </div>
+                      <div>
+                        <span>전체 출석률</span>
+                        <strong>
+                          {integratedAttendanceStats
+                            ? `${integratedAttendanceStats.attendanceRate.toFixed(1)}%`
+                            : "0.0%"}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div style={helpTextBoxStyle}>
+                      <div>현재 체험판에서는 출석률을 조회용 지표로 표시합니다.</div>
+                      <div>실제 운영판에서는 환경설정 기준에 따라 출석률을 진급 판정 조건에 반영할 수 있도록 설계해야 합니다.</div>
+                    </div>
+
+                    <div style={subsectionHeaderStyle}>
+                      <h4 style={subsectionTitleStyle}>최근 출석 내역</h4>
+                      <span style={subsectionCountStyle}>최근 8건</span>
+                    </div>
+
+                    {!integratedAttendanceStats || integratedAttendanceStats.recentItems.length === 0 ? (
+                      <div style={emptyStateStyle}>출석 대상 집회가 없습니다.</div>
+                    ) : (
+                      <div style={compactTableWrapStyle}>
+                        <table style={tableStyle}>
+                          <thead>
+                            <tr>
+                              <th style={thStyle}>일자</th>
+                              <th style={thStyle}>집회/활동명</th>
+                              <th style={thStyle}>출석 상태</th>
+                              <th style={thStyle}>비고</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {integratedAttendanceStats.recentItems.map((item) => (
+                              <tr key={item.meetingId}>
+                                <td style={tdStyle}>{formatDate(item.meetingDate)}</td>
+                                <td style={strongTdStyle}>{item.title}</td>
+                                <td style={tdStyle}>
+                                  {ATTENDANCE_STATUS_LABELS[item.status]}
+                                </td>
+                                <td style={tdStyle}>{item.note ?? "-"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {integratedSection === "review" && (
+                  <div style={integratedSectionStyle}>
+                    <div style={integratedInfoGridStyle}>
+                      <div style={integratedInfoItemStyle}>
+                        <span>현재급위</span>
+                        <strong>{getScoutCurrentRankDisplay(integratedScout)}</strong>
+                      </div>
+                      <div style={integratedInfoItemStyle}>
+                        <span>현재급위 인가일</span>
+                        <strong>
+                          {formatDate(getRankHistoryApprovedDate(integratedScout, integratedScout.current_rank_id) || null)}
+                        </strong>
+                      </div>
+                      <div style={integratedInfoItemStyle}>
+                        <span>다음급위</span>
+                        <strong>{integratedNextRank?.rank_name ?? "최종급위"}</strong>
+                      </div>
+                      <div style={integratedInfoItemStyle}>
+                        <span>필요 활동기간</span>
+                        <strong>
+                          {integratedNextRequirement?.required_months
+                            ? `${integratedNextRequirement.required_months}개월`
+                            : "기준 확인 필요"}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {!integratedScout.current_rank_id ? (
+                      <div style={reviewNoticeStyle}>
+                        현재급위와 인가일을 먼저 등록한 후 진급 판정을 실행하세요.
+                      </div>
+                    ) : !integratedNextRank ? (
+                      <div style={reviewNoticeStyle}>최종급위에 도달한 대원입니다.</div>
+                    ) : (
+                      <>
+                        {canManageScouts && (
+                          <form
+                            style={integratedReviewActionStyle}
+                            onSubmit={handleRunIntegratedPromotionReview}
+                          >
+                            <div>
+                              <strong style={reviewActionTitleStyle}>진급 판정 실행</strong>
+                              <p style={reviewActionDescriptionStyle}>
+                                통합관리 화면에서 현재급위 기준으로 다음급위 진급 가능 여부를 바로 판정합니다.
+                              </p>
+                            </div>
+                            <label style={reviewDateFieldStyle}>
+                              <span style={fieldLabelTextStyle}>
+                                판정일 <span style={requiredStyle}>*</span>
+                              </span>
+                              <input
+                                style={inputStyle}
+                                type="date"
+                                min={DATE_INPUT_MIN}
+                                max={DATE_INPUT_MAX}
+                                value={integratedReviewDate}
+                                onInput={limitDateInputYear}
+                                onChange={(event) =>
+                                  setIntegratedReviewDate(
+                                    normalizeDateInputValue(event.target.value),
+                                  )
+                                }
+                                required
+                              />
+                            </label>
+                            <button
+                              type="submit"
+                              style={primaryButtonStyle}
+                              disabled={integratedReviewSubmitting}
+                            >
+                              {integratedReviewSubmitting ? "판정 중..." : "진급 판정 실행"}
+                            </button>
+                          </form>
+                        )}
+
+                        {integratedReviewErrorMessage && (
+                          <div style={errorBoxStyle}>{integratedReviewErrorMessage}</div>
+                        )}
+                        {integratedReviewSuccessMessage && (
+                          <div style={successBoxStyle}>{integratedReviewSuccessMessage}</div>
+                        )}
+
+                        <div style={subsectionHeaderStyle}>
+                          <h4 style={subsectionTitleStyle}>최근 진급 판정 결과</h4>
+                          <span style={subsectionCountStyle}>
+                            {integratedCurrentStepReviews.length}건
+                          </span>
+                        </div>
+
+                        {!integratedLatestReview ? (
+                          <div style={emptyStateStyle}>
+                            현재 진급 단계의 판정 결과가 없습니다.
+                          </div>
+                        ) : (
+                          <div style={reviewResultPanelStyle}>
+                            <div style={reviewResultHeaderStyle}>
+                              <div>
+                                <strong style={reviewResultTitleStyle}>
+                                  {rankNameMap.get(integratedLatestReview.from_rank_id) ?? "-"} → {rankNameMap.get(integratedLatestReview.to_rank_id) ?? "-"}
+                                </strong>
+                                <span style={reviewResultMetaStyle}>
+                                  판정일 {formatDate(integratedLatestReview.review_date)}
+                                </span>
+                              </div>
+                              <span
+                                style={
+                                  integratedLatestReview.final_passed
+                                    ? reviewFinalPassStyle
+                                    : reviewFinalFailStyle
+                                }
+                              >
+                                {integratedLatestReview.final_passed
+                                  ? "진급 가능"
+                                  : "조건 보완 필요"}
+                              </span>
+                            </div>
+
+                            <div style={reviewCriteriaGridStyle}>
+                              <div style={reviewCriterionStyle}>
+                                <span>활동기간</span>
+                                <strong style={integratedLatestReview.period_passed ? reviewPassTextStyle : reviewFailTextStyle}>
+                                  {integratedLatestReview.period_passed ? "통과" : "미충족"}
+                                </strong>
+                              </div>
+                              <div style={reviewCriterionStyle}>
+                                <span>필수기능장</span>
+                                <strong style={integratedLatestReview.required_badges_passed ? reviewPassTextStyle : reviewFailTextStyle}>
+                                  {integratedLatestReview.required_badges_passed ? "통과" : "미충족"}
+                                </strong>
+                              </div>
+                              <div style={reviewCriterionStyle}>
+                                <span>일반기능장</span>
+                                <strong style={integratedLatestReview.general_badges_passed ? reviewPassTextStyle : reviewFailTextStyle}>
+                                  {integratedLatestReview.general_badges_passed ? "통과" : "미충족"}
+                                </strong>
+                              </div>
+                              <div style={reviewCriterionStyle}>
+                                <span>WSEP/MoP</span>
+                                {integratedProgramRequired ? (
+                                  <strong
+                                    style={
+                                      integratedLatestReview.program_passed
+                                        ? reviewPassTextStyle
+                                        : reviewFailTextStyle
+                                    }
+                                  >
+                                    {integratedLatestReview.program_passed ? "이수 확인" : "미이수"}
+                                  </strong>
+                                ) : (
+                                  <strong style={reviewNotApplicableTextStyle}>해당 없음</strong>
+                                )}
+                              </div>
+                              <div style={reviewCriterionStyle}>
+                                <span>출석률</span>
+                                <strong style={reviewReferenceTextStyle}>
+                                  {integratedLatestReview.attendance_rate.toFixed(1)}% · 참고
+                                </strong>
+                              </div>
+                            </div>
+
+                            {!integratedLatestReview.final_passed && (
+                              <div style={reviewMissingBoxStyle}>
+                                <strong>보완 필요 항목</strong>
+                                <span>
+                                  {[
+                                    !integratedLatestReview.period_passed ? "활동기간" : "",
+                                    !integratedLatestReview.required_badges_passed ? "필수기능장" : "",
+                                    !integratedLatestReview.general_badges_passed ? "일반기능장" : "",
+                                    integratedProgramRequired && !integratedLatestReview.program_passed
+                                      ? "WSEP/MoP"
+                                      : "",
+                                  ]
+                                    .filter(Boolean)
+                                    .join(", ") || "판정 기준 확인"}
+                                </span>
+                                {integratedLatestReview.available_at && (
+                                  <span>
+                                    진급 가능 예정일 {formatDate(integratedLatestReview.available_at)}
+                                    {integratedLatestReview.days_remaining !== null &&
+                                    integratedLatestReview.days_remaining > 0
+                                      ? ` · ${integratedLatestReview.days_remaining}일 남음`
+                                      : ""}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {canManageScouts && integratedLatestReview.final_passed && (
+                              <form
+                                style={integratedApprovalFormStyle}
+                                onSubmit={handleApproveIntegratedPromotion}
+                              >
+                                <div style={approvalFormHeaderStyle}>
+                                  <strong>진급 인가 저장</strong>
+                                  <span style={approvalFormDescriptionStyle}>
+                                    진급 가능 판정일 때만 인가할 수 있습니다.
+                                  </span>
+                                </div>
+                                <label style={fieldLabelStyle}>
+                                  <span style={fieldLabelTextStyle}>
+                                    인가일 <span style={requiredStyle}>*</span>
+                                  </span>
+                                  <input
+                                    style={inputStyle}
+                                    type="date"
+                                    min={DATE_INPUT_MIN}
+                                    max={DATE_INPUT_MAX}
+                                    value={integratedApprovalDate}
+                                    onInput={limitDateInputYear}
+                                    onChange={(event) =>
+                                      setIntegratedApprovalDate(
+                                        normalizeDateInputValue(event.target.value),
+                                      )
+                                    }
+                                    required
+                                  />
+                                </label>
+                                <label style={approvalNoteFieldStyle}>
+                                  비고
+                                  <input
+                                    style={inputStyle}
+                                    value={integratedApprovalNote}
+                                    onChange={(event) =>
+                                      setIntegratedApprovalNote(event.target.value)
+                                    }
+                                    placeholder="인가 관련 비고"
+                                  />
+                                </label>
+                                <button
+                                  type="submit"
+                                  style={submitButtonStyle}
+                                  disabled={integratedApprovalSubmitting}
+                                >
+                                  {integratedApprovalSubmitting
+                                    ? "인가 저장 중..."
+                                    : `${integratedNextRank.rank_name} 진급 인가`}
+                                </button>
+                              </form>
+                            )}
+
+                            {integratedApprovalErrorMessage && (
+                              <div style={errorBoxStyle}>{integratedApprovalErrorMessage}</div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div style={modalActionStyle}>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleCloseIntegratedManagement}
+                    disabled={integratedSubmitting}
+                  >
+                    닫기
+                  </button>
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )}
+
         {statusErrorMessage && (
           <div style={errorBoxStyle}>{statusErrorMessage}</div>
         )}
@@ -2918,7 +5818,7 @@ export default function ScoutsPage() {
                   {renderSortableHeader("is_from_cub_scout", "컵 출신")}
                   {renderSortableHeader("beginner_course_exempted", "초급 면제")}
                   {renderSortableHeader("status", "상태")}
-                  {canManageScouts && <th style={thStyle}>관리</th>}
+                  <th style={thStyle}>대원통합관리</th>
                 </tr>
               </thead>
 
@@ -2970,17 +5870,26 @@ export default function ScoutsPage() {
                         </span>
                       )}
                     </td>
-                    {canManageScouts && (
-                      <td style={tdStyle}>
+                    <td style={tdStyle}>
+                      <div style={rowActionGroupStyle}>
                         <button
                           type="button"
-                          style={smallButtonStyle}
-                          onClick={() => handleOpenEditForm(scout)}
+                          style={primarySmallButtonStyle}
+                          onClick={() => handleOpenIntegratedManagement(scout)}
                         >
-                          수정
+                          {canManageScouts ? "통합관리" : "상세조회"}
                         </button>
-                      </td>
-                    )}
+                        {canManageScouts && (
+                          <button
+                            type="button"
+                            style={smallButtonStyle}
+                            onClick={() => handleOpenEditForm(scout)}
+                          >
+                            기본수정
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -3297,6 +6206,20 @@ const smallButtonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
+const primarySmallButtonStyle: CSSProperties = {
+  ...smallButtonStyle,
+  border: "none",
+  backgroundColor: "#2563eb",
+  color: "#ffffff",
+};
+
+const rowActionGroupStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  flexWrap: "wrap",
+};
+
 const submitButtonStyle: CSSProperties = {
   padding: "10px 14px",
   borderRadius: "8px",
@@ -3434,6 +6357,164 @@ const modalPanelStyle: CSSProperties = {
   borderRadius: "16px",
   backgroundColor: "#ffffff",
   boxShadow: "0 24px 80px rgba(15, 23, 42, 0.28)",
+};
+
+const integratedModalPanelStyle: CSSProperties = {
+  ...modalPanelStyle,
+  width: "min(1120px, calc(100vw - 48px))",
+};
+
+const integratedSummaryGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+  gap: "12px",
+  marginBottom: "14px",
+};
+
+const integratedSummaryCardStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "5px",
+  padding: "12px",
+  border: "1px solid #e2e8f0",
+  borderRadius: "12px",
+  backgroundColor: "#f8fafc",
+  minWidth: 0,
+};
+
+const integratedSummaryLabelStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const integratedSummaryValueStyle: CSSProperties = {
+  color: "#0f172a",
+  fontSize: "16px",
+  fontWeight: 900,
+  lineHeight: 1.35,
+};
+
+const integratedSummaryHelpStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 700,
+  lineHeight: 1.35,
+};
+
+const integratedTabListStyle: CSSProperties = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+  padding: "8px",
+  marginBottom: "14px",
+  border: "1px solid #e2e8f0",
+  borderRadius: "12px",
+  backgroundColor: "#f8fafc",
+};
+
+const integratedTabButtonStyle: CSSProperties = {
+  padding: "8px 12px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "999px",
+  backgroundColor: "#ffffff",
+  color: "#334155",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const integratedTabActiveStyle: CSSProperties = {
+  ...integratedTabButtonStyle,
+  border: "1px solid #2563eb",
+  backgroundColor: "#dbeafe",
+  color: "#1d4ed8",
+};
+
+const integratedSectionStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "14px",
+};
+
+const integratedInfoGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+  gap: "12px",
+};
+
+const integratedInfoItemStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "6px",
+  padding: "12px",
+  border: "1px solid #e5e7eb",
+  borderRadius: "12px",
+  backgroundColor: "#ffffff",
+  color: "#334155",
+};
+
+const integratedInlineFormStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+  gap: "12px",
+  padding: "14px",
+  border: "1px solid #dbeafe",
+  borderRadius: "12px",
+  backgroundColor: "#eff6ff",
+  alignItems: "end",
+};
+
+const integratedFormButtonCellStyle: CSSProperties = {
+  gridColumn: "1 / -1",
+  display: "flex",
+  alignItems: "flex-end",
+  justifyContent: "flex-end",
+  paddingTop: "2px",
+};
+
+const subsectionHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  marginTop: "2px",
+};
+
+const subsectionTitleStyle: CSSProperties = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: "16px",
+  fontWeight: 900,
+};
+
+const subsectionCountStyle: CSSProperties = {
+  display: "inline-flex",
+  padding: "4px 8px",
+  borderRadius: "999px",
+  backgroundColor: "#f1f5f9",
+  color: "#475569",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const compactTableWrapStyle: CSSProperties = {
+  overflowX: "auto",
+  border: "1px solid #e5e7eb",
+  borderRadius: "12px",
+  maxHeight: "280px",
+};
+
+const mutedCellTextStyle: CSSProperties = {
+  marginTop: "3px",
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 700,
+};
+
+const integratedAttendanceSummaryStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "10px",
 };
 
 const modalHeaderStyle: CSSProperties = {
@@ -3595,6 +6676,32 @@ const requiredStyle: CSSProperties = {
   color: "#dc2626",
 };
 
+const rankHistoryInputPanelStyle: CSSProperties = {
+  gridColumn: "1 / -1",
+  display: "flex",
+  flexDirection: "column",
+  gap: "12px",
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid #bfdbfe",
+  backgroundColor: "#eff6ff",
+};
+
+const rankHistoryInputHeaderStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px",
+  color: "#1e3a8a",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const rankHistoryInputGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "12px",
+};
+
 const helpTextBoxStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -3615,3 +6722,364 @@ const formActionStyle: CSSProperties = {
   gap: "8px",
   marginTop: "16px",
 };
+
+const programSelectFieldStyle: CSSProperties = {
+  ...fieldLabelStyle,
+  gridColumn: "span 2",
+  minWidth: 0,
+};
+
+const programSelectStyle: CSSProperties = {
+  ...inputStyle,
+  width: "100%",
+  minWidth: 0,
+};
+
+const reviewNoticeStyle: CSSProperties = {
+  padding: "18px",
+  borderRadius: "12px",
+  border: "1px solid #e2e8f0",
+  backgroundColor: "#f8fafc",
+  color: "#475569",
+  fontWeight: 800,
+  textAlign: "center",
+};
+
+const integratedReviewActionStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(280px, 1fr) minmax(180px, 220px) auto",
+  alignItems: "end",
+  gap: "12px",
+  padding: "14px",
+  border: "1px solid #bfdbfe",
+  borderRadius: "12px",
+  backgroundColor: "#eff6ff",
+};
+
+const reviewActionTitleStyle: CSSProperties = {
+  display: "block",
+  color: "#0f172a",
+  fontSize: "15px",
+  fontWeight: 900,
+};
+
+const reviewActionDescriptionStyle: CSSProperties = {
+  margin: "5px 0 0",
+  color: "#475569",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const reviewDateFieldStyle: CSSProperties = {
+  ...fieldLabelStyle,
+  minWidth: 0,
+};
+
+const reviewResultPanelStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "12px",
+  padding: "16px",
+  border: "1px solid #e2e8f0",
+  borderRadius: "14px",
+  backgroundColor: "#ffffff",
+};
+
+const reviewResultHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const reviewResultTitleStyle: CSSProperties = {
+  display: "block",
+  color: "#0f172a",
+  fontSize: "17px",
+  fontWeight: 900,
+};
+
+const reviewResultMetaStyle: CSSProperties = {
+  display: "block",
+  marginTop: "4px",
+  color: "#64748b",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
+const reviewFinalPassStyle: CSSProperties = {
+  display: "inline-flex",
+  padding: "6px 11px",
+  borderRadius: "999px",
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const reviewFinalFailStyle: CSSProperties = {
+  ...reviewFinalPassStyle,
+  backgroundColor: "#fee2e2",
+  color: "#991b1b",
+};
+
+const reviewCriteriaGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+  gap: "10px",
+};
+
+const reviewCriterionStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "5px",
+  padding: "11px 12px",
+  border: "1px solid #e5e7eb",
+  borderRadius: "10px",
+  backgroundColor: "#f8fafc",
+  color: "#475569",
+  fontSize: "13px",
+  fontWeight: 800,
+};
+
+const reviewPassTextStyle: CSSProperties = {
+  color: "#15803d",
+  fontSize: "14px",
+  fontWeight: 900,
+};
+
+const reviewFailTextStyle: CSSProperties = {
+  color: "#b91c1c",
+  fontSize: "14px",
+  fontWeight: 900,
+};
+
+const reviewReferenceTextStyle: CSSProperties = {
+  color: "#475569",
+  fontSize: "14px",
+  fontWeight: 900,
+};
+
+const reviewNotApplicableTextStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: "14px",
+  fontWeight: 900,
+};
+
+const reviewMissingBoxStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px",
+  padding: "12px",
+  borderRadius: "10px",
+  border: "1px solid #fecaca",
+  backgroundColor: "#fef2f2",
+  color: "#991b1b",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const integratedApprovalFormStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(290px, 1.25fr) minmax(160px, 220px) minmax(240px, 1.5fr) auto",
+  alignItems: "end",
+  gap: "12px",
+  padding: "14px",
+  border: "1px solid #bbf7d0",
+  borderRadius: "12px",
+  backgroundColor: "#f0fdf4",
+};
+
+const approvalFormHeaderStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px",
+  color: "#166534",
+  fontSize: "13px",
+  lineHeight: 1.45,
+  minWidth: 0,
+};
+
+const approvalFormDescriptionStyle: CSSProperties = {
+  whiteSpace: "nowrap",
+};
+
+const approvalNoteFieldStyle: CSSProperties = {
+  ...fieldLabelStyle,
+  minWidth: 0,
+};
+
+const badgeGuidePanelStyle: CSSProperties = {
+  padding: "16px",
+  borderRadius: "14px",
+  border: "1px solid #bfdbfe",
+  backgroundColor: "#eff6ff",
+};
+
+const badgeGuideHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  flexWrap: "wrap",
+  color: "#0f172a",
+  fontSize: "15px",
+  fontWeight: 900,
+  marginBottom: "8px",
+};
+
+const badgeGuideDescriptionStyle: CSSProperties = {
+  margin: "0 0 12px",
+  color: "#475569",
+  fontSize: "13px",
+  lineHeight: 1.6,
+  wordBreak: "keep-all",
+};
+
+const badgeGuideGeneralSummaryStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px 14px",
+  flexWrap: "wrap",
+  padding: "10px 12px",
+  marginBottom: "12px",
+  borderRadius: "10px",
+  border: "1px solid #dbeafe",
+  backgroundColor: "#ffffff",
+  color: "#334155",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const badgeGuideGeneralSummaryMissingStyle: CSSProperties = {
+  padding: "3px 8px",
+  borderRadius: "999px",
+  backgroundColor: "#fee2e2",
+  color: "#991b1b",
+  fontWeight: 900,
+};
+
+const badgeGuideGeneralSummaryCompleteStyle: CSSProperties = {
+  ...badgeGuideGeneralSummaryMissingStyle,
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+};
+
+const badgeGuideGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: "10px",
+};
+
+const badgeGuideGroupStyle: CSSProperties = {
+  padding: "12px",
+  borderRadius: "12px",
+  border: "1px solid #dbeafe",
+  backgroundColor: "#ffffff",
+};
+
+const badgeGuideGroupHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "8px",
+  marginBottom: "9px",
+  color: "#0f172a",
+  fontSize: "13px",
+};
+
+const badgeGuideBadgeListStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "6px",
+};
+
+const badgeGuideGeneralRequirementStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "8px",
+  flexWrap: "wrap",
+  marginTop: "10px",
+  paddingTop: "9px",
+  borderTop: "1px solid #e2e8f0",
+  color: "#334155",
+  fontSize: "12px",
+  lineHeight: 1.5,
+};
+
+const badgeGuideGeneralRequirementMissingStyle: CSSProperties = {
+  color: "#b91c1c",
+  fontWeight: 900,
+};
+
+const badgeGuideGeneralRequirementCompleteStyle: CSSProperties = {
+  color: "#166534",
+  fontWeight: 900,
+};
+
+const badgeGuideBadgeCompleteStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "5px 8px",
+  borderRadius: "999px",
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const badgeGuideBadgeMissingStyle: CSSProperties = {
+  ...badgeGuideBadgeCompleteStyle,
+  backgroundColor: "#fee2e2",
+  color: "#991b1b",
+};
+
+const badgeGuideMissingCountStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "3px 8px",
+  borderRadius: "999px",
+  backgroundColor: "#fee2e2",
+  color: "#991b1b",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const badgeGuideCompleteCountStyle: CSSProperties = {
+  ...badgeGuideMissingCountStyle,
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+};
+
+const badgeGuideEmptyStyle: CSSProperties = {
+  padding: "12px",
+  borderRadius: "12px",
+  backgroundColor: "#ffffff",
+  border: "1px dashed #bfdbfe",
+  color: "#475569",
+  fontSize: "13px",
+};
+
+const badgeGuideNextBoxStyle: CSSProperties = {
+  marginTop: "10px",
+  padding: "11px 12px",
+  borderRadius: "12px",
+  backgroundColor: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  color: "#334155",
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const badgeGuideFootnoteStyle: CSSProperties = {
+  marginTop: "9px",
+  color: "#64748b",
+  fontSize: "12px",
+  lineHeight: 1.5,
+};
+

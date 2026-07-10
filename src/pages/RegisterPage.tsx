@@ -17,6 +17,12 @@ const REQUESTED_ROLE_LABELS: Record<RequestedRole, string> = {
   viewer: "조회전용",
 };
 
+const REQUESTED_ROLE_DESCRIPTIONS: Record<RequestedRole, string> = {
+  org_admin: "소속대 정보, 대원, 진급, 기능장, 출석, 보고서 기능 전체 사용",
+  leader: "대원·출석·진급 관련 실무 기능 사용",
+  viewer: "자료 조회만 가능",
+};
+
 export default function RegisterPage() {
   const navigate = useNavigate();
 
@@ -149,7 +155,7 @@ export default function RegisterPage() {
             <li>신청자 정보와 소속대 정보 입력</li>
             <li>최고관리자 승인</li>
             <li>승인된 계정으로 로그인</li>
-            <li>권한에 따라 진급관리 기능 사용</li>
+            <li>시스템 사용 권한에 따라 진급관리 기능 사용</li>
           </ol>
         </div>
       </section>
@@ -237,7 +243,7 @@ export default function RegisterPage() {
             </label>
 
             <label style={labelStyle}>
-              신청 권한
+              시스템 사용 권한
               <select
                 value={requestedRole}
                 onChange={(event) =>
@@ -253,6 +259,24 @@ export default function RegisterPage() {
                 ))}
               </select>
             </label>
+          </div>
+
+          <div style={roleGuideBoxStyle}>
+            <strong style={roleGuideTitleStyle}>권한 선택 안내</strong>
+            <p style={roleGuideTextStyle}>
+              시스템 사용 권한은 실제 직책이 아니라 프로그램에서 사용할 수 있는 기능 범위입니다.
+              소속대 전체 기능을 운영하거나 체험하려면 조직관리자를 선택하세요.
+            </p>
+            <div style={roleGuideListStyle}>
+              {Object.entries(REQUESTED_ROLE_LABELS).map(([value, label]) => (
+                <div key={value} style={roleGuideItemStyle}>
+                  <span style={roleGuideItemLabelStyle}>{label}</span>
+                  <span style={roleGuideItemTextStyle}>
+                    {REQUESTED_ROLE_DESCRIPTIONS[value as RequestedRole]}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
           <label style={labelStyle}>
@@ -493,6 +517,54 @@ const textareaStyle: CSSProperties = {
   resize: "vertical",
   boxSizing: "border-box",
   fontFamily: "inherit",
+};
+
+const roleGuideBoxStyle: CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: "14px",
+  backgroundColor: "#eff6ff",
+  border: "1px solid #bfdbfe",
+  marginTop: "-2px",
+  marginBottom: "16px",
+  color: "#1e3a8a",
+};
+
+const roleGuideTitleStyle: CSSProperties = {
+  display: "block",
+  fontSize: "14px",
+  fontWeight: 900,
+  marginBottom: "6px",
+};
+
+const roleGuideTextStyle: CSSProperties = {
+  margin: "0 0 10px",
+  fontSize: "13px",
+  lineHeight: 1.6,
+  color: "#1e40af",
+  wordBreak: "keep-all",
+};
+
+const roleGuideListStyle: CSSProperties = {
+  display: "grid",
+  gap: "6px",
+};
+
+const roleGuideItemStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "84px 1fr",
+  gap: "8px",
+  alignItems: "start",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const roleGuideItemLabelStyle: CSSProperties = {
+  color: "#0f172a",
+  fontWeight: 900,
+};
+
+const roleGuideItemTextStyle: CSSProperties = {
+  color: "#475569",
 };
 
 const errorBoxStyle: CSSProperties = {

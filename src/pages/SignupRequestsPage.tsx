@@ -20,6 +20,7 @@ type SignupRequest = {
   updated_at: string;
 };
 
+type ApprovalRole = "org_admin" | "leader" | "viewer";
 type StatusFilter = "all" | "pending" | "approved" | "rejected" | "suspended";
 type OrganizationStatus = "active" | "suspended" | "closed" | "inactive" | string;
 type OrganizationStatusFilter =
@@ -57,6 +58,7 @@ export default function SignupRequestsPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
+  const [approvalRoles, setApprovalRoles] = useState<Record<string, ApprovalRole>>({});
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
   const [keyword, setKeyword] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(
@@ -223,12 +225,25 @@ export default function SignupRequestsPage() {
     setOrganizations(organizationRows);
 
     const initialNotes: Record<string, string> = {};
+    const initialApprovalRoles: Record<string, ApprovalRole> = {};
     rows.forEach((request) => {
       if (request.admin_note) {
         initialNotes[request.id] = request.admin_note;
       }
+
+      if (request.status === "pending") {
+        initialApprovalRoles[request.id] = getApprovalRoleValue(request.requested_role);
+      }
     });
     setAdminNotes(initialNotes);
+    setApprovalRoles((current) => ({
+      ...initialApprovalRoles,
+      ...Object.fromEntries(
+        Object.entries(current).filter(([requestId]) =>
+          rows.some((request) => request.id === requestId && request.status === "pending"),
+        ),
+      ),
+    }));
     setLoading(false);
   };
 
@@ -416,8 +431,20 @@ export default function SignupRequestsPage() {
   };
 
   const handleApprove = async (request: SignupRequest) => {
+    const approvalRole = getApprovalRoleValue(
+      approvalRoles[request.id] ?? request.requested_role,
+    );
+
     const confirmed = window.confirm(
-      `${request.name}님의 이용신청을 승인하시겠습니까?\n\n소속: ${request.organization_name}\n권한: ${getRoleLabel(request.requested_role)}`,
+      [
+        `${request.name}님의 이용신청을 승인하시겠습니까?`,
+        "",
+        `소속: ${request.organization_name}`,
+        `요청 권한: ${getRoleLabel(request.requested_role)}`,
+        `승인 권한: ${getRoleLabel(approvalRole)}`,
+        "",
+        "승인 권한 기준으로 계정 권한이 부여됩니다.",
+      ].join("\n"),
     );
 
     if (!confirmed) return;
@@ -425,6 +452,25 @@ export default function SignupRequestsPage() {
     setProcessingId(request.id);
     setErrorMessage("");
     setSuccessMessage("");
+
+    if (getApprovalRoleValue(request.requested_role) !== approvalRole) {
+      const { error: roleUpdateError } = await supabase
+        .from("signup_requests")
+        .update({
+          requested_role: approvalRole,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", request.id)
+        .eq("status", "pending")
+        .is("deleted_at", null);
+
+      if (roleUpdateError) {
+        console.error("승인 권한 변경 오류:", roleUpdateError.message);
+        setErrorMessage(`승인 권한 변경에 실패했습니다. ${roleUpdateError.message}`);
+        setProcessingId(null);
+        return;
+      }
+    }
 
     const { error } = await supabase.rpc("approve_signup_request", {
       p_request_id: request.id,
@@ -439,7 +485,9 @@ export default function SignupRequestsPage() {
     }
 
     await loadRequests({ keepMessage: true });
-    setSuccessMessage(`${request.name}님의 이용신청을 승인했습니다.`);
+    setSuccessMessage(
+      `${request.name}님의 이용신청을 ${getRoleLabel(approvalRole)} 권한으로 승인했습니다.`,
+    );
     setProcessingId(null);
   };
 
@@ -604,7 +652,7 @@ export default function SignupRequestsPage() {
                     </div>
 
                     <div style={requestListMetaStyle}>
-                      {request.organization_name} ·{" "}
+                      {request.organization_name} · 요청 권한{" "}
                       {getRoleLabel(request.requested_role)}
                     </div>
                     <div style={requestListSubMetaStyle}>
@@ -654,7 +702,7 @@ export default function SignupRequestsPage() {
                     value={selectedRequest.organization_name}
                   />
                   <InfoItem
-                    label="신청 역할"
+                    label="요청 권한"
                     value={getRoleLabel(selectedRequest.requested_role)}
                   />
                   <InfoItem
@@ -680,21 +728,67 @@ export default function SignupRequestsPage() {
                 </div>
 
                 {selectedRequest.status === "pending" ? (
-                  <label style={memoLabelStyle}>
-                    관리자 메모
-                    <textarea
-                      value={adminNotes[selectedRequest.id] ?? ""}
-                      onChange={(event) =>
-                        setAdminNotes((prev) => ({
-                          ...prev,
-                          [selectedRequest.id]: event.target.value,
-                        }))
-                      }
-                      placeholder="승인 메모 또는 반려 사유를 입력하세요. 반려 시에는 반드시 사유가 필요합니다."
-                      rows={4}
-                      style={memoTextareaStyle}
-                    />
-                  </label>
+                  <>
+                    <div style={approvalRoleBoxStyle}>
+                      <label style={approvalRoleLabelStyle}>
+                        승인 권한
+                        <select
+                          value={
+                            approvalRoles[selectedRequest.id] ??
+                            getApprovalRoleValue(selectedRequest.requested_role)
+                          }
+                          onChange={(event) =>
+                            setApprovalRoles((prev) => ({
+                              ...prev,
+                              [selectedRequest.id]: getApprovalRoleValue(event.target.value),
+                            }))
+                          }
+                          style={approvalRoleSelectStyle}
+                        >
+                          {(["org_admin", "leader", "viewer"] as ApprovalRole[]).map(
+                            (role) => (
+                              <option key={role} value={role}>
+                                {getRoleLabel(role)}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </label>
+                      <div style={approvalRoleGuideStyle}>
+                        <strong>권한은 신청자의 실제 직책이 아니라 프로그램 사용 범위입니다.</strong>
+                        <span>
+                          조직관리자는 소속대 정보, 대원, 진급, 기능장, 출석, 보고서 기능 전체를 사용할 수 있습니다.
+                        </span>
+                      </div>
+                      {getApprovalRoleValue(selectedRequest.requested_role) !==
+                        (approvalRoles[selectedRequest.id] ??
+                          getApprovalRoleValue(selectedRequest.requested_role)) && (
+                        <div style={approvalRoleChangedStyle}>
+                          요청 권한은 {getRoleLabel(selectedRequest.requested_role)}이지만,
+                          승인 시 {getRoleLabel(
+                            approvalRoles[selectedRequest.id] ??
+                              getApprovalRoleValue(selectedRequest.requested_role),
+                          )} 권한으로 처리됩니다.
+                        </div>
+                      )}
+                    </div>
+
+                    <label style={memoLabelStyle}>
+                      관리자 메모
+                      <textarea
+                        value={adminNotes[selectedRequest.id] ?? ""}
+                        onChange={(event) =>
+                          setAdminNotes((prev) => ({
+                            ...prev,
+                            [selectedRequest.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="승인 메모 또는 반려 사유를 입력하세요. 반려 시에는 반드시 사유가 필요합니다."
+                        rows={4}
+                        style={memoTextareaStyle}
+                      />
+                    </label>
+                  </>
                 ) : (
                   <ReadOnlyTextBox
                     label={
@@ -1093,6 +1187,18 @@ function isApprovedProfileStatus(status: string) {
   return status === "approved" || status === "active";
 }
 
+function isApprovalRole(value: string): value is ApprovalRole {
+  return value === "org_admin" || value === "leader" || value === "viewer";
+}
+
+function getApprovalRoleValue(value: string | null | undefined): ApprovalRole {
+  if (typeof value === "string" && isApprovalRole(value)) {
+    return value;
+  }
+
+  return "org_admin";
+}
+
 function getOrganizationTypeLabel(value: string) {
   if (value === "local") return "지역대";
   if (value === "school") return "학교대";
@@ -1100,9 +1206,9 @@ function getOrganizationTypeLabel(value: string) {
 }
 
 function getRoleLabel(value: string) {
-  if (value === "org_admin") return "대 관리자";
+  if (value === "org_admin") return "조직관리자";
   if (value === "leader") return "지도자";
-  if (value === "viewer") return "조회자";
+  if (value === "viewer") return "조회전용";
   if (value === "super_admin") return "최고관리자";
   return value;
 }
@@ -1517,6 +1623,57 @@ const memoTextareaStyle: CSSProperties = {
   resize: "vertical",
   boxSizing: "border-box",
   fontFamily: "inherit",
+};
+
+const approvalRoleBoxStyle: CSSProperties = {
+  padding: "14px",
+  borderRadius: "14px",
+  border: "1px solid #bfdbfe",
+  backgroundColor: "#eff6ff",
+  marginBottom: "14px",
+};
+
+const approvalRoleLabelStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "120px minmax(180px, 260px)",
+  gap: "12px",
+  alignItems: "center",
+  color: "#334155",
+  fontSize: "14px",
+  fontWeight: 900,
+};
+
+const approvalRoleSelectStyle: CSSProperties = {
+  height: "42px",
+  borderRadius: "10px",
+  border: "1px solid #93c5fd",
+  backgroundColor: "#ffffff",
+  color: "#0f172a",
+  padding: "0 12px",
+  fontSize: "14px",
+  fontWeight: 800,
+  outline: "none",
+};
+
+const approvalRoleGuideStyle: CSSProperties = {
+  display: "grid",
+  gap: "4px",
+  marginTop: "10px",
+  color: "#1e40af",
+  fontSize: "13px",
+  lineHeight: 1.55,
+};
+
+const approvalRoleChangedStyle: CSSProperties = {
+  marginTop: "10px",
+  padding: "10px 12px",
+  borderRadius: "10px",
+  backgroundColor: "#fff7ed",
+  color: "#c2410c",
+  border: "1px solid #fed7aa",
+  fontSize: "13px",
+  fontWeight: 800,
+  lineHeight: 1.55,
 };
 
 const detailActionAreaStyle: CSSProperties = {

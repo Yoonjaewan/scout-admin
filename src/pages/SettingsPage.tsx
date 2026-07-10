@@ -567,7 +567,7 @@ export default function SettingsPage() {
               <h2 style={sectionTitleStyle}>소속대 정보</h2>
               <p style={sectionDescriptionStyle}>
                 {canEdit
-                  ? "대번호, 소속 대명과 기본 정보를 수정할 수 있습니다."
+                  ? "대번호와 소속 대명은 필수 입력 항목입니다. 대원번호 자동 발번과 보고서 출력에 사용됩니다."
                   : "현재 계정은 소속대 정보를 조회할 수 있습니다."}
               </p>
             </div>
@@ -588,7 +588,7 @@ export default function SettingsPage() {
                 </label>
 
                 <label style={labelStyle}>
-                  대번호
+                  <span style={requiredLabelStyle}>대번호 <span style={requiredMarkStyle}>*</span></span>
                   <input
                     type="text"
                     value={form.unitNumber}
@@ -596,8 +596,13 @@ export default function SettingsPage() {
                     disabled={!canEdit || saving}
                     placeholder="예: 404"
                     style={inputStyle}
+                    required
                   />
                 </label>
+              </div>
+
+              <div style={formGuideBoxStyle}>
+                대번호와 소속 대명은 필수입니다. 대번호가 없으면 대원번호 자동 발번, 보고서 출력, 소속대 구분에 문제가 생길 수 있습니다.
               </div>
 
               <label style={labelStyle}>
@@ -608,7 +613,7 @@ export default function SettingsPage() {
               </label>
 
               <label style={labelStyle}>
-                소속 대명
+                <span style={requiredLabelStyle}>소속 대명 <span style={requiredMarkStyle}>*</span></span>
                 <input
                   type="text"
                   value={form.name}
@@ -616,6 +621,7 @@ export default function SettingsPage() {
                   disabled={!canEdit || saving}
                   placeholder="예: 테스트학교대"
                   style={inputStyle}
+                  required
                 />
               </label>
 
@@ -839,6 +845,29 @@ const labelStyle: CSSProperties = {
   fontWeight: 800,
   color: "#334155",
   marginBottom: "16px",
+};
+
+const requiredLabelStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "4px",
+};
+
+const requiredMarkStyle: CSSProperties = {
+  color: "#dc2626",
+  fontWeight: 900,
+};
+
+const formGuideBoxStyle: CSSProperties = {
+  padding: "10px 12px",
+  marginBottom: "16px",
+  borderRadius: "10px",
+  border: "1px solid #bfdbfe",
+  backgroundColor: "#eff6ff",
+  color: "#1e3a8a",
+  fontSize: "13px",
+  lineHeight: 1.5,
+  fontWeight: 700,
 };
 
 const inputStyle: CSSProperties = {

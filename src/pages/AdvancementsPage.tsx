@@ -284,7 +284,7 @@ function getApprovalTypeLabel(value: string) {
 }
 
 function getDateStatusLabel(expectedDate: string | null) {
-  if (!expectedDate) return "기준 없음";
+  if (!expectedDate) return "기준 확인 필요";
 
   const todayText = getTodayText();
 
@@ -894,6 +894,46 @@ export default function AdvancementsPage() {
       return;
     }
 
+    const reviewTargetScout = scouts.find((scout) => scout.id === selectedScoutId) ?? null;
+
+    if (!reviewTargetScout) {
+      setPromotionReviewErrorMessage("진급 판정할 대원 정보를 확인하지 못했습니다.");
+      return;
+    }
+
+    if (!reviewTargetScout.current_rank_id) {
+      setPromotionReviewErrorMessage("현재급위가 등록되어 있지 않아 진급 판정을 실행할 수 없습니다.");
+      return;
+    }
+
+    const reviewTargetNextRank = getNextRank(reviewTargetScout);
+
+    if (!reviewTargetNextRank) {
+      setPromotionReviewErrorMessage("다음 급위가 없어 진급 판정을 실행할 수 없습니다.");
+      return;
+    }
+
+    const reviewTargetRequirement = getRequirementForTransition(
+      reviewTargetScout.current_rank_id,
+      reviewTargetNextRank,
+    );
+
+    if (!reviewTargetRequirement) {
+      setPromotionReviewErrorMessage(
+        `${getCurrentRankDisplay(reviewTargetScout)}에서 ${reviewTargetNextRank.rank_name}(으)로 진급하기 위한 판정 기준을 확인하지 못했습니다. 환경설정 또는 기준 데이터를 확인해 주세요.`,
+      );
+      return;
+    }
+
+    const reviewTargetBaseDate = getReviewBaseDate(reviewTargetScout);
+
+    if (!reviewTargetBaseDate) {
+      setPromotionReviewErrorMessage(
+        "현재급위 인가일이 없어 진급 판정을 실행할 수 없습니다. 대원관리에서 현재급위와 인가일을 먼저 등록해 주세요.",
+      );
+      return;
+    }
+
     setPromotionReviewSubmitting(true);
     setPromotionReviewErrorMessage("");
     setPromotionApprovalErrorMessage("");
@@ -915,7 +955,7 @@ export default function AdvancementsPage() {
 
     if (error) {
       console.error("진급 판정 오류:", error.message);
-      setPromotionReviewErrorMessage("진급 판정 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      setPromotionReviewErrorMessage(`진급 판정에 실패했습니다. ${error.message}`);
       setPromotionReviewSubmitting(false);
       return;
     }
@@ -1247,6 +1287,50 @@ export default function AdvancementsPage() {
     return addMonthsToDateText(baseDate, requirement.required_months);
   };
 
+  const getRequirementForTransition = (fromRankId: string | null, toRank: Rank | null) => {
+    if (!toRank) return null;
+
+    return (
+      rankRequirements.find(
+        (requirement) =>
+          requirement.to_rank_id === toRank.id &&
+          (!fromRankId || requirement.from_rank_id === fromRankId),
+      ) ??
+      requirementByToRankIdMap.get(toRank.id) ??
+      null
+    );
+  };
+
+  const getIsBeginnerCourseNoticeNeeded = (scout: Scout) => {
+    if (!scout.beginner_course_exempted || isCubScoutByGrade(scout)) return false;
+
+    const beginnerRank = sortedRanks.find(
+      (rank) => rank.rank_code === "beginner" || rank.rank_name === "초급",
+    );
+
+    if (!beginnerRank) return false;
+
+    const currentRank = scout.current_rank_id
+      ? rankByIdMap.get(scout.current_rank_id) ?? null
+      : null;
+
+    if (!currentRank) return true;
+
+    if (currentRank.id === beginnerRank.id) return true;
+
+    return !isRankCompleted(scout, beginnerRank.id);
+  };
+
+  const getMissingRequirementDisplay = (nextRank: Rank | null) => {
+    if (!nextRank) return "최종급위";
+
+    if (nextRank.rank_code === "beom" || nextRank.rank_name === "범") {
+      return "범 진급 기준 확인 필요";
+    }
+
+    return "진급 기준 확인 필요";
+  };
+
   const getExpectedDateDisplay = (scout: Scout) => {
     if (isCubScoutByGrade(scout)) {
       return "학년 기준 자동진급";
@@ -1263,7 +1347,7 @@ export default function AdvancementsPage() {
         return "초급 인가일 등록 필요";
       }
 
-      return "기준 없음";
+      return getMissingRequirementDisplay(nextRank);
     }
 
     return expectedDate;
@@ -2631,7 +2715,7 @@ export default function AdvancementsPage() {
                 </div>
               </div>
 
-              {selectedScout.beginner_course_exempted && (
+              {getIsBeginnerCourseNoticeNeeded(selectedScout) && (
                 <div style={noticeBoxStyle}>
                   초급과정 면제 대상입니다. 초급 인가 기록은 별도로 관리해야 합니다.
                 </div>
@@ -2795,9 +2879,10 @@ export default function AdvancementsPage() {
                 const entryBasedDate = getEntryBasedExpectedDate(selectedScout);
                 const reviewBaseDate = getReviewBaseDate(selectedScout);
                 const reviewBasedDate = getReviewBasedExpectedDate(selectedScout);
-                const requirement = nextRank
-                  ? requirementByToRankIdMap.get(nextRank.id)
-                  : null;
+                const requirement = getRequirementForTransition(
+                  selectedScout.current_rank_id,
+                  nextRank,
+                );
                 const cumulativeMonths = nextRank
                   ? getCumulativeRequiredMonthsToRank(nextRank)
                   : 0;
@@ -2829,14 +2914,14 @@ export default function AdvancementsPage() {
                       <div style={expectedItemStyle}>
                         <div style={expectedLabelStyle}>필요 활동기간</div>
                         <div style={expectedValueStyle}>
-                          {requirement ? `${requirement.required_months}개월` : "기준 없음"}
+                          {requirement ? `${requirement.required_months}개월` : getMissingRequirementDisplay(nextRank)}
                         </div>
                       </div>
                     </div>
 
                     <p style={compactHelpTextStyle}>
                       {cumulativeMonths > 0
-                        ? `입단일 기준 누적기간 ${cumulativeMonths}개월 · 판정 기준 예상일 ${reviewBasedDate ?? "기준 부족"}`
+                        ? `입단일 기준 누적기간 ${cumulativeMonths}개월 · 판정 기준 예상일 ${reviewBasedDate ?? getMissingRequirementDisplay(nextRank)}`
                         : "입단일 기준 누적기간은 등록된 진급 기준을 기준으로 계산합니다."}
                     </p>
                   </>
