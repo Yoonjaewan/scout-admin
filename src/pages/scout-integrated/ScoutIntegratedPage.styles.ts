@@ -305,7 +305,7 @@ export const errorBoxStyle: CSSProperties = {
 
 export const workspaceStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "310px minmax(0, 1fr)",
+  gridTemplateColumns: "270px minmax(0, 1fr)",
   gap: "18px",
   alignItems: "start",
 };
@@ -323,7 +323,7 @@ export const scoutPanelStyle: CSSProperties = {
 };
 
 export const panelHeaderStyle: CSSProperties = {
-  padding: "16px",
+  padding: "12px",
   display: "flex",
   alignItems: "flex-start",
   justifyContent: "space-between",
@@ -408,7 +408,7 @@ export const registrationMenuItemDescriptionStyle: CSSProperties = {
 };
 
 export const searchAreaStyle: CSSProperties = {
-  padding: "12px",
+  padding: "10px",
   borderBottom: "1px solid #e2e8f0",
   backgroundColor: "#f8fafc",
 };
@@ -449,7 +449,7 @@ export const scoutListStyle: CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflowY: "auto",
-  padding: "8px",
+  padding: "6px",
 };
 
 export const emptyStateStyle: CSSProperties = {
@@ -462,8 +462,8 @@ export const emptyStateStyle: CSSProperties = {
 
 export const scoutItemStyle: CSSProperties = {
   width: "100%",
-  marginBottom: "7px",
-  padding: "12px",
+  marginBottom: "5px",
+  padding: "9px 10px",
   border: "1px solid transparent",
   borderRadius: "10px",
   backgroundColor: "#ffffff",
@@ -487,12 +487,12 @@ export const scoutItemTopStyle: CSSProperties = {
 };
 
 export const scoutNameStyle: CSSProperties = {
-  fontSize: "15px",
+  fontSize: "14px",
   fontWeight: 900,
 };
 
 export const scoutItemMetaStyle: CSSProperties = {
-  marginTop: "5px",
+  marginTop: "2px",
   color: "#64748b",
   fontSize: "12px",
   lineHeight: 1.4,
