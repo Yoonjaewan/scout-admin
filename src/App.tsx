@@ -15,7 +15,9 @@ import PendingApprovalPage from "./pages/PendingApprovalPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import SignupRequestsPage from "./pages/SignupRequestsPage";
 import OrganizationsPage from "./pages/OrganizationsPage";
+import OrganizationBackupsPage from "./pages/OrganizationBackupsPage";
 import ScoutsPage from "./pages/ScoutsPage";
+import ScoutIntegratedPage from "./pages/ScoutIntegratedPage";
 import AdvancementsPage from "./pages/AdvancementsPage";
 import MeritBadgesPage from "./pages/MeritBadgesPage";
 import ProgramCompletionsPage from "./pages/ProgramCompletionsPage";
@@ -314,6 +316,12 @@ const MENU_ITEMS: MenuItem[] = [
     allowedRoles: ALL_ROLES,
   },
   {
+    to: "/scout-integrated",
+    label: "대원 통합관리",
+    description: "대원별 기본정보와 진급·기능장·프로그램·출석 현황을 통합 관리합니다.",
+    allowedRoles: ALL_ROLES,
+  },
+  {
     to: "/scouts",
     label: "대원 관리",
     description: "대원 정보를 등록·조회·수정합니다.",
@@ -367,12 +375,20 @@ const MENU_ITEMS: MenuItem[] = [
     description: "승인된 소속대의 이용 상태를 관리합니다.",
     allowedRoles: ["super_admin"],
   },
+  {
+    to: "/admin/organization-backups",
+    label: "소속대 백업센터",
+    description: "소속대별 데이터를 백업하고 제공 이력을 관리합니다.",
+    allowedRoles: ["super_admin"],
+  },
 ];
 
 const SUPER_ADMIN_MENU_ORDER = [
   "/dashboard",
   "/admin/signup-requests",
   "/admin/organizations",
+  "/admin/organization-backups",
+  "/scout-integrated",
   "/scouts",
   "/advancements",
   "/merit-badges",
@@ -386,6 +402,8 @@ const SUPER_ADMIN_MENU_LABELS: Record<string, string> = {
   "/dashboard": "대시보드",
   "/admin/signup-requests": "이용신청 관리",
   "/admin/organizations": "소속대 관리",
+  "/admin/organization-backups": "소속대 백업센터",
+  "/scout-integrated": "전체 대원 통합관리",
   "/scouts": "전체 대원 현황",
   "/advancements": "전체 진급 현황",
   "/merit-badges": "전체 기능장 현황",
@@ -394,6 +412,22 @@ const SUPER_ADMIN_MENU_LABELS: Record<string, string> = {
   "/reports": "보고서 출력",
   "/settings": "환경설정",
 };
+
+function getSidebarGroupLabel(role: UserRole, menuPath: string) {
+  if (role === "super_admin") {
+    if (menuPath === "/dashboard") return "운영 현황";
+    if (menuPath === "/admin/signup-requests") return "최고관리자";
+    if (menuPath === "/scout-integrated") return "전체 대원 운영";
+    if (menuPath === "/reports") return "문서·설정";
+    return null;
+  }
+
+  if (menuPath === "/dashboard") return "운영 현황";
+  if (menuPath === "/scout-integrated") return "대원 운영";
+  if (menuPath === "/reports") return "문서·설정";
+
+  return null;
+}
 
 function getMenuLabelForRole(role: UserRole, menu: MenuItem) {
   if (role === "super_admin") {
@@ -1377,7 +1411,7 @@ function SuperAdminDashboardHome({
           </div>
 
           <div style={dashboardTwoColumnStyle}>
-            <section>
+            <section style={dashboardSectionCardStyle}>
               <div style={sectionHeaderStyle}>
                 <h2 style={sectionTitleStyle}>승인 대기 신청</h2>
                 <p style={sectionDescriptionStyle}>
@@ -1464,7 +1498,7 @@ function SuperAdminDashboardHome({
               <RecentRankApprovalList items={stats.operations.recentRankApprovals} />
             </section>
 
-            <section>
+            <section style={dashboardSectionCardStyle}>
               <div style={sectionHeaderStyle}>
                 <h2 style={sectionTitleStyle}>최근 기능장 인가</h2>
                 <p style={sectionDescriptionStyle}>전체 소속대 기준 최근 기능장 인가 내역입니다.</p>
@@ -1843,6 +1877,7 @@ function OrganizationDashboardHome({
             <DashboardSummaryCard
               title="전체 대원"
               value={`${stats.totalScouts}명`}
+              tone="neutral"
               description="현재 등록된 대원 기준입니다."
               selected={selectedOverviewType === "total"}
               onClick={() => {
@@ -1853,6 +1888,7 @@ function OrganizationDashboardHome({
             <DashboardSummaryCard
               title="활동 대원"
               value={`${stats.activeScouts}명`}
+              tone="info"
               description={
                 stats.scoutStatusAvailable
                   ? `비활동 ${stats.inactiveScouts}명 / 졸업 ${stats.graduatedScouts}명`
@@ -1867,6 +1903,7 @@ function OrganizationDashboardHome({
             <DashboardSummaryCard
               title="진급 가능"
               value={`${stats.promotionPossible}명`}
+              tone="success"
               description="최근 진급 판정에서 모든 조건을 충족한 대원입니다."
               selected={selectedOverviewType === "promotionPossible"}
               onClick={() => {
@@ -1879,6 +1916,7 @@ function OrganizationDashboardHome({
             <DashboardSummaryCard
               title="판정 필요"
               value={`${stats.notReviewedScouts}명`}
+              tone="warning"
               description={`활동 대원 중 아직 진급 판정이 진행되지 않은 대원입니다.`}
               selected={selectedOverviewType === "notReviewed"}
               onClick={() => {
@@ -1902,9 +1940,9 @@ function OrganizationDashboardHome({
           ) : null}
 
           <div style={noticeCardStyle}>
-            <strong>진급 판정 안내</strong>
+            <strong>판정 기준 안내</strong>
             <span>
-              출석률은 참고 지표로 표시하며, 진급 가능 여부는 활동기간·기능장·WSEP/MoP 조건 충족 여부로 확인합니다.
+              진급 가능 여부는 활동기간·기능장·WSEP/MoP 조건을 기준으로 확인합니다. 출석률은 현재 참고 지표로 표시됩니다.
             </span>
           </div>
 
@@ -1915,7 +1953,7 @@ function OrganizationDashboardHome({
             </p>
           </div>
 
-          <div style={summaryGridStyle}>
+          <div style={dashboardIssueGridStyle}>
             <DashboardIssueCard
               issueType="period"
               title="기간 부족"
@@ -1961,7 +1999,7 @@ function OrganizationDashboardHome({
             />
           ) : null}
 
-          <div style={sectionHeaderStyle}>
+          <div style={{ ...sectionHeaderStyle, marginTop: "24px" }}>
             <h2 style={sectionTitleStyle}>급위별 활동 대원</h2>
             <p style={sectionDescriptionStyle}>
               현재급위별 활동 대원 수입니다.
@@ -2009,7 +2047,9 @@ function OrganizationDashboardHome({
             </p>
           </div>
 
-          <RecentMeetingList items={stats.recentMeetings} />
+          <section style={dashboardSectionCardStyle}>
+            <RecentMeetingList items={stats.recentMeetings} />
+          </section>
         </>
       ) : null}
 
@@ -2043,12 +2083,14 @@ function DashboardSummaryCard({
   description,
   selected = false,
   onClick,
+  tone = "neutral",
 }: {
   title: string;
   value: string;
   description: string;
   selected?: boolean;
   onClick?: () => void;
+  tone?: "neutral" | "info" | "success" | "warning";
 }) {
   if (onClick) {
     return (
@@ -2057,6 +2099,7 @@ function DashboardSummaryCard({
         onClick={onClick}
         style={{
           ...summaryCardButtonStyle,
+          ...summaryCardToneStyle(tone),
           ...(selected ? summaryCardButtonSelectedStyle : {}),
         }}
         aria-pressed={selected}
@@ -2070,7 +2113,7 @@ function DashboardSummaryCard({
   }
 
   return (
-    <section style={summaryCardStyle}>
+    <section style={{ ...summaryCardStyle, ...summaryCardToneStyle(tone) }}>
       <h2 style={summaryTitleStyle}>{title}</h2>
       <p style={summaryValueStyle}>{value}</p>
       <p style={summaryDescriptionStyle}>{description}</p>
@@ -2145,6 +2188,7 @@ function DashboardOverviewDetail({
 }
 
 function DashboardIssueCard({
+  issueType,
   title,
   value,
   description,
@@ -2164,6 +2208,7 @@ function DashboardIssueCard({
       onClick={onClick}
       style={{
         ...summaryCardButtonStyle,
+        ...dashboardIssueCardStyle(issueType),
         ...(selected ? summaryCardButtonSelectedStyle : {}),
       }}
       aria-pressed={selected}
@@ -2530,6 +2575,25 @@ function AppLayout() {
             pointer-events: auto !important;
           }
 
+          .app-side-menu-button {
+            transition:
+              background-color 140ms ease,
+              color 140ms ease,
+              transform 140ms ease,
+              box-shadow 140ms ease;
+          }
+
+          .app-side-menu-button:hover {
+            background-color: rgba(59, 130, 246, 0.16) !important;
+            color: #ffffff !important;
+            transform: translateX(2px);
+          }
+
+          .app-side-menu-button:focus-visible {
+            outline: 2px solid #93c5fd;
+            outline-offset: 2px;
+          }
+
           .app-fixed-sidebar {
             position: fixed !important;
             left: 0 !important;
@@ -2602,14 +2666,18 @@ function AppLayout() {
         <div style={sidebarSeparatorStyle} />
 
         <nav style={navStyle}>
-          {visibleMenus.map((menu) => (
-            <div key={menu.to} style={sideMenuItemWrapStyle}>
-              {menu.to === "/settings" && visibleMenus.some((item) => item.to === "/reports") ? (
-                <div style={menuGroupSeparatorStyle} />
-              ) : null}
-              <SideMenuLink to={menu.to} label={menu.label} />
-            </div>
-          ))}
+          {visibleMenus.map((menu) => {
+            const groupLabel = getSidebarGroupLabel(role, menu.to);
+
+            return (
+              <div key={menu.to} style={sideMenuItemWrapStyle}>
+                {groupLabel ? (
+                  <div style={menuGroupLabelStyle}>{groupLabel}</div>
+                ) : null}
+                <SideMenuLink to={menu.to} label={menu.label} />
+              </div>
+            );
+          })}
         </nav>
 
       </aside>
@@ -2635,6 +2703,16 @@ function AppLayout() {
             element={
               organizationSetupComplete ? (
                 <DashboardHome role={role} visibleMenus={visibleMenus} />
+              ) : (
+                <Navigate to="/settings" replace />
+              )
+            }
+          />
+          <Route
+            path="/scout-integrated"
+            element={
+              organizationSetupComplete ? (
+                <ScoutIntegratedPage />
               ) : (
                 <Navigate to="/settings" replace />
               )
@@ -2675,6 +2753,10 @@ function AppLayout() {
               path="/admin/organizations"
               element={<OrganizationsPage />}
             />
+            <Route
+              path="/admin/organization-backups"
+              element={<OrganizationBackupsPage />}
+            />
           </Route>
 
           <Route
@@ -2714,6 +2796,7 @@ function SideMenuLink({ to, label }: { to: string; label: string }) {
   return (
     <button
       type="button"
+      className="app-side-menu-button"
       data-sidebar-menu-to={to}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
@@ -2733,16 +2816,21 @@ function SideMenuLink({ to, label }: { to: string; label: string }) {
         zIndex: 2147483647,
         pointerEvents: "auto",
         userSelect: "none",
-        padding: "12px 16px",
-        borderRadius: "8px",
-        border: "none",
-        color: isActive ? "#ffffff" : "#dbeafe",
+        minHeight: "42px",
+        padding: "10px 12px 10px 14px",
+        borderRadius: "9px",
+        border: isActive ? "1px solid #60a5fa" : "1px solid transparent",
+        color: isActive ? "#ffffff" : "#cbd5e1",
         backgroundColor: isActive ? "#2563eb" : "transparent",
+        boxShadow: isActive
+          ? "inset 4px 0 0 #bfdbfe, 0 6px 14px rgba(15, 23, 42, 0.18)"
+          : "none",
         textAlign: "left",
         textDecoration: "none",
         fontFamily: "inherit",
-        fontSize: "15px",
-        fontWeight: isActive ? 700 : 500,
+        fontSize: "14px",
+        lineHeight: 1.35,
+        fontWeight: isActive ? 800 : 600,
         cursor: "pointer",
       }}
       aria-current={isActive ? "page" : undefined}
@@ -2793,7 +2881,7 @@ const sidebarStyle: CSSProperties = {
   zIndex: 2147483647,
   backgroundColor: "#0f172a",
   color: "#ffffff",
-  padding: "24px 16px",
+  padding: "18px 14px",
   boxSizing: "border-box",
   display: "flex",
   flexDirection: "column",
@@ -2805,18 +2893,18 @@ const sidebarStyle: CSSProperties = {
 };
 
 const logoAreaStyle: CSSProperties = {
-  marginBottom: "16px",
+  marginBottom: "12px",
   padding: 0,
 };
 
 const sidebarLogoBoxStyle: CSSProperties = {
   width: "100%",
-  height: "104px",
+  height: "82px",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  marginBottom: "12px",
-  borderRadius: "10px",
+  marginBottom: "10px",
+  borderRadius: "12px",
   backgroundColor: "#ffffff",
   overflow: "hidden",
   padding: "6px",
@@ -2842,10 +2930,10 @@ const logoInfoLineStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  gap: "7px",
+  gap: "6px",
   minHeight: "20px",
   color: "#e2e8f0",
-  fontSize: "14px",
+  fontSize: "13px",
   fontWeight: 800,
   lineHeight: 1.35,
   textAlign: "center",
@@ -2858,17 +2946,17 @@ const logoInfoDividerStyle: CSSProperties = {
 };
 
 const loginInfoStyle: CSSProperties = {
-  marginTop: "8px",
+  marginTop: "6px",
   color: "#93c5fd",
-  fontSize: "12px",
+  fontSize: "11px",
   fontWeight: 800,
   textAlign: "center",
 };
 
 const sidebarSeparatorStyle: CSSProperties = {
   height: "1px",
-  backgroundColor: "rgba(148, 163, 184, 0.28)",
-  margin: "0 0 16px",
+  backgroundColor: "rgba(148, 163, 184, 0.22)",
+  margin: "0 0 12px",
 };
 
 const setupRequiredSidebarStyle: CSSProperties = {
@@ -2888,7 +2976,7 @@ const navStyle: CSSProperties = {
   position: "relative",
   zIndex: 2147483647,
   flexDirection: "column",
-  gap: "8px",
+  gap: "5px",
   pointerEvents: "auto",
 };
 
@@ -2899,10 +2987,12 @@ const sideMenuItemWrapStyle: CSSProperties = {
   pointerEvents: "auto",
 };
 
-const menuGroupSeparatorStyle: CSSProperties = {
-  height: "1px",
-  backgroundColor: "rgba(148, 163, 184, 0.28)",
-  margin: "4px 0 12px",
+const menuGroupLabelStyle: CSSProperties = {
+  margin: "12px 8px 5px",
+  color: "#64748b",
+  fontSize: "11px",
+  fontWeight: 900,
+  letterSpacing: "0.04em",
 };
 
 const mainStyle: CSSProperties = {
@@ -2946,13 +3036,13 @@ const pageHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
-  gap: "24px",
-  marginBottom: "22px",
+  gap: "20px",
+  marginBottom: "18px",
 };
 
 const pageTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "30px",
+  fontSize: "28px",
   fontWeight: 800,
   color: "#0f172a",
 };
@@ -2995,20 +3085,65 @@ const secondaryButtonStyle: CSSProperties = {
 
 const summaryGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: "14px",
-  marginBottom: "20px",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: "12px",
+  marginBottom: "16px",
 };
 
 const summaryCardStyle: CSSProperties = {
-  minHeight: "142px",
+  minHeight: "118px",
   border: "1px solid #e5e7eb",
-  borderRadius: "12px",
-  padding: "18px 20px",
+  borderRadius: "14px",
+  padding: "15px 16px",
   backgroundColor: "#ffffff",
   display: "flex",
   flexDirection: "column",
   boxSizing: "border-box",
+};
+
+function summaryCardToneStyle(
+  tone: "neutral" | "info" | "success" | "warning",
+): CSSProperties {
+  const palette = {
+    neutral: { borderColor: "#cbd5e1", backgroundColor: "#ffffff" },
+    info: { borderColor: "#bfdbfe", backgroundColor: "#f8fbff" },
+    success: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
+    warning: { borderColor: "#fcd34d", backgroundColor: "#fffbeb" },
+  }[tone];
+
+  return {
+    borderColor: palette.borderColor,
+    backgroundColor: palette.backgroundColor,
+  };
+}
+
+function dashboardIssueCardStyle(
+  issueType: DashboardIssueType,
+): CSSProperties {
+  const palette = {
+    period: { borderColor: "#fca5a5", backgroundColor: "#fef2f2" },
+    badge: { borderColor: "#fdba74", backgroundColor: "#fff7ed" },
+    program: { borderColor: "#fde68a", backgroundColor: "#fffbeb" },
+  }[issueType];
+
+  return {
+    borderColor: palette.borderColor,
+    backgroundColor: palette.backgroundColor,
+  };
+}
+
+const dashboardIssueGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: "12px",
+  marginBottom: "16px",
+};
+
+const dashboardSectionCardStyle: CSSProperties = {
+  padding: "15px",
+  border: "1px solid #e2e8f0",
+  borderRadius: "14px",
+  backgroundColor: "#ffffff",
 };
 
 const summaryCardButtonStyle: CSSProperties = {
@@ -3020,15 +3155,15 @@ const summaryCardButtonStyle: CSSProperties = {
 };
 
 const summaryCardButtonSelectedStyle: CSSProperties = {
-  border: "1px solid #2563eb",
-  boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.12)",
+  border: "2px solid #2563eb",
+  boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.14), 0 8px 18px rgba(15, 23, 42, 0.06)",
 };
 
 const summaryActionTextStyle: CSSProperties = {
   marginTop: "auto",
-  paddingTop: "12px",
+  paddingTop: "8px",
   color: "#2563eb",
-  fontSize: "14px",
+  fontSize: "12px",
   fontWeight: 800,
 };
 
@@ -3039,19 +3174,19 @@ const summaryTitleStyle: CSSProperties = {
 };
 
 const summaryValueStyle: CSSProperties = {
-  marginTop: "10px",
+  marginTop: "7px",
   marginBottom: 0,
-  fontSize: "26px",
+  fontSize: "25px",
   fontWeight: 800,
   color: "#0f172a",
 };
 
 const summaryDescriptionStyle: CSSProperties = {
-  marginTop: "8px",
+  marginTop: "6px",
   marginBottom: 0,
   color: "#64748b",
-  fontSize: "14px",
-  lineHeight: 1.5,
+  fontSize: "12px",
+  lineHeight: 1.45,
 };
 
 const noticeCardStyle: CSSProperties = {
@@ -3060,21 +3195,21 @@ const noticeCardStyle: CSSProperties = {
   alignItems: "center",
   border: "1px solid #bfdbfe",
   borderRadius: "10px",
-  padding: "10px 14px",
+  padding: "9px 12px",
   backgroundColor: "#eff6ff",
   color: "#1e3a8a",
   fontSize: "14px",
   lineHeight: 1.5,
-  marginBottom: "26px",
+  marginBottom: "20px",
 };
 
 const sectionHeaderStyle: CSSProperties = {
-  marginBottom: "14px",
+  marginBottom: "10px",
 };
 
 const sectionTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "22px",
+  fontSize: "20px",
   fontWeight: 800,
   color: "#0f172a",
 };
@@ -3162,12 +3297,13 @@ const emptyTextStyle: CSSProperties = {
 };
 
 const issueDetailCardStyle: CSSProperties = {
-  border: "1px solid #dbeafe",
-  borderRadius: "12px",
-  padding: "20px",
+  border: "1px solid #bfdbfe",
+  borderRadius: "14px",
+  padding: "18px",
   backgroundColor: "#ffffff",
-  marginTop: "-8px",
-  marginBottom: "32px",
+  boxShadow: "0 8px 22px rgba(15, 23, 42, 0.05)",
+  marginTop: "-6px",
+  marginBottom: "24px",
 };
 
 const issueDetailHeaderStyle: CSSProperties = {
@@ -3225,16 +3361,16 @@ const cardLinkStyle: CSSProperties = {
 
 const rankGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-  gap: "10px",
-  marginBottom: "28px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+  gap: "9px",
+  marginBottom: "22px",
 };
 
 const rankCardStyle: CSSProperties = {
-  minHeight: "58px",
+  minHeight: "52px",
   border: "1px solid #e5e7eb",
   borderRadius: "12px",
-  padding: "12px 14px",
+  padding: "10px 12px",
   backgroundColor: "#ffffff",
   display: "flex",
   alignItems: "center",
@@ -3258,8 +3394,8 @@ const rankCountStyle: CSSProperties = {
 
 const dashboardTwoColumnStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-  gap: "18px",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "14px",
   alignItems: "start",
 };
 
@@ -3275,7 +3411,7 @@ const listItemStyle: CSSProperties = {
   justifyContent: "space-between",
   alignItems: "flex-start",
   gap: "12px",
-  padding: "11px 14px",
+  padding: "9px 12px",
   borderBottom: "1px solid #f1f5f9",
 };
 
@@ -3339,7 +3475,7 @@ const tableCardStyle: CSSProperties = {
   borderRadius: "12px",
   backgroundColor: "#ffffff",
   overflowX: "auto",
-  marginBottom: "28px",
+  marginBottom: "20px",
 };
 
 const tableStyle: CSSProperties = {
@@ -3368,16 +3504,17 @@ const tableCellStyle: CSSProperties = {
 
 const logoutButtonStyle: CSSProperties = {
   width: "100%",
-  marginTop: "12px",
+  marginTop: "10px",
   position: "relative",
   zIndex: 2147483647,
   pointerEvents: "auto",
-  padding: "10px 12px",
+  minHeight: "36px",
+  padding: "0 12px",
   borderRadius: "8px",
-  border: "none",
-  backgroundColor: "#ef4444",
-  color: "#ffffff",
-  fontWeight: 700,
+  border: "1px solid rgba(248, 113, 113, 0.72)",
+  backgroundColor: "rgba(127, 29, 29, 0.34)",
+  color: "#fecaca",
+  fontWeight: 800,
   cursor: "pointer",
 };
 

@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
 type ScoutStatus = "active" | "inactive" | "graduated";
+type BadgeWorkFilter = "all" | "support" | "required" | "general" | "unconfirmed" | "unapproved";
 
 type UserProfile = {
   role: UserRole;
@@ -19,7 +20,29 @@ type Scout = {
   member_no: string | null;
   school_name: string | null;
   grade: string | null;
+  current_rank_id: string | null;
   status: ScoutStatus;
+};
+
+type Rank = {
+  id: string;
+  rank_code: string;
+  rank_name: string;
+  sort_order: number;
+};
+
+type RankRequirement = {
+  id: string;
+  from_rank_id: string;
+  to_rank_id: string;
+  required_general_badge_count: number;
+};
+
+type RankRequiredBadge = {
+  id: string;
+  rank_requirement_id: string;
+  badge_id: string;
+  sort_order: number;
 };
 
 type Organization = {
@@ -136,33 +159,6 @@ const SCOUT_STATUS_LABELS: Record<ScoutStatus, string> = {
   graduated: "졸업",
 };
 
-const REQUIRED_BADGE_GROUPS: Array<{ label: string; badgeNames: string[] }> = [
-  {
-    label: "초급→2급 : 시민장, 하이킹장",
-    badgeNames: ["시민장", "하이킹장"],
-  },
-  {
-    label: "2급→1급 : 야영장, 야외취사장, 측정지도장, 응급처치장",
-    badgeNames: ["야영장", "야외취사장", "측정지도장", "응급처치장"],
-  },
-  {
-    label: "1급→별급 : 안전장, 전통예절장, 개척장",
-    badgeNames: ["안전장", "전통예절장", "개척장"],
-  },
-  {
-    label: "별급→무궁화급 : 수영장, 환경보전장, 세계우애장",
-    badgeNames: ["수영장", "환경보전장", "세계우애장"],
-  },
-  {
-    label: "무궁화급→범급 : 학업장, 구조장, 생존장",
-    badgeNames: ["학업장", "구조장", "생존장"],
-  },
-];
-
-function normalizeBadgeName(value: string) {
-  return value.replace(/\s+/g, "").trim();
-}
-
 function isUserRole(value: unknown): value is UserRole {
   return (
     value === "super_admin" ||
@@ -255,6 +251,9 @@ export default function MeritBadgesPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [badgeCategories, setBadgeCategories] = useState<BadgeCategory[]>([]);
   const [badges, setBadges] = useState<Badge[]>([]);
+  const [ranks, setRanks] = useState<Rank[]>([]);
+  const [rankRequirements, setRankRequirements] = useState<RankRequirement[]>([]);
+  const [rankRequiredBadges, setRankRequiredBadges] = useState<RankRequiredBadge[]>([]);
   const [scoutBadges, setScoutBadges] = useState<ScoutBadge[]>([]);
   const [promotionBadgeUsages, setPromotionBadgeUsages] = useState<PromotionBadgeUsage[]>([]);
 
@@ -263,6 +262,7 @@ export default function MeritBadgesPage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [selectedScoutBadgeId, setSelectedScoutBadgeId] = useState("");
   const [selectedSummaryScoutId, setSelectedSummaryScoutId] = useState("");
+  const [badgeWorkFilter, setBadgeWorkFilter] = useState<BadgeWorkFilter>("all");
 
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
   const [createForm, setCreateForm] = useState<BadgeForm>(getEmptyBadgeForm());
@@ -360,6 +360,41 @@ export default function MeritBadgesPage() {
       return;
     }
 
+    const { data: rankData, error: rankError } = await supabase
+      .from("ranks")
+      .select("id, rank_code, rank_name, sort_order")
+      .order("sort_order", { ascending: true });
+
+    if (rankError) {
+      console.error("급위 목록 조회 오류:", rankError.message);
+      setErrorMessage("급위 목록을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: rankRequirementData, error: rankRequirementError } = await supabase
+      .from("rank_requirements")
+      .select("id, from_rank_id, to_rank_id, required_general_badge_count");
+
+    if (rankRequirementError) {
+      console.error("진급 기능장 기준 조회 오류:", rankRequirementError.message);
+      setErrorMessage("진급 기능장 기준을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: rankRequiredBadgeData, error: rankRequiredBadgeError } = await supabase
+      .from("rank_required_badges")
+      .select("id, rank_requirement_id, badge_id, sort_order")
+      .order("sort_order", { ascending: true });
+
+    if (rankRequiredBadgeError) {
+      console.error("필수 기능장 기준 조회 오류:", rankRequiredBadgeError.message);
+      setErrorMessage("필수 기능장 기준을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
     const { data: organizationData, error: organizationError } = await supabase
       .from("organizations")
       .select("id, name")
@@ -372,7 +407,7 @@ export default function MeritBadgesPage() {
 
     let scoutQuery = supabase
       .from("scouts")
-      .select("id, organization_id, name, member_no, school_name, grade, status")
+      .select("id, organization_id, name, member_no, school_name, grade, current_rank_id, status")
       .is("deleted_at", null)
       .order("name", { ascending: true });
 
@@ -438,6 +473,9 @@ export default function MeritBadgesPage() {
 
     setBadgeCategories((categoryData ?? []) as BadgeCategory[]);
     setBadges((badgeData ?? []) as Badge[]);
+    setRanks((rankData ?? []) as Rank[]);
+    setRankRequirements((rankRequirementData ?? []) as RankRequirement[]);
+    setRankRequiredBadges((rankRequiredBadgeData ?? []) as RankRequiredBadge[]);
     setOrganizations((organizationData ?? []) as Organization[]);
     setScouts((scoutData ?? []) as unknown as Scout[]);
     setScoutBadges((scoutBadgeData ?? []) as unknown as ScoutBadge[]);
@@ -500,36 +538,47 @@ export default function MeritBadgesPage() {
     return new Set(promotionBadgeUsages.map((usage) => usage.scout_badge_id));
   }, [promotionBadgeUsages]);
 
+  const rankMap = useMemo(
+    () => new Map(ranks.map((rank) => [rank.id, rank])),
+    [ranks],
+  );
+
   const requiredBadgeGroups = useMemo(() => {
-    return REQUIRED_BADGE_GROUPS.map((group) => ({
-      label: group.label,
-      badges: group.badgeNames
-        .map((badgeName) => {
-          const normalizedTargetName = normalizeBadgeName(badgeName);
+    return rankRequirements
+      .map((requirement) => {
+        const fromRank = rankMap.get(requirement.from_rank_id) ?? null;
+        const toRank = rankMap.get(requirement.to_rank_id) ?? null;
+        const mappings = rankRequiredBadges
+          .filter((row) => row.rank_requirement_id === requirement.id)
+          .sort((a, b) => a.sort_order - b.sort_order);
+        const groupBadges = mappings
+          .map((row) => badgeMap.get(row.badge_id) ?? null)
+          .filter((badge): badge is Badge => badge !== null);
 
-          return (
-            badges.find(
-              (badge) => normalizeBadgeName(badge.name) === normalizedTargetName,
-            ) ?? null
-          );
-        })
-        .filter((badge): badge is Badge => badge !== null),
-    }));
-  }, [badges]);
+        return {
+          requirement,
+          fromRank,
+          toRank,
+          label: `${fromRank?.rank_name ?? "현재급위"} → ${toRank?.rank_name ?? "다음급위"} 필수 기능장`,
+          badges: groupBadges,
+        };
+      })
+      .filter((group) => group.badges.length > 0)
+      .sort((a, b) =>
+        (a.fromRank?.sort_order ?? 9999) - (b.fromRank?.sort_order ?? 9999),
+      );
+  }, [badgeMap, rankMap, rankRequirements, rankRequiredBadges]);
 
-  const requiredBadgeNameSet = useMemo(() => {
-    return new Set(
-      REQUIRED_BADGE_GROUPS.flatMap((group) => group.badgeNames).map(
-        normalizeBadgeName,
-      ),
-    );
-  }, []);
+  const requiredBadgeIdSet = useMemo(
+    () => new Set(rankRequiredBadges.map((row) => row.badge_id)),
+    [rankRequiredBadges],
+  );
 
   const generalBadgesByCategory = useMemo(() => {
     const map = new Map<string, Badge[]>();
 
     badges.forEach((badge) => {
-      if (requiredBadgeNameSet.has(normalizeBadgeName(badge.name))) {
+      if (requiredBadgeIdSet.has(badge.id)) {
         return;
       }
 
@@ -538,8 +587,12 @@ export default function MeritBadgesPage() {
       map.set(badge.category_id, current);
     });
 
+    map.forEach((rows) =>
+      rows.sort((a, b) => a.name.localeCompare(b.name, "ko")),
+    );
+
     return map;
-  }, [badges, requiredBadgeNameSet]);
+  }, [badges, requiredBadgeIdSet]);
 
   const scoutBadgeCountMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -598,19 +651,89 @@ export default function MeritBadgesPage() {
     ? usedScoutBadgeIdSet.has(selectedScoutBadge.id)
     : false;
 
-  const requiredBadgeCount = scoutBadges.filter((scoutBadge) => {
-    const badge = badgeMap.get(scoutBadge.badge_id);
-    return badge?.is_required_badge === true;
-  }).length;
-
-  const generalBadgeCount = scoutBadges.filter((scoutBadge) => {
-    const badge = badgeMap.get(scoutBadge.badge_id);
-    return badge?.is_general_badge === true;
-  }).length;
-
   const usedBadgeCount = scoutBadges.filter((scoutBadge) =>
     usedScoutBadgeIdSet.has(scoutBadge.id),
   ).length;
+
+  const sortedRanks = useMemo(
+    () => [...ranks].sort((a, b) => a.sort_order - b.sort_order),
+    [ranks],
+  );
+
+  const getNextRankForScout = (scout: Scout) => {
+    if (!scout.current_rank_id) return sortedRanks[0] ?? null;
+    const currentRank = rankMap.get(scout.current_rank_id) ?? null;
+    if (!currentRank) return null;
+    return sortedRanks.find((rank) => rank.sort_order === currentRank.sort_order + 1) ?? null;
+  };
+
+  const getScoutProgress = (scout: Scout) => {
+    const currentRank = scout.current_rank_id ? rankMap.get(scout.current_rank_id) ?? null : null;
+    const nextRank = getNextRankForScout(scout);
+    const requirement = scout.current_rank_id
+      ? rankRequirements.find((item) => item.from_rank_id === scout.current_rank_id) ?? null
+      : null;
+    const ownedRows = scoutBadges.filter((row) => row.scout_id === scout.id);
+    const ownedBadgeIdSet = new Set(ownedRows.map((row) => row.badge_id));
+    const requiredMappings = requirement
+      ? rankRequiredBadges.filter((row) => row.rank_requirement_id === requirement.id)
+      : [];
+    const requiredTotal = requiredMappings.length;
+    const requiredOwned = requiredMappings.filter((row) => ownedBadgeIdSet.has(row.badge_id)).length;
+    const missingRequiredBadges = requiredMappings
+      .filter((row) => !ownedBadgeIdSet.has(row.badge_id))
+      .map((row) => badgeMap.get(row.badge_id) ?? null)
+      .filter((badge): badge is Badge => badge !== null);
+    const generalRequired = requirement?.required_general_badge_count ?? 0;
+    const generalOwned = ownedRows.filter((row) => badgeMap.get(row.badge_id)?.is_general_badge).length;
+    const requiredMissing = Math.max(requiredTotal - requiredOwned, 0);
+    const generalMissing = Math.max(generalRequired - generalOwned, 0);
+    const unconfirmedCount = ownedRows.filter((row) => !row.leader_confirmed).length;
+    const unapprovedCount = ownedRows.filter((row) => !row.approved_at).length;
+
+    return {
+      currentRank,
+      nextRank,
+      requiredTotal,
+      requiredOwned,
+      requiredMissing,
+      generalRequired,
+      generalOwned,
+      generalMissing,
+      missingRequiredBadges,
+      totalOwned: ownedRows.length,
+      unconfirmedCount,
+      unapprovedCount,
+      isReady: Boolean(nextRank) && requiredMissing === 0 && generalMissing === 0,
+      needsSupport: requiredMissing > 0 || generalMissing > 0,
+    };
+  };
+
+  const scoutProgressMap = useMemo(() => {
+    return new Map(scouts.map((scout) => [scout.id, getScoutProgress(scout)]));
+  }, [scouts, scoutBadges, rankRequirements, rankRequiredBadges, badgeMap, rankMap, sortedRanks]);
+
+  const sortedSummaryScouts = useMemo(() => {
+    return [...scouts].sort((a, b) => {
+      const aProgress = scoutProgressMap.get(a.id);
+      const bProgress = scoutProgressMap.get(b.id);
+      const score = (progress: ReturnType<typeof getScoutProgress> | undefined) => {
+        if (!progress) return 9;
+        if (progress.isReady) return 0;
+        if (progress.requiredMissing > 0) return 1;
+        if (progress.generalMissing > 0) return 2;
+        if (progress.totalOwned === 0) return 3;
+        return 4;
+      };
+      const diff = score(aProgress) - score(bProgress);
+      if (diff !== 0) return diff;
+      return a.name.localeCompare(b.name, "ko");
+    });
+  }, [scouts, scoutProgressMap]);
+
+  const requiredShortageScoutCount = scouts.filter((scout) => (scoutProgressMap.get(scout.id)?.requiredMissing ?? 0) > 0).length;
+  const generalShortageScoutCount = scouts.filter((scout) => (scoutProgressMap.get(scout.id)?.generalMissing ?? 0) > 0).length;
+  const unconfirmedRecordCount = scoutBadges.filter((row) => !row.leader_confirmed).length;
 
   const filteredScoutBadges = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -628,6 +751,13 @@ export default function MeritBadgesPage() {
       if (selectedCategoryId && badge?.category_id !== selectedCategoryId) {
         return false;
       }
+
+      const progress = scout ? scoutProgressMap.get(scout.id) : null;
+      if (badgeWorkFilter === "support" && !progress?.needsSupport) return false;
+      if (badgeWorkFilter === "required" && !(progress?.requiredMissing && progress.requiredMissing > 0)) return false;
+      if (badgeWorkFilter === "general" && !(progress?.generalMissing && progress.generalMissing > 0)) return false;
+      if (badgeWorkFilter === "unconfirmed" && scoutBadge.leader_confirmed) return false;
+      if (badgeWorkFilter === "unapproved" && scoutBadge.approved_at) return false;
 
       if (!normalizedKeyword) {
         return true;
@@ -663,6 +793,8 @@ export default function MeritBadgesPage() {
     categoryMap,
     organizationNameMap,
     usedScoutBadgeIdSet,
+    badgeWorkFilter,
+    scoutProgressMap,
   ]);
 
   const handleOpenCreateForm = () => {
@@ -1164,20 +1296,84 @@ export default function MeritBadgesPage() {
     );
   };
 
-  const renderBadgeSelectOptions = () => {
+  const getScoutBadgeOptionContext = (scoutId: string, editingBadgeId = "") => {
+    const scout = scoutMap.get(scoutId) ?? null;
+    const ownedBadgeIdSet = new Set(
+      scoutBadges
+        .filter((row) => row.scout_id === scoutId)
+        .map((row) => row.badge_id),
+    );
+
+    if (editingBadgeId) {
+      ownedBadgeIdSet.delete(editingBadgeId);
+    }
+
+    const currentRequirement = scout?.current_rank_id
+      ? rankRequirements.find(
+          (requirement) => requirement.from_rank_id === scout.current_rank_id,
+        ) ?? null
+      : null;
+
+    const currentRequiredMappings = currentRequirement
+      ? rankRequiredBadges
+          .filter((row) => row.rank_requirement_id === currentRequirement.id)
+          .sort((a, b) => a.sort_order - b.sort_order)
+      : [];
+
+    const missingCurrentRequiredBadges = currentRequiredMappings
+      .map((row) => badgeMap.get(row.badge_id) ?? null)
+      .filter((badge): badge is Badge =>
+        Boolean(badge && !ownedBadgeIdSet.has(badge.id)),
+      );
+
+    const generalOwnedCount = scoutBadges.filter(
+      (row) =>
+        row.scout_id === scoutId &&
+        row.badge_id !== editingBadgeId &&
+        badgeMap.get(row.badge_id)?.is_general_badge,
+    ).length;
+
+    const generalRequiredCount = currentRequirement?.required_general_badge_count ?? 0;
+
+    return {
+      scout,
+      ownedBadgeIdSet,
+      currentRequirement,
+      missingCurrentRequiredBadges,
+      generalOwnedCount,
+      generalRequiredCount,
+      generalMissingCount: Math.max(0, generalRequiredCount - generalOwnedCount),
+    };
+  };
+
+  const renderBadgeSelectOptions = (scoutId: string, editingBadgeId = "") => {
+    const context = getScoutBadgeOptionContext(scoutId, editingBadgeId);
+
     return (
       <>
         <option value="">기능장 선택</option>
 
+        {context.missingCurrentRequiredBadges.length > 0 && (
+          <optgroup label="현재 진급에 부족한 필수 기능장">
+            {context.missingCurrentRequiredBadges.map((badge) => (
+              <option key={`missing-${badge.id}`} value={badge.id}>
+                {badge.name} · 필수
+              </option>
+            ))}
+          </optgroup>
+        )}
+
         {requiredBadgeGroups.map((group) => {
-          if (group.badges.length === 0) {
-            return null;
-          }
+          const selectableBadges = group.badges.filter(
+            (badge) => !context.ownedBadgeIdSet.has(badge.id),
+          );
+
+          if (selectableBadges.length === 0) return null;
 
           return (
-            <optgroup key={group.label} label={group.label}>
-              {group.badges.map((badge) => (
-                <option key={`${group.label}-${badge.id}`} value={badge.id}>
+            <optgroup key={group.requirement.id} label={group.label}>
+              {selectableBadges.map((badge) => (
+                <option key={`${group.requirement.id}-${badge.id}`} value={badge.id}>
                   {badge.name} · 필수
                 </option>
               ))}
@@ -1186,17 +1382,16 @@ export default function MeritBadgesPage() {
         })}
 
         {badgeCategories.map((category) => {
-          const categoryBadges = generalBadgesByCategory.get(category.id) ?? [];
+          const categoryBadges = (generalBadgesByCategory.get(category.id) ?? [])
+            .filter((badge) => !context.ownedBadgeIdSet.has(badge.id));
 
-          if (categoryBadges.length === 0) {
-            return null;
-          }
+          if (categoryBadges.length === 0) return null;
 
           return (
-            <optgroup key={category.id} label={category.name}>
+            <optgroup key={category.id} label={`일반 기능장 · ${category.name}`}>
               {categoryBadges.map((badge) => (
                 <option key={badge.id} value={badge.id}>
-                  {badge.name} · {getBadgeTypeLabel(badge)}
+                  {badge.name} · 일반
                 </option>
               ))}
             </optgroup>
@@ -1208,6 +1403,10 @@ export default function MeritBadgesPage() {
 
   const createFormScout = createForm.scout_id
     ? scoutMap.get(createForm.scout_id) ?? null
+    : null;
+
+  const createFormBadgeContext = createForm.scout_id
+    ? getScoutBadgeOptionContext(createForm.scout_id)
     : null;
 
   const isBadgeDrawerOpen =
@@ -1240,48 +1439,24 @@ export default function MeritBadgesPage() {
 
       <div style={summaryGridStyle}>
         <section style={neutralSummaryCardStyle}>
-          <div style={summaryCardHeaderStyle}>
-            <h2 style={summaryTitleStyle}>조회 대원</h2>
-            <span style={neutralSummaryChipStyle}>전체</span>
-          </div>
-          <p style={summaryValueStyle}>{scouts.length}명</p>
-          <p style={summaryDescriptionStyle}>현재 조회 대상</p>
+          <div style={summaryCardHeaderStyle}><h2 style={summaryTitleStyle}>전체 대원</h2><span style={neutralSummaryChipStyle}>대상</span></div>
+          <p style={summaryValueStyle}>{scouts.length}명</p><p style={summaryDescriptionStyle}>현재 기능장 관리 대상</p>
         </section>
-
-        <section style={recordSummaryCardStyle}>
-          <div style={summaryCardHeaderStyle}>
-            <h2 style={summaryTitleStyle}>전체 취득기록</h2>
-            <span style={recordSummaryChipStyle}>등록</span>
-          </div>
-          <p style={recordSummaryValueStyle}>{scoutBadges.length}건</p>
-          <p style={summaryDescriptionStyle}>등록된 기능장 기록</p>
-        </section>
-
         <section style={requiredSummaryCardStyle}>
-          <div style={summaryCardHeaderStyle}>
-            <h2 style={summaryTitleStyle}>필수 기능장</h2>
-            <span style={requiredSummaryChipStyle}>필수</span>
-          </div>
-          <p style={requiredSummaryValueStyle}>{requiredBadgeCount}건</p>
-          <p style={summaryDescriptionStyle}>필수 기능장 기록</p>
+          <div style={summaryCardHeaderStyle}><h2 style={summaryTitleStyle}>필수 기능장 부족</h2><span style={requiredSummaryChipStyle}>보완</span></div>
+          <p style={requiredSummaryValueStyle}>{requiredShortageScoutCount}명</p><p style={summaryDescriptionStyle}>다음 진급 필수 조건 미충족</p>
         </section>
-
         <section style={generalSummaryCardStyle}>
-          <div style={summaryCardHeaderStyle}>
-            <h2 style={summaryTitleStyle}>일반 기능장</h2>
-            <span style={generalSummaryChipStyle}>일반</span>
-          </div>
-          <p style={generalSummaryValueStyle}>{generalBadgeCount}건</p>
-          <p style={summaryDescriptionStyle}>일반 기능장 기록</p>
+          <div style={summaryCardHeaderStyle}><h2 style={summaryTitleStyle}>일반 기능장 부족</h2><span style={generalSummaryChipStyle}>보완</span></div>
+          <p style={generalSummaryValueStyle}>{generalShortageScoutCount}명</p><p style={summaryDescriptionStyle}>다음 진급 수량 조건 미충족</p>
         </section>
-
+        <section style={recordSummaryCardStyle}>
+          <div style={summaryCardHeaderStyle}><h2 style={summaryTitleStyle}>지도자 확인 필요</h2><span style={recordSummaryChipStyle}>확인</span></div>
+          <p style={recordSummaryValueStyle}>{unconfirmedRecordCount}건</p><p style={summaryDescriptionStyle}>확인되지 않은 취득 기록</p>
+        </section>
         <section style={usedSummaryCardStyle}>
-          <div style={summaryCardHeaderStyle}>
-            <h2 style={summaryTitleStyle}>진급 반영</h2>
-            <span style={usedSummaryChipStyle}>반영</span>
-          </div>
-          <p style={usedSummaryValueStyle}>{usedBadgeCount}건</p>
-          <p style={summaryDescriptionStyle}>진급 판정 반영 기록</p>
+          <div style={summaryCardHeaderStyle}><h2 style={summaryTitleStyle}>진급 반영 기록</h2><span style={usedSummaryChipStyle}>반영</span></div>
+          <p style={usedSummaryValueStyle}>{usedBadgeCount}건</p><p style={summaryDescriptionStyle}>진급 인가에 사용된 기록</p>
         </section>
       </div>
 
@@ -1306,9 +1481,10 @@ export default function MeritBadgesPage() {
         </div>
 
         <div style={miniCardGridStyle}>
-          {scouts.map((scout) => {
+          {sortedSummaryScouts.map((scout) => {
             const isSelected = selectedSummaryScoutId === scout.id;
             const badgeCount = scoutBadgeCountMap.get(scout.id) ?? 0;
+            const progress = scoutProgressMap.get(scout.id);
 
             return (
               <div
@@ -1332,17 +1508,11 @@ export default function MeritBadgesPage() {
                 aria-pressed={isSelected}
               >
                 <div style={miniCardTitleStyle}>{scout.name}</div>
-                <div style={miniCardMetaStyle}>{scout.member_no ?? "번호 없음"}</div>
-                <div
-                  style={
-                    isSelected
-                      ? selectedMiniCardValueStyle
-                      : badgeCount > 0
-                        ? miniCardValueStyle
-                        : emptyMiniCardValueStyle
-                  }
-                >
-                  {badgeCount}건
+                <div style={miniCardMetaStyle}>{scout.member_no ?? "번호 없음"} · {progress?.currentRank?.rank_name ?? "급위 미등록"} → {progress?.nextRank?.rank_name ?? "최종급위"}</div>
+                <div style={miniProgressRowStyle}><span>필수</span><strong>{progress?.requiredOwned ?? 0}/{progress?.requiredTotal ?? 0}</strong></div>
+                <div style={miniProgressRowStyle}><span>일반</span><strong>{progress?.generalOwned ?? 0}/{progress?.generalRequired ?? 0}</strong></div>
+                <div style={progress?.isReady ? miniReadyStatusStyle : progress?.requiredMissing ? miniDangerStatusStyle : progress?.generalMissing ? miniWarningStatusStyle : emptyMiniCardValueStyle}>
+                  {progress?.isReady ? "진급 조건 충족" : progress?.requiredMissing ? `필수 ${progress.requiredMissing}개 부족` : progress?.generalMissing ? `일반 ${progress.generalMissing}개 부족` : `${badgeCount}건 등록`}
                 </div>
               </div>
             );
@@ -1373,6 +1543,9 @@ export default function MeritBadgesPage() {
             </div>
 
             <div style={summaryStatsGridStyle}>
+              <div style={summaryStatItemStyle}><div style={detailLabelStyle}>현재 → 다음</div><div style={summaryStatValueStyle}>{scoutProgressMap.get(selectedSummaryScout.id)?.currentRank?.rank_name ?? "미등록"} → {scoutProgressMap.get(selectedSummaryScout.id)?.nextRank?.rank_name ?? "최종"}</div></div>
+              <div style={summaryStatItemStyle}><div style={detailLabelStyle}>필수 진행</div><div style={summaryStatValueStyle}>{scoutProgressMap.get(selectedSummaryScout.id)?.requiredOwned ?? 0}/{scoutProgressMap.get(selectedSummaryScout.id)?.requiredTotal ?? 0}</div></div>
+              <div style={summaryStatItemStyle}><div style={detailLabelStyle}>일반 진행</div><div style={summaryStatValueStyle}>{scoutProgressMap.get(selectedSummaryScout.id)?.generalOwned ?? 0}/{scoutProgressMap.get(selectedSummaryScout.id)?.generalRequired ?? 0}</div></div>
               <div style={summaryStatItemStyle}>
                 <div style={detailLabelStyle}>전체</div>
                 <div style={summaryStatValueStyle}>{selectedSummaryBadgeStats.total}건</div>
@@ -1506,6 +1679,18 @@ export default function MeritBadgesPage() {
             </select>
           </label>
 
+          <label style={listToolFieldStyle}>
+            업무 필터
+            <select style={listToolSelectStyle} value={badgeWorkFilter} onChange={(event) => setBadgeWorkFilter(event.target.value as BadgeWorkFilter)}>
+              <option value="all">전체 기록</option>
+              <option value="support">보완 필요 대원</option>
+              <option value="required">필수 기능장 부족</option>
+              <option value="general">일반 기능장 부족</option>
+              <option value="unconfirmed">지도자 미확인</option>
+              <option value="unapproved">인가일 미등록</option>
+            </select>
+          </label>
+
           <input
             style={listToolSearchInputStyle}
             type="search"
@@ -1515,10 +1700,6 @@ export default function MeritBadgesPage() {
           />
 
           <div style={listToolActionsStyle}>
-            <button type="button" style={secondaryButtonStyle} onClick={loadData}>
-              새로고침
-            </button>
-
             {canManageBadges && (
               <button
                 type="button"
@@ -1529,6 +1710,7 @@ export default function MeritBadgesPage() {
               </button>
             )}
 
+            <button type="button" style={secondaryButtonStyle} onClick={loadData}>새로고침</button>
             <div style={listCountBadgeStyle}>현재 {filteredScoutBadges.length}건</div>
           </div>
         </div>
@@ -1654,11 +1836,11 @@ export default function MeritBadgesPage() {
                   {renderSortableHeader("member_no", "대원번호")}
                   {renderSortableHeader("name", "이름")}
                   {isSuperAdmin && renderSortableHeader("organization", "소속")}
-                  {renderSortableHeader("school_name", "소속대")}
+                  <th style={thStyle}>현재 급위</th>
+                  <th style={thStyle}>다음 급위</th>
                   {renderSortableHeader("category", "기능장 분류")}
                   {renderSortableHeader("badge", "기능장")}
                   {renderSortableHeader("badge_type", "필수 여부")}
-                  {renderSortableHeader("special_rule", "인정 기준")}
                   {renderSortableHeader("acquired_at", "취득일")}
                   {renderSortableHeader("approved_at", "인가일")}
                   {renderSortableHeader("leader_confirmed", "확인")}
@@ -1692,7 +1874,8 @@ export default function MeritBadgesPage() {
                           {scout ? getOrganizationName(scout.organization_id) : "-"}
                         </td>
                       )}
-                      <td style={tdStyle}>{scout?.school_name ?? "-"}</td>
+                      <td style={tdStyle}>{scout ? scoutProgressMap.get(scout.id)?.currentRank?.rank_name ?? "미등록" : "-"}</td>
+                      <td style={tdStyle}>{scout ? scoutProgressMap.get(scout.id)?.nextRank?.rank_name ?? "최종급위" : "-"}</td>
                       <td style={tdStyle}>{getBadgeCategoryName(scoutBadge.badge_id)}</td>
                       <td style={strongTdStyle}>{getBadgeName(scoutBadge.badge_id)}</td>
                       <td style={tdStyle}>
@@ -1700,7 +1883,6 @@ export default function MeritBadgesPage() {
                           {getBadgeTypeLabel(badge)}
                         </span>
                       </td>
-                      <td style={tdStyle}>{badge ? getSpecialRuleLabel(badge.special_rule) : "-"}</td>
                       <td style={tdStyle}>{formatDate(scoutBadge.acquired_at)}</td>
                       <td style={tdStyle}>{formatDate(scoutBadge.approved_at)}</td>
                       <td style={tdStyle}>
@@ -1806,6 +1988,36 @@ export default function MeritBadgesPage() {
                     </div>
                   )}
 
+                  {createFormBadgeContext?.currentRequirement && (
+                    <div style={drawerRequirementSummaryStyle}>
+                      <div style={drawerRequirementHeaderStyle}>
+                        <strong>현재 진급 기능장 보완 현황</strong>
+                        <span>
+                          {rankMap.get(createFormBadgeContext.currentRequirement.from_rank_id)?.rank_name ?? "현재급위"}
+                          {" → "}
+                          {rankMap.get(createFormBadgeContext.currentRequirement.to_rank_id)?.rank_name ?? "다음급위"}
+                        </span>
+                      </div>
+                      <div style={drawerRequirementRowStyle}>
+                        <span>필수 기능장</span>
+                        <strong style={createFormBadgeContext.missingCurrentRequiredBadges.length > 0 ? drawerRequirementDangerStyle : drawerRequirementGoodStyle}>
+                          {createFormBadgeContext.missingCurrentRequiredBadges.length > 0
+                            ? `${createFormBadgeContext.missingCurrentRequiredBadges.map((badge) => badge.name).join(", ")} 부족`
+                            : "충족"}
+                        </strong>
+                      </div>
+                      <div style={drawerRequirementRowStyle}>
+                        <span>일반 기능장</span>
+                        <strong style={createFormBadgeContext.generalMissingCount > 0 ? drawerRequirementWarningStyle : drawerRequirementGoodStyle}>
+                          필요 {createFormBadgeContext.generalRequiredCount}개 · 보유 {createFormBadgeContext.generalOwnedCount}개
+                          {createFormBadgeContext.generalMissingCount > 0
+                            ? ` · ${createFormBadgeContext.generalMissingCount}개 부족`
+                            : " · 충족"}
+                        </strong>
+                      </div>
+                    </div>
+                  )}
+
                   {formErrorMessage && <div style={errorBoxStyle}>{formErrorMessage}</div>}
 
                   <label style={drawerFieldLabelStyle}>
@@ -1837,7 +2049,7 @@ export default function MeritBadgesPage() {
                       onChange={(event) => updateCreateForm("badge_id", event.target.value)}
                       required
                     >
-                      {renderBadgeSelectOptions()}
+                      {renderBadgeSelectOptions(createForm.scout_id)}
                     </select>
                   </label>
 
@@ -1950,6 +2162,13 @@ export default function MeritBadgesPage() {
                       수정 전 기능장: {selectedBadge?.name ?? "-"}
                     </span>
                   </div>
+                  {selectedScout && (
+                    <div style={drawerRequirementSummaryStyle}>
+                      <div style={drawerRequirementHeaderStyle}><strong>현재 진급 영향</strong><span>{scoutProgressMap.get(selectedScout.id)?.currentRank?.rank_name ?? "미등록"} → {scoutProgressMap.get(selectedScout.id)?.nextRank?.rank_name ?? "최종급위"}</span></div>
+                      <div style={drawerRequirementRowStyle}><span>필수 기능장</span><strong>{scoutProgressMap.get(selectedScout.id)?.requiredOwned ?? 0}/{scoutProgressMap.get(selectedScout.id)?.requiredTotal ?? 0}</strong></div>
+                      <div style={drawerRequirementRowStyle}><span>일반 기능장</span><strong>{scoutProgressMap.get(selectedScout.id)?.generalOwned ?? 0}/{scoutProgressMap.get(selectedScout.id)?.generalRequired ?? 0}</strong></div>
+                    </div>
+                  )}
 
                   {editErrorMessage && <div style={errorBoxStyle}>{editErrorMessage}</div>}
 
@@ -1963,7 +2182,7 @@ export default function MeritBadgesPage() {
                       onChange={(event) => updateEditForm("badge_id", event.target.value)}
                       required
                     >
-                      {renderBadgeSelectOptions()}
+                      {renderBadgeSelectOptions(selectedScoutBadge.scout_id, selectedScoutBadge.badge_id)}
                     </select>
                   </label>
 
@@ -2206,6 +2425,50 @@ const drawerCheckboxLabelStyle: CSSProperties = {
   color: "#334155",
   fontSize: "13px",
   fontWeight: 800,
+};
+
+const drawerRequirementSummaryStyle: CSSProperties = {
+  display: "grid",
+  gap: "9px",
+  padding: "12px 14px",
+  borderRadius: "10px",
+  border: "1px solid #fed7aa",
+  backgroundColor: "#fff7ed",
+};
+
+const drawerRequirementHeaderStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  color: "#9a3412",
+  fontSize: "12px",
+};
+
+const drawerRequirementRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: "12px",
+  paddingTop: "8px",
+  borderTop: "1px solid #fed7aa",
+  color: "#475569",
+  fontSize: "12px",
+};
+
+const drawerRequirementDangerStyle: CSSProperties = {
+  color: "#b91c1c",
+  textAlign: "right",
+};
+
+const drawerRequirementWarningStyle: CSSProperties = {
+  color: "#c2410c",
+  textAlign: "right",
+};
+
+const drawerRequirementGoodStyle: CSSProperties = {
+  color: "#15803d",
+  textAlign: "right",
 };
 
 const pageHeaderStyle: CSSProperties = {
@@ -2496,7 +2759,7 @@ const inputStyle: CSSProperties = {
 
 const listToolPanelStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 1fr) minmax(220px, 1fr) minmax(260px, 1.2fr) auto",
+  gridTemplateColumns: "minmax(180px, 1fr) minmax(180px, 1fr) minmax(180px, 1fr) minmax(240px, 1.2fr) auto",
   gap: "10px",
   alignItems: "end",
   padding: "10px 12px",
@@ -2846,12 +3109,6 @@ const miniCardValueStyle: CSSProperties = {
   fontWeight: 900,
 };
 
-const selectedMiniCardValueStyle: CSSProperties = {
-  ...miniCardValueStyle,
-  fontSize: "21px",
-  color: "#1d4ed8",
-};
-
 const emptyMiniCardValueStyle: CSSProperties = {
   ...miniCardValueStyle,
   color: "#94a3b8",
@@ -2897,3 +3154,8 @@ const summaryDetailTableStyle: CSSProperties = {
   ...tableStyle,
   minWidth: "900px",
 };
+
+const miniProgressRowStyle: CSSProperties = { display: "flex", justifyContent: "space-between", gap: "8px", marginTop: "6px", color: "#475569", fontSize: "12px" };
+const miniReadyStatusStyle: CSSProperties = { marginTop: "8px", color: "#15803d", fontSize: "12px", fontWeight: 900 };
+const miniDangerStatusStyle: CSSProperties = { marginTop: "8px", color: "#b91c1c", fontSize: "12px", fontWeight: 900 };
+const miniWarningStatusStyle: CSSProperties = { marginTop: "8px", color: "#c2410c", fontSize: "12px", fontWeight: 900 };

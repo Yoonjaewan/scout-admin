@@ -13,6 +13,7 @@ type OrganizationForm = {
   name: string;
   region: string;
   description: string;
+  beomAttendanceRequired: boolean;
 };
 
 type OrganizationInfo = {
@@ -25,6 +26,8 @@ type OrganizationInfo = {
   logoUrl: string | null;
   logoPath: string | null;
   logoColumnMode: LogoColumnMode;
+  beomAttendanceRequired: boolean;
+  updatedAt: string | null;
 };
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -106,6 +109,7 @@ function buildFormFromOrganization(organization: OrganizationInfo): Organization
     name: organization.name,
     region: organization.region || "",
     description: organization.description || "",
+    beomAttendanceRequired: organization.beomAttendanceRequired,
   };
 }
 
@@ -115,15 +119,15 @@ async function fetchOrganizationInfo(organizationId: string): Promise<Organizati
     logoColumnMode: LogoColumnMode;
   }> = [
     {
-      select: "id, type, unit_number, name, region, description, logo_url, logo_path",
+      select: "id, type, unit_number, name, region, description, logo_url, logo_path, beom_attendance_required, updated_at",
       logoColumnMode: "url_and_path",
     },
     {
-      select: "id, type, unit_number, name, region, description, logo_url",
+      select: "id, type, unit_number, name, region, description, logo_url, beom_attendance_required, updated_at",
       logoColumnMode: "url_only",
     },
     {
-      select: "id, type, unit_number, name, region, description",
+      select: "id, type, unit_number, name, region, description, beom_attendance_required, updated_at",
       logoColumnMode: "none",
     },
   ];
@@ -160,6 +164,11 @@ async function fetchOrganizationInfo(organizationId: string): Promise<Organizati
             ? row.logo_path
             : null,
         logoColumnMode: attempt.logoColumnMode,
+        beomAttendanceRequired: row.beom_attendance_required === true,
+        updatedAt:
+          typeof row.updated_at === "string" && row.updated_at.trim()
+            ? row.updated_at
+            : null,
       };
     }
   }
@@ -176,6 +185,7 @@ export default function SettingsPage() {
     name: "",
     region: "",
     description: "",
+    beomAttendanceRequired: false,
   });
 
   const [loading, setLoading] = useState(true);
@@ -193,6 +203,25 @@ export default function SettingsPage() {
   const setupIncomplete = organization
     ? !organization.unitNumber?.trim() || !organization.name.trim()
     : false;
+
+  const settingsComplete = Boolean(
+    organization?.unitNumber?.trim() && organization?.name.trim(),
+  );
+
+  const formatUpdatedAt = (value: string | null) => {
+    if (!value) return "-";
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+
+    return new Intl.DateTimeFormat("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  };
 
   const loadSettings = async () => {
     setLoading(true);
@@ -271,6 +300,17 @@ export default function SettingsPage() {
     (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
       const value = event.target.value;
 
+      if (field === "beomAttendanceRequired") {
+        const checked =
+          event.target instanceof HTMLInputElement ? event.target.checked : false;
+
+        setForm((current) => ({
+          ...current,
+          beomAttendanceRequired: checked,
+        }));
+        return;
+      }
+
       if (field === "type") {
         if (!isOrganizationType(value)) return;
 
@@ -324,6 +364,7 @@ export default function SettingsPage() {
         name: cleanName,
         region: cleanRegion || null,
         description: cleanDescription || null,
+        beom_attendance_required: form.beomAttendanceRequired,
         updated_at: new Date().toISOString(),
       })
       .eq("id", organization.id)
@@ -343,6 +384,8 @@ export default function SettingsPage() {
       name: cleanName,
       region: cleanRegion || null,
       description: cleanDescription || null,
+      beomAttendanceRequired: form.beomAttendanceRequired,
+      updatedAt: new Date().toISOString(),
     };
 
     setOrganization(updatedOrganization);
@@ -548,6 +591,51 @@ export default function SettingsPage() {
         </button>
       </header>
 
+      {organization ? (
+        <div style={summaryGridStyle}>
+          <section style={summaryCardStyle}>
+            <h2 style={summaryTitleStyle}>소속대</h2>
+            <p style={summaryValueStyle}>{organization.name || "-"}</p>
+            <p style={summaryDescriptionStyle}>
+              {ORGANIZATION_TYPE_LABELS[organization.type]}
+              {organization.unitNumber ? ` · 대번호 ${organization.unitNumber}` : ""}
+            </p>
+          </section>
+
+          <section style={summaryCardStyle}>
+            <h2 style={summaryTitleStyle}>범 진급 출석률</h2>
+            <p style={summaryValueStyle}>
+              {organization.beomAttendanceRequired ? "판정에 적용" : "계산·표시만"}
+            </p>
+            <p style={summaryDescriptionStyle}>
+              {organization.beomAttendanceRequired
+                ? "범 진급 판정에서 출석률 조건을 필수로 확인합니다."
+                : "출석률을 확인하되 진급 판정에서는 제외합니다."}
+            </p>
+          </section>
+
+          <section style={summaryCardStyle}>
+            <h2 style={summaryTitleStyle}>설정 상태</h2>
+            <p style={summaryValueStyle}>{settingsComplete ? "정상" : "확인 필요"}</p>
+            <p style={summaryDescriptionStyle}>
+              {settingsComplete
+                ? "필수 소속대 정보가 등록되어 있습니다."
+                : "대번호와 소속 대명을 확인하세요."}
+            </p>
+          </section>
+
+          <section style={summaryCardStyle}>
+            <h2 style={summaryTitleStyle}>최근 저장</h2>
+            <p style={{ ...summaryValueStyle, fontSize: "17px" }}>
+              {formatUpdatedAt(organization.updatedAt)}
+            </p>
+            <p style={summaryDescriptionStyle}>
+              현재 저장된 소속대 설정의 최근 변경 시각입니다.
+            </p>
+          </section>
+        </div>
+      ) : null}
+
       {errorMessage ? <div style={errorBoxStyle}>{errorMessage}</div> : null}
       {successMessage ? <div style={successBoxStyle}>{successMessage}</div> : null}
 
@@ -572,7 +660,7 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            <form onSubmit={handleSave}>
+            <form data-organization-settings-form="true" onSubmit={handleSave}>
               <div style={formGridStyle}>
                 <label style={labelStyle}>
                   소속 구분
@@ -651,6 +739,14 @@ export default function SettingsPage() {
 
               <div style={formActionStyle}>
                 <button
+                  type="button"
+                  onClick={() => setForm(buildFormFromOrganization(organization))}
+                  disabled={!canEdit || saving}
+                  style={secondaryButtonStyle}
+                >
+                  변경 취소
+                </button>
+                <button
                   type="submit"
                   disabled={!canEdit || saving}
                   style={{
@@ -663,6 +759,86 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
+          </section>
+
+          <section style={cardStyle}>
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>진급 운영 기준</h2>
+              <p style={sectionDescriptionStyle}>
+                범스카우트 진급 판정에서 출석률을 필수 조건으로 적용할지 설정합니다.
+              </p>
+            </div>
+
+            <label style={settingToggleStyle}>
+              <input
+                type="checkbox"
+                checked={form.beomAttendanceRequired}
+                onChange={handleChange("beomAttendanceRequired")}
+                disabled={!canEdit || saving}
+                style={settingCheckboxStyle}
+              />
+              <span>
+                <strong style={settingToggleTitleStyle}>범 진급 출석률을 판정에 적용</strong>
+                <span style={settingToggleDescriptionStyle}>
+                  활성화하면 무궁화에서 범으로 진급할 때 출석률 조건을 반드시 충족해야 합니다.
+                </span>
+              </span>
+            </label>
+
+            <div
+              style={
+                form.beomAttendanceRequired
+                  ? operationEnabledBoxStyle
+                  : operationDisabledBoxStyle
+              }
+            >
+              <strong>
+                현재 설정: {form.beomAttendanceRequired ? "운영 기준 적용" : "체험 기준"}
+              </strong>
+              <span>
+                {form.beomAttendanceRequired
+                  ? "출석률이 범 진급 판정 결과에 반영됩니다."
+                  : "출석률은 계산·표시하지만 범 진급 판정에서는 제외됩니다."}
+              </span>
+            </div>
+
+            <div style={impactBoxStyle}>
+              <strong style={impactTitleStyle}>이 설정이 적용되는 화면</strong>
+              <div style={impactGridStyle}>
+                <span>진급 관리</span>
+                <span>대원 통합관리</span>
+                <span>집회/출석 관리</span>
+                <span>범 진급 신청서</span>
+              </div>
+            </div>
+
+            <div style={formActionStyle}>
+              <button
+                type="button"
+                onClick={() => setForm(buildFormFromOrganization(organization))}
+                disabled={!canEdit || saving}
+                style={secondaryButtonStyle}
+              >
+                변경 취소
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const formElement = document.querySelector<HTMLFormElement>(
+                    'form[data-organization-settings-form="true"]',
+                  );
+                  formElement?.requestSubmit();
+                }}
+                disabled={!canEdit || saving}
+                style={{
+                  ...primaryButtonStyle,
+                  opacity: !canEdit || saving ? 0.65 : 1,
+                  cursor: !canEdit || saving ? "not-allowed" : "pointer",
+                }}
+              >
+                {saving ? "저장 중..." : "운영 기준 저장"}
+              </button>
+            </div>
           </section>
 
           <section style={cardStyle}>
@@ -685,10 +861,21 @@ export default function SettingsPage() {
               )}
             </div>
 
-            <div style={infoBoxStyle}>
-              <div style={infoLabelStyle}>사이드 메뉴 표시 정보</div>
-              <div style={infoValueStyle}>
-                {ORGANIZATION_TYPE_LABELS[organization.type]} · {organization.name}
+            <div style={menuPreviewStyle}>
+              <div style={menuPreviewBrandStyle}>
+                {organization.logoUrl ? (
+                  <img
+                    src={organization.logoUrl}
+                    alt=""
+                    style={menuPreviewLogoStyle}
+                  />
+                ) : (
+                  <strong style={menuPreviewScoutStyle}>Scout</strong>
+                )}
+              </div>
+              <div style={menuPreviewNameStyle}>{organization.name}</div>
+              <div style={menuPreviewMetaStyle}>
+                {ORGANIZATION_TYPE_LABELS[organization.type]}
                 {organization.unitNumber ? ` · 대번호 ${organization.unitNumber}` : ""}
               </div>
             </div>
@@ -799,9 +986,167 @@ const pageDescriptionStyle: CSSProperties = {
   lineHeight: 1.6,
 };
 
+const summaryGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+  gap: "14px",
+  marginBottom: "20px",
+};
+
+const summaryCardStyle: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "14px",
+  padding: "18px",
+  backgroundColor: "#ffffff",
+};
+
+const summaryTitleStyle: CSSProperties = {
+  margin: 0,
+  color: "#64748b",
+  fontSize: "14px",
+  fontWeight: 800,
+};
+
+const summaryValueStyle: CSSProperties = {
+  margin: "10px 0 0",
+  color: "#0f172a",
+  fontSize: "22px",
+  fontWeight: 900,
+};
+
+const summaryDescriptionStyle: CSSProperties = {
+  margin: "7px 0 0",
+  color: "#64748b",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const settingToggleStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "auto minmax(0, 1fr)",
+  gap: "12px",
+  alignItems: "flex-start",
+  padding: "16px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "12px",
+  backgroundColor: "#ffffff",
+  cursor: "pointer",
+};
+
+const settingCheckboxStyle: CSSProperties = {
+  width: "20px",
+  height: "20px",
+  marginTop: "2px",
+};
+
+const settingToggleTitleStyle: CSSProperties = {
+  display: "block",
+  color: "#0f172a",
+  fontSize: "15px",
+  fontWeight: 900,
+};
+
+const settingToggleDescriptionStyle: CSSProperties = {
+  display: "block",
+  marginTop: "5px",
+  color: "#64748b",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const operationEnabledBoxStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "5px",
+  marginTop: "14px",
+  padding: "14px",
+  border: "1px solid #86efac",
+  borderRadius: "12px",
+  backgroundColor: "#f0fdf4",
+  color: "#166534",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const operationDisabledBoxStyle: CSSProperties = {
+  ...operationEnabledBoxStyle,
+  borderColor: "#fed7aa",
+  backgroundColor: "#fff7ed",
+  color: "#9a3412",
+};
+
+const impactBoxStyle: CSSProperties = {
+  marginTop: "14px",
+  padding: "14px",
+  border: "1px solid #dbeafe",
+  borderRadius: "12px",
+  backgroundColor: "#f8fbff",
+};
+
+const impactTitleStyle: CSSProperties = {
+  display: "block",
+  marginBottom: "10px",
+  color: "#1e3a8a",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const impactGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "8px",
+  color: "#334155",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
+const menuPreviewStyle: CSSProperties = {
+  padding: "16px",
+  borderRadius: "14px",
+  backgroundColor: "#0f172a",
+  color: "#ffffff",
+  textAlign: "center",
+  marginBottom: "16px",
+};
+
+const menuPreviewBrandStyle: CSSProperties = {
+  minHeight: "72px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "10px",
+  borderRadius: "10px",
+  backgroundColor: "#ffffff",
+};
+
+const menuPreviewLogoStyle: CSSProperties = {
+  maxWidth: "100%",
+  maxHeight: "56px",
+  objectFit: "contain",
+};
+
+const menuPreviewScoutStyle: CSSProperties = {
+  color: "#0f172a",
+  fontSize: "22px",
+  fontWeight: 900,
+};
+
+const menuPreviewNameStyle: CSSProperties = {
+  marginTop: "12px",
+  fontSize: "15px",
+  fontWeight: 900,
+};
+
+const menuPreviewMetaStyle: CSSProperties = {
+  marginTop: "4px",
+  color: "#cbd5e1",
+  fontSize: "12px",
+  fontWeight: 700,
+};
+
 const settingsGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(360px, 1.2fr) minmax(320px, 0.8fr)",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: "20px",
   alignItems: "start",
 };
@@ -1012,26 +1357,8 @@ const logoEmptyStyle: CSSProperties = {
   fontWeight: 800,
 };
 
-const infoBoxStyle: CSSProperties = {
-  padding: "14px",
-  borderRadius: "12px",
-  backgroundColor: "#f8fafc",
-  border: "1px solid #e2e8f0",
-  marginBottom: "16px",
-};
 
-const infoLabelStyle: CSSProperties = {
-  color: "#64748b",
-  fontSize: "13px",
-  fontWeight: 800,
-  marginBottom: "4px",
-};
 
-const infoValueStyle: CSSProperties = {
-  color: "#0f172a",
-  fontSize: "15px",
-  fontWeight: 800,
-};
 
 const logoButtonGridStyle: CSSProperties = {
   display: "grid",

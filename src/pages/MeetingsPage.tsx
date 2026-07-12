@@ -77,6 +77,7 @@ type AttendanceDraft = {
 type MeetingSortKey = "meeting_date" | "title" | "organization" | "meeting_type" | "target" | "note";
 type AttendanceSortKey = "member_no" | "name" | "school_grade" | "status" | "attendance_status";
 type SortDirection = "asc" | "desc";
+type MeetingStatusFilter = "" | "needs_input" | "complete" | "has_absence" | "attendance_target";
 
 type RpcClient = {
   rpc: (
@@ -133,6 +134,15 @@ const ATTENDANCE_PASS_STATUSES: AttendanceStatus[] = [
   "late",
   "early_leave",
 ];
+
+const ATTENDANCE_STATUS_SORT_ORDER: Record<AttendanceStatus, number> = {
+  not_entered: 0,
+  absent: 1,
+  late: 2,
+  early_leave: 3,
+  recognized: 4,
+  present: 5,
+};
 
 function isUserRole(value: unknown): value is UserRole {
   return (
@@ -200,6 +210,7 @@ export default function MeetingsPage() {
 
   const [keyword, setKeyword] = useState("");
   const [selectedMeetingType, setSelectedMeetingType] = useState<"" | string>("");
+  const [selectedMeetingStatus, setSelectedMeetingStatus] = useState<MeetingStatusFilter>("");
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [meetingSort, setMeetingSort] = useState<{
     key: MeetingSortKey;
@@ -208,7 +219,7 @@ export default function MeetingsPage() {
   const [attendanceSort, setAttendanceSort] = useState<{
     key: AttendanceSortKey;
     direction: SortDirection;
-  }>({ key: "member_no", direction: "asc" });
+  }>({ key: "attendance_status", direction: "asc" });
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -230,6 +241,7 @@ export default function MeetingsPage() {
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, AttendanceDraft>>({});
   const [attendanceSavingScoutId, setAttendanceSavingScoutId] = useState<string | null>(null);
   const [attendanceErrorMessage, setAttendanceErrorMessage] = useState("");
+  const [attendanceSuccessMessage, setAttendanceSuccessMessage] = useState("");
 
   const [bulkAttendanceStatus, setBulkAttendanceStatus] =
     useState<AttendanceStatus>("present");
@@ -412,11 +424,113 @@ export default function MeetingsPage() {
     return map;
   }, [attendanceRecords]);
 
+  const activeScoutCountByOrganizationMap = useMemo(() => {
+    const map = new Map<string, number>();
+
+    scouts.forEach((scout) => {
+      if (scout.status !== "active") return;
+      map.set(
+        scout.organization_id,
+        (map.get(scout.organization_id) ?? 0) + 1,
+      );
+    });
+
+    return map;
+  }, [scouts]);
+
+  const meetingAttendanceSummaryMap = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        totalCount: number;
+        enteredCount: number;
+        presentCount: number;
+        absentCount: number;
+        notEnteredCount: number;
+        attendanceRate: number;
+      }
+    >();
+
+    meetings.forEach((meeting) => {
+      const totalCount =
+        activeScoutCountByOrganizationMap.get(meeting.organization_id) ?? 0;
+      const records = attendanceRecords.filter(
+        (attendance) => attendance.meeting_id === meeting.id,
+      );
+      const enteredRecords = records.filter(
+        (attendance) => attendance.status !== "not_entered",
+      );
+      const enteredCount = new Set(
+        enteredRecords.map((attendance) => attendance.scout_id),
+      ).size;
+      const presentCount = new Set(
+        enteredRecords
+          .filter((attendance) =>
+            ATTENDANCE_PASS_STATUSES.includes(attendance.status),
+          )
+          .map((attendance) => attendance.scout_id),
+      ).size;
+      const absentCount = new Set(
+        enteredRecords
+          .filter((attendance) => attendance.status === "absent")
+          .map((attendance) => attendance.scout_id),
+      ).size;
+      const notEnteredCount = Math.max(totalCount - enteredCount, 0);
+      const attendanceRate =
+        totalCount > 0
+          ? Math.round((presentCount * 10000) / totalCount) / 100
+          : 0;
+
+      map.set(meeting.id, {
+        totalCount,
+        enteredCount,
+        presentCount,
+        absentCount,
+        notEnteredCount,
+        attendanceRate,
+      });
+    });
+
+    return map;
+  }, [
+    activeScoutCountByOrganizationMap,
+    attendanceRecords,
+    meetings,
+  ]);
+
+  const attendanceTargetMeetingCount = useMemo(
+    () => meetings.filter((meeting) => meeting.is_attendance_target).length,
+    [meetings],
+  );
+
+  const needsInputMeetingCount = useMemo(
+    () =>
+      meetings.filter(
+        (meeting) =>
+          (meetingAttendanceSummaryMap.get(meeting.id)?.notEnteredCount ?? 0) >
+          0,
+      ).length,
+    [meetingAttendanceSummaryMap, meetings],
+  );
+
+  const absenceMeetingCount = useMemo(
+    () =>
+      meetings.filter(
+        (meeting) =>
+          (meetingAttendanceSummaryMap.get(meeting.id)?.absentCount ?? 0) > 0,
+      ).length,
+    [meetingAttendanceSummaryMap, meetings],
+  );
+
   const selectedMeetingScouts = useMemo(() => {
     if (!selectedMeeting) return [];
 
     return scouts
-      .filter((scout) => scout.organization_id === selectedMeeting.organization_id)
+      .filter(
+        (scout) =>
+          scout.organization_id === selectedMeeting.organization_id &&
+          scout.status === "active",
+      )
       .sort((a, b) => {
         const aMemberNo = a.member_no ?? "";
         const bMemberNo = b.member_no ?? "";
@@ -429,6 +543,7 @@ export default function MeetingsPage() {
 
   useEffect(() => {
     setSelectedAttendanceScoutIds([]);
+    setAttendanceSuccessMessage("");
   }, [selectedMeeting?.id]);
 
   useEffect(() => {
@@ -464,6 +579,36 @@ export default function MeetingsPage() {
 
     const filtered = meetings.filter((meeting) => {
       if (selectedMeetingType && meeting.meeting_type !== selectedMeetingType) {
+        return false;
+      }
+
+      const summary = meetingAttendanceSummaryMap.get(meeting.id);
+
+      if (
+        selectedMeetingStatus === "needs_input" &&
+        (summary?.notEnteredCount ?? 0) === 0
+      ) {
+        return false;
+      }
+
+      if (
+        selectedMeetingStatus === "complete" &&
+        (summary?.notEnteredCount ?? 0) > 0
+      ) {
+        return false;
+      }
+
+      if (
+        selectedMeetingStatus === "has_absence" &&
+        (summary?.absentCount ?? 0) === 0
+      ) {
+        return false;
+      }
+
+      if (
+        selectedMeetingStatus === "attendance_target" &&
+        !meeting.is_attendance_target
+      ) {
         return false;
       }
 
@@ -512,7 +657,7 @@ export default function MeetingsPage() {
       if (result !== 0) return result * directionFactor;
       return compareText(formatDate(b.meeting_date), formatDate(a.meeting_date));
     });
-  }, [keyword, meetingSort, meetings, organizationNameMap, selectedMeetingType]);
+  }, [keyword, meetingAttendanceSummaryMap, meetingSort, meetings, organizationNameMap, selectedMeetingStatus, selectedMeetingType]);
 
   const attendanceSummary = useMemo(() => {
     const totalCount = selectedMeetingScouts.length;
@@ -567,10 +712,13 @@ export default function MeetingsPage() {
       } else if (attendanceSort.key === "status") {
         result = compareText(SCOUT_STATUS_LABELS[a.status], SCOUT_STATUS_LABELS[b.status]);
       } else if (attendanceSort.key === "attendance_status") {
-        result = compareText(
-          ATTENDANCE_STATUS_LABELS[attendanceDrafts[a.id]?.status ?? "not_entered"],
-          ATTENDANCE_STATUS_LABELS[attendanceDrafts[b.id]?.status ?? "not_entered"],
-        );
+        result =
+          ATTENDANCE_STATUS_SORT_ORDER[
+            attendanceDrafts[a.id]?.status ?? "not_entered"
+          ] -
+          ATTENDANCE_STATUS_SORT_ORDER[
+            attendanceDrafts[b.id]?.status ?? "not_entered"
+          ];
       }
 
       if (result !== 0) return result * directionFactor;
@@ -907,6 +1055,7 @@ export default function MeetingsPage() {
 
     setAttendanceSavingScoutId(scoutId);
     setAttendanceErrorMessage("");
+    setAttendanceSuccessMessage("");
 
     const rpcClient = supabase as unknown as RpcClient;
 
@@ -928,52 +1077,11 @@ export default function MeetingsPage() {
     await loadData();
   };
 
-  const handleApplyBulkAttendanceToDrafts = (target: "selected" | "selected_not_entered") => {
+  const handleApplyBulkAttendance = async (
+    target: "selected" | "selected_not_entered",
+  ) => {
     if (!selectedMeeting) {
-      setAttendanceErrorMessage("출석을 입력할 집회/활동을 선택해야 합니다.");
-      return;
-    }
-
-    if (selectedAttendanceScoutCount === 0) {
-      setAttendanceErrorMessage("출석 상태를 변경할 대원을 먼저 선택해야 합니다.");
-      return;
-    }
-
-    setAttendanceErrorMessage("");
-
-    const noteText = bulkAttendanceNote.trim();
-    const selectedScoutIds = new Set(selectedAttendanceScoutIds);
-
-    setAttendanceDrafts((prev) => {
-      const nextDrafts = { ...prev };
-
-      selectedMeetingScouts.forEach((scout) => {
-        if (!selectedScoutIds.has(scout.id)) {
-          return;
-        }
-
-        const currentDraft = nextDrafts[scout.id] ?? {
-          status: "not_entered" as AttendanceStatus,
-          note: "",
-        };
-
-        if (target === "selected_not_entered" && currentDraft.status !== "not_entered") {
-          return;
-        }
-
-        nextDrafts[scout.id] = {
-          status: bulkAttendanceStatus,
-          note: noteText.length > 0 ? noteText : currentDraft.note,
-        };
-      });
-
-      return nextDrafts;
-    });
-  };
-
-  const handleSaveSelectedAttendance = async () => {
-    if (!selectedMeeting) {
-      setAttendanceErrorMessage("출석을 저장할 집회/활동을 선택해야 합니다.");
+      setAttendanceErrorMessage("출석을 적용할 집회/활동을 선택해야 합니다.");
       return;
     }
 
@@ -983,45 +1091,96 @@ export default function MeetingsPage() {
     }
 
     if (selectedAttendanceScoutCount === 0) {
-      setAttendanceErrorMessage("출석을 저장할 대원을 먼저 선택해야 합니다.");
+      setAttendanceErrorMessage("출석 상태를 적용할 대원을 먼저 선택해야 합니다.");
       return;
     }
 
-    const targetScouts = selectedMeetingScouts.filter((scout) =>
-      selectedAttendanceScoutIdSet.has(scout.id),
-    );
+    const targetScouts = selectedMeetingScouts.filter((scout) => {
+      if (!selectedAttendanceScoutIdSet.has(scout.id)) {
+        return false;
+      }
+
+      if (target === "selected_not_entered") {
+        const currentStatus =
+          attendanceDrafts[scout.id]?.status ??
+          selectedMeetingAttendanceMap.get(scout.id)?.status ??
+          "not_entered";
+
+        return currentStatus === "not_entered";
+      }
+
+      return true;
+    });
+
+    if (targetScouts.length === 0) {
+      setAttendanceErrorMessage(
+        target === "selected_not_entered"
+          ? "선택한 대원 중 미입력 상태인 대원이 없습니다."
+          : "출석 상태를 적용할 대원이 없습니다.",
+      );
+      return;
+    }
 
     setBulkAttendanceSaving(true);
     setAttendanceErrorMessage("");
+    setAttendanceSuccessMessage("");
 
+    const noteText = bulkAttendanceNote.trim();
     const rpcClient = supabase as unknown as RpcClient;
 
     for (const scout of targetScouts) {
-      const draft = attendanceDrafts[scout.id] ?? {
-        status: "not_entered" as AttendanceStatus,
-        note: "",
+      const currentDraft = attendanceDrafts[scout.id] ?? {
+        status:
+          selectedMeetingAttendanceMap.get(scout.id)?.status ??
+          ("not_entered" as AttendanceStatus),
+        note: selectedMeetingAttendanceMap.get(scout.id)?.note ?? "",
       };
+
+      const nextNote = noteText.length > 0 ? noteText : currentDraft.note;
 
       const { error } = await rpcClient.rpc("set_attendance_record", {
         p_meeting_id: selectedMeeting.id,
         p_scout_id: scout.id,
-        p_status: draft.status,
-        p_note: toNullableText(draft.note),
+        p_status: bulkAttendanceStatus,
+        p_note: toNullableText(nextNote),
       });
 
       if (error) {
-        console.error("선택 대원 출석 저장 오류:", error.message);
+        console.error("선택 대원 출석 일괄 적용 오류:", error.message);
         setAttendanceErrorMessage(
-          `선택 대원 출석 저장에 실패했습니다. 대원=${scout.name}, 오류=${error.message}`,
+          `선택 대원 출석 적용에 실패했습니다. 대원=${scout.name}, 오류=${error.message}`,
         );
         setBulkAttendanceSaving(false);
         return;
       }
     }
 
+    setAttendanceDrafts((prev) => {
+      const nextDrafts = { ...prev };
+
+      targetScouts.forEach((scout) => {
+        const currentDraft = nextDrafts[scout.id] ?? {
+          status: "not_entered" as AttendanceStatus,
+          note: "",
+        };
+
+        nextDrafts[scout.id] = {
+          status: bulkAttendanceStatus,
+          note: noteText.length > 0 ? noteText : currentDraft.note,
+        };
+      });
+
+      return nextDrafts;
+    });
+
     setBulkAttendanceSaving(false);
+    setAttendanceSuccessMessage(
+      `${targetScouts.length}명의 출석 상태를 '${ATTENDANCE_STATUS_LABELS[bulkAttendanceStatus]}'(으)로 적용했습니다.`,
+    );
+
     await loadData();
   };
+
 
   const getAttendanceBadgeStyle = (status: AttendanceStatus): CSSProperties => {
     if (status === "present" || status === "recognized") {
@@ -1054,6 +1213,67 @@ export default function MeetingsPage() {
     return attendanceBadgeStyle;
   };
 
+  const getAttendanceSelectStyle = (
+    status: AttendanceStatus,
+  ): CSSProperties => {
+    const baseStyle: CSSProperties = {
+      ...attendanceSelectStyle,
+      fontWeight: 800,
+    };
+
+    if (status === "present") {
+      return {
+        ...baseStyle,
+        backgroundColor: "#dcfce7",
+        borderColor: "#86efac",
+        color: "#166534",
+      };
+    }
+
+    if (status === "recognized") {
+      return {
+        ...baseStyle,
+        backgroundColor: "#ccfbf1",
+        borderColor: "#5eead4",
+        color: "#115e59",
+      };
+    }
+
+    if (status === "late") {
+      return {
+        ...baseStyle,
+        backgroundColor: "#fef9c3",
+        borderColor: "#fde047",
+        color: "#854d0e",
+      };
+    }
+
+    if (status === "early_leave") {
+      return {
+        ...baseStyle,
+        backgroundColor: "#ffedd5",
+        borderColor: "#fdba74",
+        color: "#9a3412",
+      };
+    }
+
+    if (status === "absent") {
+      return {
+        ...baseStyle,
+        backgroundColor: "#fee2e2",
+        borderColor: "#fca5a5",
+        color: "#991b1b",
+      };
+    }
+
+    return {
+      ...baseStyle,
+      backgroundColor: "#f1f5f9",
+      borderColor: "#cbd5e1",
+      color: "#475569",
+    };
+  };
+
   const renderMeetingSortButton = (key: MeetingSortKey, label: string) => (
     <button
       type="button"
@@ -1082,7 +1302,7 @@ export default function MeetingsPage() {
         <div>
           <h1 style={pageTitleStyle}>집회/출석 관리</h1>
           <p style={pageDescriptionStyle}>
-            집회와 활동을 등록하고 대원별 출석 상태를 관리합니다. 출석 반영 집회는 참고 지표에 반영됩니다.
+            집회별 출석 입력 누락과 결석 현황을 우선 확인하고, 활동 대원의 출석 기록을 관리합니다.
           </p>
         </div>
 
@@ -1095,15 +1315,25 @@ export default function MeetingsPage() {
         <section style={summaryCardStyle}>
           <h2 style={summaryTitleStyle}>등록 집회</h2>
           <p style={summaryValueStyle}>{meetings.length}건</p>
-          <p style={summaryDescriptionStyle}>현재 관리 중인 집회와 활동입니다.</p>
+          <p style={summaryDescriptionStyle}>
+            출석률 산정 대상 {attendanceTargetMeetingCount}건을 포함합니다.
+          </p>
         </section>
 
-        <section style={summaryCardStyle}>
-          <h2 style={summaryTitleStyle}>출석 반영 집회</h2>
-          <p style={summaryValueStyle}>
-            {meetings.filter((meeting) => meeting.is_attendance_target).length}건
+        <section style={needsInputMeetingCount > 0 ? summaryCardOrangeStyle : summaryCardStyle}>
+          <h2 style={summaryTitleStyle}>출석 입력 필요</h2>
+          <p style={summaryValueStyle}>{needsInputMeetingCount}건</p>
+          <p style={summaryDescriptionStyle}>
+            활동 대원 중 출석 상태가 입력되지 않은 집회입니다.
           </p>
-          <p style={summaryDescriptionStyle}>출석 참고 지표에 포함되는 집회입니다.</p>
+        </section>
+
+        <section style={absenceMeetingCount > 0 ? summaryCardRedStyle : summaryCardStyle}>
+          <h2 style={summaryTitleStyle}>결석 발생 집회</h2>
+          <p style={summaryValueStyle}>{absenceMeetingCount}건</p>
+          <p style={summaryDescriptionStyle}>
+            결석 대원이 있어 지도자 확인이 필요한 집회입니다.
+          </p>
         </section>
 
         <section style={selectedMeeting ? summaryCardBlueStyle : summaryCardStyle}>
@@ -1112,16 +1342,8 @@ export default function MeetingsPage() {
             {selectedMeeting ? `${attendanceSummary.attendanceRate}%` : "-"}
           </p>
           <p style={summaryDescriptionStyle}>
-            출석, 인정출석, 지각, 조퇴는 출석 인정으로 계산합니다.
+            출석·인정출석·지각·조퇴를 출석 인정으로 계산합니다.
           </p>
-        </section>
-
-        <section style={selectedMeeting ? summaryCardOrangeStyle : summaryCardStyle}>
-          <h2 style={summaryTitleStyle}>미입력 대원</h2>
-          <p style={summaryValueStyle}>
-            {selectedMeeting ? `${attendanceSummary.notEnteredCount}명` : "-"}
-          </p>
-          <p style={summaryDescriptionStyle}>선택한 집회에서 아직 입력되지 않은 대원입니다.</p>
         </section>
       </div>
 
@@ -1146,6 +1368,22 @@ export default function MeetingsPage() {
                   {meetingType.label}
                 </option>
               ))}
+            </select>
+
+            <select
+              style={filterSelectStyle}
+              value={selectedMeetingStatus}
+              onChange={(event) =>
+                setSelectedMeetingStatus(
+                  event.target.value as MeetingStatusFilter,
+                )
+              }
+            >
+              <option value="">전체 입력 상태</option>
+              <option value="needs_input">출석 입력 필요</option>
+              <option value="complete">입력 완료</option>
+              <option value="has_absence">결석 발생</option>
+              <option value="attendance_target">출석률 산정 대상</option>
             </select>
 
             <input
@@ -1190,14 +1428,30 @@ export default function MeetingsPage() {
                     <th style={thStyle}>{renderMeetingSortButton("organization", "소속")}</th>
                   )}
                   <th style={thStyle}>{renderMeetingSortButton("meeting_type", "유형")}</th>
-                  <th style={thStyle}>{renderMeetingSortButton("target", "출석 반영")}</th>
-                  <th style={thStyle}>{renderMeetingSortButton("note", "비고")}</th>
+                  <th style={thStyle}>{renderMeetingSortButton("target", "출석률 산정")}</th>
+                  <th style={centerThStyle}>대상</th>
+                  <th style={centerThStyle}>출석 인정</th>
+                  <th style={centerThStyle}>결석</th>
+                  <th style={centerThStyle}>미입력</th>
+                  <th style={thStyle}>입력 상태</th>
                   <th style={thStyle}>관리</th>
                 </tr>
               </thead>
 
               <tbody>
-                {filteredMeetings.map((meeting) => (
+                {filteredMeetings.map((meeting) => {
+                  const meetingSummary =
+                    meetingAttendanceSummaryMap.get(meeting.id) ?? {
+                      totalCount: 0,
+                      enteredCount: 0,
+                      presentCount: 0,
+                      absentCount: 0,
+                      notEnteredCount: 0,
+                      attendanceRate: 0,
+                    };
+                  const isComplete = meetingSummary.notEnteredCount === 0;
+
+                  return (
                   <tr
                     key={meeting.id}
                     style={
@@ -1224,10 +1478,26 @@ export default function MeetingsPage() {
                             : nonTargetBadgeStyle
                         }
                       >
-                        {meeting.is_attendance_target ? "반영" : "제외"}
+                        {meeting.is_attendance_target ? "대상" : "제외"}
                       </span>
                     </td>
-                    <td style={tdStyle}>{meeting.note ?? "-"}</td>
+                    <td style={centerTdStyle}>{meetingSummary.totalCount}명</td>
+                    <td style={centerTdStyle}>{meetingSummary.presentCount}명</td>
+                    <td style={centerTdStyle}>
+                      <span style={meetingSummary.absentCount > 0 ? absentCountStyle : normalCountStyle}>
+                        {meetingSummary.absentCount}명
+                      </span>
+                    </td>
+                    <td style={centerTdStyle}>
+                      <span style={meetingSummary.notEnteredCount > 0 ? missingCountStyle : normalCountStyle}>
+                        {meetingSummary.notEnteredCount}명
+                      </span>
+                    </td>
+                    <td style={tdStyle}>
+                      <span style={isComplete ? completeStatusBadgeStyle : incompleteStatusBadgeStyle}>
+                        {isComplete ? "입력 완료" : "입력 필요"}
+                      </span>
+                    </td>
                     <td style={tdStyle}>
                       <div
                         style={rowActionStyle}
@@ -1257,7 +1527,8 @@ export default function MeetingsPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1267,9 +1538,9 @@ export default function MeetingsPage() {
       <section ref={attendanceSectionRef} style={detailCardStyle}>
         <div style={detailHeaderStyle}>
           <div>
-            <h2 style={sectionTitleStyle}>출석 입력</h2>
+            <h2 style={{ ...sectionTitleStyle, fontSize: "20px" }}>출석 입력</h2>
             <p style={sectionDescriptionStyle}>
-              집회 목록에서 집회를 선택하면 해당 집회의 대원별 출석을 입력할 수 있습니다.
+              집회 목록에서 집회를 선택하면 해당 소속대의 활동 대원만 출석을 입력할 수 있습니다.
             </p>
           </div>
         </div>
@@ -1278,28 +1549,28 @@ export default function MeetingsPage() {
 
         {selectedMeeting && (
           <>
-            <div style={selectedMeetingHeaderStyle}>
-              <div>
-                <h3 style={selectedMeetingTitleStyle}>{selectedMeeting.title}</h3>
-                <p style={selectedMeetingDescriptionStyle}>
-                  {formatDate(selectedMeeting.meeting_date)} · {getOrganizationName(selectedMeeting.organization_id)} · {MEETING_TYPE_LABELS[selectedMeeting.meeting_type] ?? selectedMeeting.meeting_type}
-                </p>
-              </div>
+            <div style={attendanceOverviewGridStyle}>
+              <section style={selectedMeetingOverviewCardStyle}>
+                <div>
+                  <h3 style={selectedMeetingTitleStyle}>{selectedMeeting.title}</h3>
+                  <p style={selectedMeetingDescriptionStyle}>
+                    {formatDate(selectedMeeting.meeting_date)} · {getOrganizationName(selectedMeeting.organization_id)} · {MEETING_TYPE_LABELS[selectedMeeting.meeting_type] ?? selectedMeeting.meeting_type}
+                  </p>
+                </div>
 
-              <span
-                style={
-                  selectedMeeting.is_attendance_target
-                    ? targetBadgeStyle
-                    : nonTargetBadgeStyle
-                }
-              >
-                {selectedMeeting.is_attendance_target
-                  ? "출석 참고 지표 반영"
-                  : "출석 반영 제외"}
-              </span>
-            </div>
+                <span
+                  style={
+                    selectedMeeting.is_attendance_target
+                      ? targetBadgeStyle
+                      : nonTargetBadgeStyle
+                  }
+                >
+                  {selectedMeeting.is_attendance_target
+                    ? "출석률 산정 대상"
+                    : "출석 반영 제외"}
+                </span>
+              </section>
 
-            <div style={attendanceSummaryGridStyle}>
               <section style={miniSummaryCardStyle}>
                 <h3 style={miniSummaryTitleStyle}>대상 대원</h3>
                 <p style={miniSummaryValueStyle}>{attendanceSummary.totalCount}명</p>
@@ -1319,10 +1590,13 @@ export default function MeetingsPage() {
             </div>
 
             <p style={attendanceGuideStyle}>
-              출석 인정에는 출석, 인정출석, 지각, 조퇴가 포함됩니다. 출석률은 참고 지표이며 진급 판정 조건에는 직접 반영되지 않습니다.
+              출석 인정에는 출석, 인정출석, 지각, 조퇴가 포함됩니다. 일반 진급에서는 참고 지표로 사용하고, 소속대 환경설정에서 범 진급 출석률 적용이 켜진 경우 무궁화 → 범 판정의 필수 조건으로 사용합니다.
             </p>
 
             {attendanceErrorMessage && <div style={errorBoxStyle}>{attendanceErrorMessage}</div>}
+            {attendanceSuccessMessage && (
+              <div style={successBoxStyle}>{attendanceSuccessMessage}</div>
+            )}
 
             {canManageMeetings && (
               <div style={bulkPanelStyle}>
@@ -1330,7 +1604,7 @@ export default function MeetingsPage() {
                   <div>
                     <h3 style={bulkTitleStyle}>출석 선택 일괄 입력</h3>
                     <p style={bulkDescriptionStyle}>
-                      대원 선택 후 출석 상태와 비고를 한꺼번에 적용하고 저장할 수 있습니다.
+                      대원 선택 후 출석 상태와 비고를 한 번에 적용하면 바로 저장됩니다.
                     </p>
                   </div>
 
@@ -1345,6 +1619,7 @@ export default function MeetingsPage() {
                       type="button"
                       style={secondaryButtonStyle}
                       onClick={handleSelectAllAttendanceScouts}
+                      disabled={bulkAttendanceSaving}
                     >
                       전체 선택
                     </button>
@@ -1352,63 +1627,67 @@ export default function MeetingsPage() {
                       type="button"
                       style={secondaryButtonStyle}
                       onClick={handleClearAttendanceScoutSelection}
+                      disabled={bulkAttendanceSaving}
                     >
                       선택 해제
                     </button>
                   </div>
 
-                  <div style={bulkFieldGridStyle}>
-                    <label style={compactFieldLabelStyle}>
-                      일괄 적용 상태
-                      <select
-                        style={inputStyle}
-                        value={bulkAttendanceStatus}
-                        onChange={(event) =>
-                          setBulkAttendanceStatus(event.target.value as AttendanceStatus)
-                        }
-                      >
-                        {ATTENDANCE_STATUS_OPTIONS.map((status) => (
-                          <option key={status.value} value={status.value}>
-                            {status.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label style={compactFieldLabelStyle}>
-                      일괄 비고
-                      <input
-                        style={inputStyle}
-                        value={bulkAttendanceNote}
-                        onChange={(event) => setBulkAttendanceNote(event.target.value)}
-                        placeholder="비고를 일괄 적용할 때만 입력"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <div style={bulkActionRowStyle}>
-                  <button
-                    type="button"
-                    style={secondaryButtonStyle}
-                    onClick={() => handleApplyBulkAttendanceToDrafts("selected")}
+                  <label
+                    style={{
+                      ...compactFieldLabelStyle,
+                      minWidth: "210px",
+                    }}
                   >
-                    선택 대원에 적용
-                  </button>
-                  <button
-                    type="button"
-                    style={secondaryButtonStyle}
-                    onClick={() => handleApplyBulkAttendanceToDrafts("selected_not_entered")}
+                    일괄 적용 상태
+                    <select
+                      style={inputStyle}
+                      value={bulkAttendanceStatus}
+                      onChange={(event) =>
+                        setBulkAttendanceStatus(event.target.value as AttendanceStatus)
+                      }
+                      disabled={bulkAttendanceSaving}
+                    >
+                      {ATTENDANCE_STATUS_OPTIONS.map((status) => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label
+                    style={{
+                      ...compactFieldLabelStyle,
+                      minWidth: "300px",
+                    }}
                   >
-                    미입력 대원만 적용
-                  </button>
+                    일괄 비고
+                    <input
+                      style={inputStyle}
+                      value={bulkAttendanceNote}
+                      onChange={(event) => setBulkAttendanceNote(event.target.value)}
+                      placeholder="비고를 일괄 적용할 때만 입력"
+                      disabled={bulkAttendanceSaving}
+                    />
+                  </label>
+
                   <button
                     type="button"
                     style={submitButtonStyle}
-                    onClick={handleSaveSelectedAttendance}
-                    disabled={bulkAttendanceSaving}
+                    onClick={() => handleApplyBulkAttendance("selected")}
+                    disabled={bulkAttendanceSaving || selectedAttendanceScoutCount === 0}
                   >
-                    {bulkAttendanceSaving ? "저장 중..." : "선택 대원 저장"}
+                    {bulkAttendanceSaving ? "적용 중..." : "선택 대원 적용"}
+                  </button>
+
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={() => handleApplyBulkAttendance("selected_not_entered")}
+                    disabled={bulkAttendanceSaving || selectedAttendanceScoutCount === 0}
+                  >
+                    미입력 대원만 적용
                   </button>
                 </div>
               </div>
@@ -1473,7 +1752,7 @@ export default function MeetingsPage() {
                         <td style={tdStyle}>
                           {canManageMeetings ? (
                             <select
-                              style={attendanceSelectStyle}
+                              style={getAttendanceSelectStyle(draft.status)}
                               value={draft.status}
                               onChange={(event) =>
                                 updateAttendanceDraft(
@@ -1540,7 +1819,7 @@ export default function MeetingsPage() {
                   <div>
                     <h3 style={panelTitleStyle}>집회/활동 등록</h3>
                     <p style={panelDescriptionStyle}>
-                      출석 반영을 선택하면 이 집회가 출석 참고 지표에 포함됩니다.
+                      출석률 산정 대상을 선택하면 이 집회가 대원 출석률 계산에 포함됩니다.
                     </p>
                   </div>
 
@@ -1619,7 +1898,7 @@ export default function MeetingsPage() {
                       checked={createForm.is_attendance_target}
                       onChange={(event) => updateCreateForm("is_attendance_target", event.target.checked)}
                     />
-                    출석 참고 지표에 반영
+                    출석률 산정 대상에 포함
                   </label>
 
                   <label style={fieldLabelStyle}>
@@ -1655,7 +1934,7 @@ export default function MeetingsPage() {
                   <div>
                     <h3 style={panelTitleStyle}>집회/활동 수정</h3>
                     <p style={panelDescriptionStyle}>
-                      선택한 집회/활동의 일자, 이름, 유형, 출석 반영 여부를 수정합니다.
+                      선택한 집회/활동의 일자, 이름, 유형, 출석률 산정 여부를 수정합니다.
                     </p>
                   </div>
 
@@ -1715,7 +1994,7 @@ export default function MeetingsPage() {
                       checked={editForm.is_attendance_target}
                       onChange={(event) => updateEditForm("is_attendance_target", event.target.checked)}
                     />
-                    출석 참고 지표에 반영
+                    출석률 산정 대상에 포함
                   </label>
 
                   <label style={fieldLabelStyle}>
@@ -1815,6 +2094,12 @@ const summaryCardOrangeStyle: CSSProperties = {
   backgroundColor: "#fff7ed",
 };
 
+const summaryCardRedStyle: CSSProperties = {
+  ...summaryCardStyle,
+  borderColor: "#fecaca",
+  backgroundColor: "#fef2f2",
+};
+
 const summaryTitleStyle: CSSProperties = {
   margin: 0,
   fontSize: "15px",
@@ -1846,7 +2131,8 @@ const contentCardStyle: CSSProperties = {
 
 const detailCardStyle: CSSProperties = {
   ...contentCardStyle,
-  marginTop: "24px",
+  marginTop: "16px",
+  padding: "16px",
 };
 
 const toolbarStyle: CSSProperties = {
@@ -1971,6 +2257,16 @@ const errorBoxStyle: CSSProperties = {
   lineHeight: 1.5,
 };
 
+const successBoxStyle: CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: "10px",
+  backgroundColor: "#ecfdf5",
+  color: "#047857",
+  fontWeight: 700,
+  marginBottom: "16px",
+  lineHeight: 1.5,
+};
+
 const tableWrapStyle: CSSProperties = {
   overflowX: "auto",
 };
@@ -2065,20 +2361,9 @@ const nonTargetBadgeStyle: CSSProperties = {
 const detailHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: "16px",
+  gap: "12px",
   alignItems: "flex-start",
-  marginBottom: "16px",
-};
-
-const selectedMeetingHeaderStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "16px",
-  padding: "16px",
-  borderRadius: "12px",
-  backgroundColor: "#f8fafc",
-  marginBottom: "14px",
+  marginBottom: "10px",
 };
 
 const selectedMeetingTitleStyle: CSSProperties = {
@@ -2095,17 +2380,33 @@ const selectedMeetingDescriptionStyle: CSSProperties = {
   lineHeight: 1.5,
 };
 
-const attendanceSummaryGridStyle: CSSProperties = {
+const attendanceOverviewGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-  gap: "12px",
-  marginBottom: "10px",
+  gridTemplateColumns: "minmax(320px, 1.5fr) repeat(4, minmax(120px, 1fr))",
+  gap: "8px",
+  alignItems: "stretch",
+  marginBottom: "8px",
+  overflowX: "auto",
 };
 
-const miniSummaryCardStyle: CSSProperties = {
+const selectedMeetingOverviewCardStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  minWidth: "320px",
+  padding: "10px 12px",
   border: "1px solid #e5e7eb",
-  borderRadius: "10px",
-  padding: "14px",
+  borderRadius: "9px",
+  backgroundColor: "#f8fafc",
+};
+
+
+const miniSummaryCardStyle: CSSProperties = {
+  minWidth: "120px",
+  border: "1px solid #e5e7eb",
+  borderRadius: "9px",
+  padding: "10px 12px",
   backgroundColor: "#f8fafc",
 };
 
@@ -2117,35 +2418,35 @@ const miniSummaryTitleStyle: CSSProperties = {
 };
 
 const miniSummaryValueStyle: CSSProperties = {
-  marginTop: "8px",
+  marginTop: "4px",
   marginBottom: 0,
-  fontSize: "20px",
+  fontSize: "18px",
   fontWeight: 800,
   color: "#0f172a",
 };
 
 const attendanceGuideStyle: CSSProperties = {
-  marginTop: "0",
-  marginBottom: "14px",
+  marginTop: 0,
+  marginBottom: "10px",
   color: "#64748b",
-  fontSize: "13px",
-  lineHeight: 1.5,
+  fontSize: "12px",
+  lineHeight: 1.4,
 };
 
 const bulkPanelStyle: CSSProperties = {
-  padding: "16px",
+  padding: "12px 14px",
   border: "1px solid #bfdbfe",
-  borderRadius: "12px",
+  borderRadius: "10px",
   backgroundColor: "#eff6ff",
-  marginBottom: "16px",
+  marginBottom: "10px",
 };
 
 const bulkHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: "16px",
-  alignItems: "flex-start",
-  marginBottom: "14px",
+  gap: "12px",
+  alignItems: "center",
+  marginBottom: "8px",
 };
 
 const bulkTitleStyle: CSSProperties = {
@@ -2156,57 +2457,44 @@ const bulkTitleStyle: CSSProperties = {
 };
 
 const bulkDescriptionStyle: CSSProperties = {
-  marginTop: "6px",
+  marginTop: "3px",
   marginBottom: 0,
   color: "#64748b",
-  fontSize: "13px",
-  lineHeight: 1.5,
+  fontSize: "12px",
+  lineHeight: 1.35,
 };
 
 const selectedCountBadgeStyle: CSSProperties = {
   display: "inline-flex",
-  padding: "8px 10px",
+  padding: "6px 9px",
   borderRadius: "999px",
   backgroundColor: "#dbeafe",
   color: "#1d4ed8",
   fontWeight: 800,
-  fontSize: "13px",
+  fontSize: "12px",
   whiteSpace: "nowrap",
 };
 
 const bulkControlRowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "auto 1fr",
-  gap: "12px",
+  gridTemplateColumns: "auto minmax(190px, 220px) minmax(260px, 1fr) auto auto",
+  gap: "8px",
   alignItems: "end",
+  overflowX: "auto",
 };
 
 const bulkButtonGroupStyle: CSSProperties = {
   display: "flex",
   gap: "8px",
-  flexWrap: "wrap",
-};
-
-const bulkFieldGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(180px, 260px) 1fr",
-  gap: "10px",
-};
-
-const bulkActionRowStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  flexWrap: "wrap",
-  gap: "8px",
-  marginTop: "14px",
+  flexWrap: "nowrap",
 };
 
 const compactFieldLabelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "6px",
+  gap: "4px",
   color: "#334155",
-  fontSize: "13px",
+  fontSize: "12px",
   fontWeight: 700,
 };
 
@@ -2348,4 +2636,44 @@ const panelFooterStyle: CSSProperties = {
   padding: "16px 20px",
   borderTop: "1px solid #e5e7eb",
   backgroundColor: "#ffffff",
+};
+
+
+const normalCountStyle: CSSProperties = {
+  color: "#475569",
+  fontWeight: 700,
+};
+
+const missingCountStyle: CSSProperties = {
+  display: "inline-flex",
+  minWidth: "34px",
+  justifyContent: "center",
+  padding: "4px 8px",
+  borderRadius: "999px",
+  backgroundColor: "#ffedd5",
+  color: "#9a3412",
+  fontWeight: 800,
+};
+
+const absentCountStyle: CSSProperties = {
+  ...missingCountStyle,
+  backgroundColor: "#fee2e2",
+  color: "#b91c1c",
+};
+
+const completeStatusBadgeStyle: CSSProperties = {
+  display: "inline-flex",
+  padding: "5px 9px",
+  borderRadius: "999px",
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+  fontSize: "12px",
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
+
+const incompleteStatusBadgeStyle: CSSProperties = {
+  ...completeStatusBadgeStyle,
+  backgroundColor: "#ffedd5",
+  color: "#9a3412",
 };

@@ -6,6 +6,14 @@ import { supabase } from "../lib/supabase";
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
 type ScoutStatus = "active" | "inactive" | "graduated";
 type ProgramType = "WSEP" | "MoP";
+type ProgressFilter =
+  | "all"
+  | "beomTarget"
+  | "programMissing"
+  | "wsepMissing"
+  | "mopMissing"
+  | "approvalMissing"
+  | "completionMissing";
 type SortDirection = "asc" | "desc";
 type ScoutSortKey =
   | "name"
@@ -13,6 +21,8 @@ type ScoutSortKey =
   | "status"
   | "wsep"
   | "mop"
+  | "currentRank"
+  | "nextRank"
   | "completionStatus"
   | "latestCompletedAt";
 
@@ -203,6 +213,35 @@ function getProgramTypeDescription(programType: ProgramType) {
   );
 }
 
+const RANK_ORDER = ["초급", "2급", "1급", "별", "무궁화", "범"] as const;
+
+function normalizeRankName(rankName: string | null | undefined) {
+  return (rankName ?? "").replace(/\s+/g, "").trim();
+}
+
+function getNextRankName(currentRankName: string | null) {
+  const normalized = normalizeRankName(currentRankName);
+  const currentIndex = RANK_ORDER.findIndex(
+    (rankName) => normalizeRankName(rankName) === normalized,
+  );
+
+  if (currentIndex < 0) return "초급";
+  if (currentIndex >= RANK_ORDER.length - 1) return "-";
+
+  return RANK_ORDER[currentIndex + 1];
+}
+
+function isBeomTargetRank(nextRankName: string) {
+  return normalizeRankName(nextRankName) === "범";
+}
+
+function getProgramEvidenceStatus(completion: ProgramCompletion | undefined) {
+  if (!completion) return "미이수";
+  if (!completion.approved_at) return "승인 필요";
+  if (!completion.certificate_no) return "수료증 확인";
+  return "완료";
+}
+
 export default function ProgramCompletionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -215,6 +254,7 @@ export default function ProgramCompletionsPage() {
   const [keyword, setKeyword] = useState("");
   const [selectedScoutId, setSelectedScoutId] = useState("");
   const [selectedProgramType, setSelectedProgramType] = useState<"" | ProgramType>("");
+  const [progressFilter, setProgressFilter] = useState<ProgressFilter>("all");
   const [selectedCompletionId, setSelectedCompletionId] = useState("");
   const [selectedScoutIds, setSelectedScoutIds] = useState<string[]>([]);
   const [scoutSortKey, setScoutSortKey] = useState<ScoutSortKey>("name");
@@ -439,6 +479,42 @@ export default function ProgramCompletionsPage() {
     );
   }, [beomRankIdSet, scoutRankHistories]);
 
+
+  const rankNameMap = useMemo(() => {
+    return new Map(ranks.map((rank) => [rank.id, rank.rank_name]));
+  }, [ranks]);
+
+  const latestRankHistoryByScoutMap = useMemo(() => {
+    const map = new Map<string, ScoutRankHistory>();
+
+    scoutRankHistories.forEach((history) => {
+      const current = map.get(history.scout_id);
+
+      if (!current || history.approved_at > current.approved_at) {
+        map.set(history.scout_id, history);
+      }
+    });
+
+    return map;
+  }, [scoutRankHistories]);
+
+  const getScoutRankInfo = (scoutId: string) => {
+    const latestHistory = latestRankHistoryByScoutMap.get(scoutId);
+    const currentRankName = latestHistory
+      ? rankNameMap.get(latestHistory.rank_id) ?? "인가기록 없음"
+      : "인가기록 없음";
+    const nextRankName =
+      currentRankName === "인가기록 없음"
+        ? "초급"
+        : getNextRankName(currentRankName);
+
+    return {
+      currentRankName,
+      nextRankName,
+      isBeomTarget: isBeomTargetRank(nextRankName),
+    };
+  };
+
   const programCompletionCountByScoutMap = useMemo(() => {
     const map = new Map<string, number>();
 
@@ -472,11 +548,47 @@ export default function ProgramCompletionsPage() {
     return map;
   }, [programCompletions]);
 
-  const scoutsWithNoProgramCount = useMemo(() => {
-    return scouts.filter(
-      (scout) => (programCompletionCountByScoutMap.get(scout.id) ?? 0) === 0,
-    ).length;
-  }, [programCompletionCountByScoutMap, scouts]);
+  const activeScouts = useMemo(
+    () => scouts.filter((scout) => scout.status === "active"),
+    [scouts],
+  );
+
+  const beomTargetScoutCount = useMemo(() => {
+    return activeScouts.filter((scout) => getScoutRankInfo(scout.id).isBeomTarget)
+      .length;
+  }, [activeScouts, latestRankHistoryByScoutMap, rankNameMap]);
+
+  const programMissingScoutCount = useMemo(() => {
+    return activeScouts.filter((scout) => {
+      const { isBeomTarget } = getScoutRankInfo(scout.id);
+      const wsepCompletion = programCompletionByScoutAndTypeMap.get(
+        `${scout.id}:WSEP`,
+      );
+      const mopCompletion = programCompletionByScoutAndTypeMap.get(
+        `${scout.id}:MoP`,
+      );
+
+      return isBeomTarget && !wsepCompletion && !mopCompletion;
+    }).length;
+  }, [
+    activeScouts,
+    latestRankHistoryByScoutMap,
+    programCompletionByScoutAndTypeMap,
+    rankNameMap,
+  ]);
+
+  const needsLeaderReviewCount = useMemo(() => {
+    return activeScouts.filter((scout) => {
+      const completions = [
+        programCompletionByScoutAndTypeMap.get(`${scout.id}:WSEP`),
+        programCompletionByScoutAndTypeMap.get(`${scout.id}:MoP`),
+      ].filter(Boolean) as ProgramCompletion[];
+
+      return completions.some(
+        (completion) => !completion.approved_at || !completion.certificate_no,
+      );
+    }).length;
+  }, [activeScouts, programCompletionByScoutAndTypeMap]);
 
   const selectedBulkDuplicateCount = useMemo(() => {
     return selectedScoutIds.filter((scoutId) =>
@@ -492,12 +604,20 @@ export default function ProgramCompletionsPage() {
         return false;
       }
 
+      const rankInfo = getScoutRankInfo(scout.id);
       const wsepCompletion = programCompletionByScoutAndTypeMap.get(
         `${scout.id}:WSEP`,
       );
       const mopCompletion = programCompletionByScoutAndTypeMap.get(
         `${scout.id}:MoP`,
       );
+      const hasAnyProgram = Boolean(wsepCompletion || mopCompletion);
+      const hasApprovalMissing = [wsepCompletion, mopCompletion]
+        .filter(Boolean)
+        .some((completion) => !completion?.approved_at);
+      const hasEvidenceMissing = [wsepCompletion, mopCompletion]
+        .filter(Boolean)
+        .some((completion) => !completion?.certificate_no);
 
       if (selectedProgramType === "WSEP" && !wsepCompletion) {
         return false;
@@ -505,6 +625,30 @@ export default function ProgramCompletionsPage() {
 
       if (selectedProgramType === "MoP" && !mopCompletion) {
         return false;
+      }
+
+      switch (progressFilter) {
+        case "beomTarget":
+          if (!rankInfo.isBeomTarget) return false;
+          break;
+        case "programMissing":
+          if (!rankInfo.isBeomTarget || hasAnyProgram) return false;
+          break;
+        case "wsepMissing":
+          if (wsepCompletion) return false;
+          break;
+        case "mopMissing":
+          if (mopCompletion) return false;
+          break;
+        case "approvalMissing":
+          if (!hasApprovalMissing) return false;
+          break;
+        case "completionMissing":
+          if (!hasEvidenceMissing) return false;
+          break;
+        case "all":
+        default:
+          break;
       }
 
       if (!normalizedKeyword) {
@@ -518,6 +662,8 @@ export default function ProgramCompletionsPage() {
         scout.grade,
         SCOUT_STATUS_LABELS[scout.status],
         organizationNameMap.get(scout.organization_id),
+        rankInfo.currentRankName,
+        rankInfo.nextRankName,
         wsepCompletion?.certificate_no,
         wsepCompletion?.note,
         mopCompletion?.certificate_no,
@@ -531,8 +677,11 @@ export default function ProgramCompletionsPage() {
     });
   }, [
     keyword,
+    latestRankHistoryByScoutMap,
     organizationNameMap,
     programCompletionByScoutAndTypeMap,
+    progressFilter,
+    rankNameMap,
     scouts,
     selectedProgramType,
     selectedScoutId,
@@ -573,6 +722,10 @@ export default function ProgramCompletionsPage() {
             return wsepCompletion?.completed_at ?? "";
           case "mop":
             return mopCompletion?.completed_at ?? "";
+          case "currentRank":
+            return getScoutRankInfo(scout.id).currentRankName;
+          case "nextRank":
+            return getScoutRankInfo(scout.id).nextRankName;
           case "completionStatus":
             return wsepCompletion || mopCompletion ? 1 : 0;
           case "latestCompletedAt":
@@ -594,8 +747,10 @@ export default function ProgramCompletionsPage() {
     });
   }, [
     filteredScouts,
+    latestRankHistoryByScoutMap,
     organizationNameMap,
     programCompletionByScoutAndTypeMap,
+    rankNameMap,
     scoutSortDirection,
     scoutSortKey,
   ]);
@@ -619,18 +774,6 @@ export default function ProgramCompletionsPage() {
       ) ?? null
     );
   }, [programCompletions, selectedCompletionId]);
-
-  const wsepCount = programCompletions.filter(
-    (completion) => completion.program_type === "WSEP",
-  ).length;
-
-  const mopCount = programCompletions.filter(
-    (completion) => completion.program_type === "MoP",
-  ).length;
-
-  const scoutsWithAnyProgramCount = useMemo(() => {
-    return new Set(programCompletions.map((completion) => completion.scout_id)).size;
-  }, [programCompletions]);
 
   const getIsDeletionProtected = (completion: ProgramCompletion) => {
     return (
@@ -1111,7 +1254,7 @@ export default function ProgramCompletionsPage() {
         <div>
           <h1 style={pageTitleStyle}>프로그램 이수 관리</h1>
           <p style={pageDescriptionStyle}>
-            범스카우트 진급 신청 전 WSEP 또는 MoP 중 1개 이상 이수 여부를 관리합니다.
+            대원의 현재 급위와 다음 급위를 기준으로 WSEP·MoP 이수 여부와 범 진급 영향을 관리합니다.
           </p>
         </div>
 
@@ -1121,26 +1264,26 @@ export default function ProgramCompletionsPage() {
       <div style={summaryGridStyle}>
         <section style={{ ...summaryCardStyle, ...summaryNeutralCardStyle }}>
           <h2 style={summaryTitleStyle}>관리 대상 대원</h2>
-          <p style={summaryValueStyle}>{scouts.length}명</p>
-          <p style={summaryDescriptionStyle}>현재 목록에서 확인할 수 있는 전체 대원입니다.</p>
-        </section>
-
-        <section style={{ ...summaryCardStyle, ...summarySuccessCardStyle }}>
-          <h2 style={summaryTitleStyle}>이수 완료 대원</h2>
-          <p style={summaryValueStyle}>{scoutsWithAnyProgramCount}명</p>
-          <p style={summaryDescriptionStyle}>WSEP 또는 MoP 이수 기록이 있는 대원입니다.</p>
-        </section>
-
-        <section style={{ ...summaryCardStyle, ...summaryWarningCardStyle }}>
-          <h2 style={summaryTitleStyle}>이수 확인 필요</h2>
-          <p style={summaryValueStyle}>{scoutsWithNoProgramCount}명</p>
-          <p style={summaryDescriptionStyle}>범 진급 신청 전 이수 기록 확인이 필요한 대원입니다.</p>
+          <p style={summaryValueStyle}>{activeScouts.length}명</p>
+          <p style={summaryDescriptionStyle}>현재 활동 중인 대원을 기준으로 확인합니다.</p>
         </section>
 
         <section style={{ ...summaryCardStyle, ...summaryInfoCardStyle }}>
-          <h2 style={summaryTitleStyle}>이수 기록</h2>
-          <p style={summaryValueStyle}>{programCompletions.length}건</p>
-          <p style={summaryDescriptionStyle}>WSEP {wsepCount}건 · MoP {mopCount}건</p>
+          <h2 style={summaryTitleStyle}>범 진급 대상</h2>
+          <p style={summaryValueStyle}>{beomTargetScoutCount}명</p>
+          <p style={summaryDescriptionStyle}>현재 무궁화급으로 다음 급위가 범인 대원입니다.</p>
+        </section>
+
+        <section style={{ ...summaryCardStyle, ...summaryDangerCardStyle }}>
+          <h2 style={summaryTitleStyle}>프로그램 부족</h2>
+          <p style={summaryValueStyle}>{programMissingScoutCount}명</p>
+          <p style={summaryDescriptionStyle}>범 진급 대상 중 WSEP·MoP 기록이 없는 대원입니다.</p>
+        </section>
+
+        <section style={{ ...summaryCardStyle, ...summaryWarningCardStyle }}>
+          <h2 style={summaryTitleStyle}>지도자 확인 필요</h2>
+          <p style={summaryValueStyle}>{needsLeaderReviewCount}명</p>
+          <p style={summaryDescriptionStyle}>승인일 또는 수료증번호 확인이 필요한 대원입니다.</p>
         </section>
       </div>
 
@@ -1154,6 +1297,23 @@ export default function ProgramCompletionsPage() {
           </div>
 
           <div style={toolbarRightStyle}>
+            <select
+              style={filterSelectStyle}
+              value={progressFilter}
+              onChange={(event) => {
+                setProgressFilter(event.target.value as ProgressFilter);
+                setSelectedScoutIds([]);
+              }}
+            >
+              <option value="all">전체 현황</option>
+              <option value="beomTarget">범 진급 대상</option>
+              <option value="programMissing">프로그램 부족</option>
+              <option value="wsepMissing">WSEP 미이수</option>
+              <option value="mopMissing">MoP 미이수</option>
+              <option value="approvalMissing">승인 필요</option>
+              <option value="completionMissing">수료증 확인</option>
+            </select>
+
             <select
               style={filterSelectStyle}
               value={selectedScoutId}
@@ -1210,7 +1370,7 @@ export default function ProgramCompletionsPage() {
         </div>
 
         <div style={guideBoxStyle}>
-          범스카우트 진급 신청에는 WSEP 또는 MoP 중 1개 이상의 이수 기록이 필요합니다. 개별 등록은 해당 대원 행의 이수 등록 버튼을 사용하고, 여러 대원이 같은 과정에 참가한 경우 대원을 선택한 뒤 일괄 등록하세요.
+          범 진급 대상은 WSEP 또는 MoP 중 1개 이상의 이수·승인 기록이 필요합니다. 프로그램 부족 대원을 먼저 확인하고, 승인일과 수료증번호까지 점검하세요.
         </div>
 
         {actionMessage && <div style={infoBoxStyle}>{actionMessage}</div>}
@@ -1271,6 +1431,24 @@ export default function ProgramCompletionsPage() {
                     <button
                       type="button"
                       style={sortHeaderButtonStyle}
+                      onClick={() => handleChangeScoutSort("currentRank")}
+                    >
+                      현재급위{getSortIndicator("currentRank")}
+                    </button>
+                  </th>
+                  <th style={thStyle}>
+                    <button
+                      type="button"
+                      style={sortHeaderButtonStyle}
+                      onClick={() => handleChangeScoutSort("nextRank")}
+                    >
+                      다음급위{getSortIndicator("nextRank")}
+                    </button>
+                  </th>
+                  <th style={thStyle}>
+                    <button
+                      type="button"
+                      style={sortHeaderButtonStyle}
                       onClick={() => handleChangeScoutSort("wsep")}
                     >
                       WSEP{getSortIndicator("wsep")}
@@ -1291,7 +1469,7 @@ export default function ProgramCompletionsPage() {
                       style={sortHeaderButtonStyle}
                       onClick={() => handleChangeScoutSort("completionStatus")}
                     >
-                      이수 상태{getSortIndicator("completionStatus")}
+                      범 진급 영향{getSortIndicator("completionStatus")}
                     </button>
                   </th>
                   <th style={thStyle}>
@@ -1300,7 +1478,7 @@ export default function ProgramCompletionsPage() {
                       style={sortHeaderButtonStyle}
                       onClick={() => handleChangeScoutSort("latestCompletedAt")}
                     >
-                      최근 이수일{getSortIndicator("latestCompletedAt")}
+                      최근 기록{getSortIndicator("latestCompletedAt")}
                     </button>
                   </th>
                   {canManagePrograms && <th style={thStyle}>관리</th>}
@@ -1312,6 +1490,14 @@ export default function ProgramCompletionsPage() {
                   const wsepCompletion = programCompletionByScoutAndTypeMap.get(`${scout.id}:WSEP`);
                   const mopCompletion = programCompletionByScoutAndTypeMap.get(`${scout.id}:MoP`);
                   const hasAnyProgram = Boolean(wsepCompletion || mopCompletion);
+                  const rankInfo = getScoutRankInfo(scout.id);
+                  const hasApprovedProgram = [wsepCompletion, mopCompletion].some(
+                    (completion) => Boolean(completion?.approved_at),
+                  );
+                  const hasCompleteEvidence = [wsepCompletion, mopCompletion].some(
+                    (completion) =>
+                      Boolean(completion?.approved_at && completion?.certificate_no),
+                  );
                   const latestCompletion = [wsepCompletion, mopCompletion]
                     .filter(Boolean)
                     .sort((a, b) => String(b?.completed_at).localeCompare(String(a?.completed_at)))[0] as ProgramCompletion | undefined;
@@ -1344,6 +1530,12 @@ export default function ProgramCompletionsPage() {
                       {isSuperAdmin && <td style={tdStyle}>{getOrganizationName(scout.organization_id)}</td>}
                       <td style={tdStyle}>{SCOUT_STATUS_LABELS[scout.status]}</td>
                       <td style={tdStyle}>
+                        <span style={rankBadgeStyle}>{rankInfo.currentRankName}</span>
+                      </td>
+                      <td style={tdStyle}>
+                        <span style={nextRankBadgeStyle}>{rankInfo.nextRankName}</span>
+                      </td>
+                      <td style={tdStyle}>
                         {wsepCompletion ? (
                           <button
                             type="button"
@@ -1353,7 +1545,7 @@ export default function ProgramCompletionsPage() {
                               setSelectedCompletionId(wsepCompletion.id);
                             }}
                           >
-                            이수 {formatDate(wsepCompletion.completed_at)}
+                            {getProgramEvidenceStatus(wsepCompletion)} · {formatDate(wsepCompletion.completed_at)}
                           </button>
                         ) : (
                           <span style={programMissingBadgeStyle}>미이수</span>
@@ -1369,16 +1561,22 @@ export default function ProgramCompletionsPage() {
                               setSelectedCompletionId(mopCompletion.id);
                             }}
                           >
-                            이수 {formatDate(mopCompletion.completed_at)}
+                            {getProgramEvidenceStatus(mopCompletion)} · {formatDate(mopCompletion.completed_at)}
                           </button>
                         ) : (
                           <span style={programMissingBadgeStyle}>미이수</span>
                         )}
                       </td>
                       <td style={tdStyle}>
-                        <span style={hasAnyProgram ? completedBadgeStyle : needCheckBadgeStyle}>
-                          {hasAnyProgram ? "충족" : "확인 필요"}
-                        </span>
+                        {!rankInfo.isBeomTarget ? (
+                          <span style={referenceBadgeStyle}>현재 진급 참고</span>
+                        ) : hasCompleteEvidence ? (
+                          <span style={promotionReadyBadgeStyle}>프로그램 충족</span>
+                        ) : hasApprovedProgram || hasAnyProgram ? (
+                          <span style={needCheckBadgeStyle}>증빙 확인 필요</span>
+                        ) : (
+                          <span style={programMissingImpactBadgeStyle}>프로그램 부족</span>
+                        )}
                       </td>
                       <td style={tdStyle}>{latestCompletion ? formatDate(latestCompletion.completed_at) : "-"}</td>
                       {canManagePrograms && (
@@ -1389,7 +1587,7 @@ export default function ProgramCompletionsPage() {
                             onClick={() => handleOpenCreateForm(scout.id, nextProgramType)}
                             disabled={submitting || !canRegisterProgram}
                           >
-                            {canRegisterProgram ? "이수 등록" : "등록 완료"}
+                            {canRegisterProgram ? "프로그램 등록" : "등록 완료"}
                           </button>
                           {latestCompletion && (
                             <button
@@ -1418,7 +1616,7 @@ export default function ProgramCompletionsPage() {
             <div>
               <h2 style={sectionTitleStyle}>선택 기록 상세</h2>
               <p style={sectionDescriptionStyle}>
-                WSEP 또는 MoP 이수 배지를 선택하면 상세 정보를 확인할 수 있습니다.
+                프로그램 이수 기록과 범 진급 반영 상태를 함께 확인합니다.
               </p>
             </div>
 
@@ -1462,6 +1660,24 @@ export default function ProgramCompletionsPage() {
           </div>
 
           <div style={detailGridStyle}>
+            <div style={detailItemStyle}>
+              <span style={detailLabelStyle}>현재급위</span>
+              <strong>{getScoutRankInfo(selectedCompletion.scout_id).currentRankName}</strong>
+            </div>
+            <div style={detailItemStyle}>
+              <span style={detailLabelStyle}>다음급위</span>
+              <strong>{getScoutRankInfo(selectedCompletion.scout_id).nextRankName}</strong>
+            </div>
+            <div style={detailItemStyle}>
+              <span style={detailLabelStyle}>범 진급 영향</span>
+              <strong>
+                {getScoutRankInfo(selectedCompletion.scout_id).isBeomTarget
+                  ? selectedCompletion.approved_at && selectedCompletion.certificate_no
+                    ? "프로그램 조건 충족"
+                    : "증빙 확인 필요"
+                  : "현재 진급 참고 기록"}
+              </strong>
+            </div>
             <div style={detailItemStyle}>
               <span style={detailLabelStyle}>대원</span>
               <strong>{getScoutDisplayName(selectedCompletion.scout_id)}</strong>
@@ -1536,6 +1752,21 @@ export default function ProgramCompletionsPage() {
               </div>
 
               {formErrorMessage && <div style={errorBoxStyle}>{formErrorMessage}</div>}
+
+              {createForm.scout_id && (
+                <div style={promotionImpactBoxStyle}>
+                  <strong>진급 영향</strong>
+                  <span>
+                    현재 {getScoutRankInfo(createForm.scout_id).currentRankName} · 다음{" "}
+                    {getScoutRankInfo(createForm.scout_id).nextRankName}
+                  </span>
+                  <span>
+                    {getScoutRankInfo(createForm.scout_id).isBeomTarget
+                      ? `${createForm.program_type} 등록 후 승인일과 수료증번호가 확인되면 범 진급 프로그램 조건에 반영됩니다.`
+                      : "현재 급위에서는 참고 기록으로 관리되며, 범 진급 시 조건에 반영됩니다."}
+                  </span>
+                </div>
+              )}
 
               <label style={fieldLabelStyle}>
                 대원 <span style={requiredStyle}>*</span>
@@ -2273,10 +2504,6 @@ const summaryNeutralCardStyle: CSSProperties = {
   backgroundColor: "#f8fbff",
 };
 
-const summarySuccessCardStyle: CSSProperties = {
-  borderColor: "#bbf7d0",
-  backgroundColor: "#f0fdf4",
-};
 
 const summaryWarningCardStyle: CSSProperties = {
   borderColor: "#fed7aa",
@@ -2286,6 +2513,62 @@ const summaryWarningCardStyle: CSSProperties = {
 const summaryInfoCardStyle: CSSProperties = {
   borderColor: "#bfdbfe",
   backgroundColor: "#eff6ff",
+};
+
+const summaryDangerCardStyle: CSSProperties = {
+  borderColor: "#fecaca",
+  backgroundColor: "#fef2f2",
+};
+
+const rankBadgeStyle: CSSProperties = {
+  display: "inline-flex",
+  padding: "5px 9px",
+  borderRadius: "999px",
+  backgroundColor: "#f1f5f9",
+  color: "#334155",
+  fontSize: "12px",
+  fontWeight: 800,
+};
+
+const nextRankBadgeStyle: CSSProperties = {
+  ...rankBadgeStyle,
+  backgroundColor: "#dbeafe",
+  color: "#1d4ed8",
+};
+
+const promotionReadyBadgeStyle: CSSProperties = {
+  display: "inline-flex",
+  padding: "5px 9px",
+  borderRadius: "999px",
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+  fontSize: "12px",
+  fontWeight: 800,
+};
+
+const programMissingImpactBadgeStyle: CSSProperties = {
+  ...promotionReadyBadgeStyle,
+  backgroundColor: "#fee2e2",
+  color: "#991b1b",
+};
+
+const referenceBadgeStyle: CSSProperties = {
+  ...promotionReadyBadgeStyle,
+  backgroundColor: "#e0f2fe",
+  color: "#075985",
+};
+
+const promotionImpactBoxStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "5px",
+  padding: "14px",
+  borderRadius: "10px",
+  border: "1px solid #bfdbfe",
+  backgroundColor: "#eff6ff",
+  color: "#1e3a8a",
+  lineHeight: 1.5,
+  marginBottom: "8px",
 };
 
 const guideBoxStyle: CSSProperties = {
@@ -2356,20 +2639,15 @@ const programMissingBadgeStyle: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const completedBadgeStyle: CSSProperties = {
+
+const needCheckBadgeStyle: CSSProperties = {
   display: "inline-flex",
   padding: "5px 9px",
   borderRadius: "999px",
-  backgroundColor: "#dcfce7",
-  color: "#166534",
-  fontSize: "12px",
-  fontWeight: 800,
-};
-
-const needCheckBadgeStyle: CSSProperties = {
-  ...completedBadgeStyle,
   backgroundColor: "#ffedd5",
   color: "#9a3412",
+  fontSize: "12px",
+  fontWeight: 800,
 };
 
 const sidePanelBackdropStyle: CSSProperties = {

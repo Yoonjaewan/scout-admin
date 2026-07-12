@@ -234,6 +234,41 @@ const REPORT_TYPE_OPTIONS: Array<{ value: ReportType; label: string }> = [
   { value: "rank_certificate", label: "진급 인증서" },
 ];
 
+const REPORT_TYPE_GUIDES: Record<
+  ReportType,
+  {
+    purpose: string;
+    standard: string;
+    outputRule: string;
+  }
+> = {
+  rank_approval: {
+    purpose: "기간 내 진급 인가 기록을 연맹 보고용 양식으로 출력합니다.",
+    standard: "진급 인가일 기준",
+    outputRule: "선택한 인가 기록만 보고서에 포함됩니다.",
+  },
+  badge_approval: {
+    purpose: "기간 내 기능장 인가 기록을 연맹 보고용 양식으로 출력합니다.",
+    standard: "기능장 인가일 기준",
+    outputRule: "인가일이 등록된 기능장 기록만 출력할 수 있습니다.",
+  },
+  rank_history: {
+    purpose: "대원별 급위 인가 이력을 한 표에서 확인하고 출력합니다.",
+    standard: "현재 실제 인가 기록 기준",
+    outputRule: "선택한 소속과 검색 조건에 맞는 대원을 출력합니다.",
+  },
+  beom_application: {
+    purpose: "범스카우트 진급 신청에 필요한 인적사항·진급·기능장·프로그램·출석 자료를 확인합니다.",
+    standard: "현재 등록된 대원 기록 기준",
+    outputRule: "누락 항목을 확인한 뒤 대원 1명 단위로 출력합니다.",
+  },
+  rank_certificate: {
+    purpose: "진급 인가 기록을 급위별 인증서 원본 양식에 반영하여 출력합니다.",
+    standard: "진급 인가일 기준",
+    outputRule: "초급·2급·1급·별·무궁화만 지원하며 범 인증서는 제외합니다.",
+  },
+};
+
 const ATTENDANCE_PASS_STATUSES: AttendanceStatus[] = [
   "present",
   "recognized",
@@ -1552,6 +1587,8 @@ export default function ReportsPage() {
   const currentReportTitle =
     REPORT_TYPE_OPTIONS.find((option) => option.value === reportType)?.label ?? "보고서";
 
+  const currentReportGuide = REPORT_TYPE_GUIDES[reportType];
+
   const currentRowCount =
     reportType === "rank_approval"
       ? rankReportRows.length
@@ -1564,6 +1601,38 @@ export default function ReportsPage() {
           : selectedBeomApplicationData
             ? 1
             : 0;
+
+  const reportReviewItems = useMemo(() => {
+    if (reportType !== "beom_application" || !selectedBeomApplicationData) {
+      return [] as string[];
+    }
+
+    const data = selectedBeomApplicationData;
+    const items: string[] = [];
+
+    if (!data.scout.member_no) items.push("회원번호");
+    if (!data.scout.joined_at) items.push("등록일");
+    if (!data.manual.birthDate) items.push("생년월일");
+    if (!data.manual.address) items.push("주소");
+    if (!data.manual.phone) items.push("연락처");
+    if (!data.manual.unitLeaderName) items.push("대장 성명");
+    if (!data.manual.sponsorRepresentativeName) items.push("육성단체대표");
+    if (!data.program) items.push("WSEP/MoP 이수");
+    if (data.program && !data.program.certificate_no) items.push("수료증번호");
+    if (data.program && !data.program.approved_at) items.push("프로그램 승인일");
+    if (data.requiredBadgeRows.some((row) => !row.approvedAt)) {
+      items.push("필수 기능장 인가일");
+    }
+    if (Object.values(data.rankDateByLabel).filter(Boolean).length < 5) {
+      items.push("급위별 인가일");
+    }
+    if (data.attendanceTotalCount === 0) items.push("출석 집회");
+    if (data.attendanceRate === null) items.push("출석률");
+
+    return Array.from(new Set(items));
+  }, [reportType, selectedBeomApplicationData]);
+
+  const reportReviewCount = reportReviewItems.length;
 
   const reportTargetPreviewRows = useMemo<ReportTargetPreviewRow[]>(() => {
     if (reportType === "rank_approval") {
@@ -1894,32 +1963,22 @@ export default function ReportsPage() {
 
       <div style={summaryGridStyle}>
         <section style={summaryCardStyle}>
-          <h2 style={summaryTitleStyle}>보고서 종류</h2>
+          <h2 style={summaryTitleStyle}>선택 보고서</h2>
           <p style={summaryValueStyle}>{currentReportTitle}</p>
-          <p style={summaryDescriptionStyle}>현재 출력할 보고서 양식입니다.</p>
+          <p style={summaryDescriptionStyle}>{currentReportGuide.standard}</p>
         </section>
 
-        <section style={summaryCardStyle}>
-          <h2 style={summaryTitleStyle}>출력 기간</h2>
-          <p style={summaryValueStyle}>{startDate} ~ {endDate}</p>
-          <p style={summaryDescriptionStyle}>
-            {reportType === "rank_history" || reportType === "beom_application"
-              ? "이 보고서는 기간 선택 없이 출력합니다."
-              : "인가일을 기준으로 출력 대상을 찾습니다."}
-          </p>
-        </section>
-
-        <section style={summaryCardStyle}>
-          <h2 style={summaryTitleStyle}>출력 소속</h2>
-          <p style={summaryValueStyle}>{selectedOrganizationName}</p>
-          <p style={summaryDescriptionStyle}>선택 가능한 소속만 표시됩니다.</p>
+        <section style={summarySuccessCardStyle}>
+          <h2 style={summaryTitleStyle}>출력 가능</h2>
+          <p style={summaryValueStyle}>{currentRowCount}건</p>
+          <p style={summaryDescriptionStyle}>현재 조건으로 조회된 전체 출력 대상입니다.</p>
         </section>
 
         <div
           role="button"
           tabIndex={0}
           style={{
-            ...summaryCardStyle,
+            ...summarySelectedCardStyle,
             cursor: "pointer",
             outline: "none",
             ...(isTargetPreviewOpen ? summaryTargetCardOpenStyle : {}),
@@ -1927,14 +1986,22 @@ export default function ReportsPage() {
           onClick={handleOpenTargetPreview}
           onKeyDown={handleTargetCardKeyDown}
         >
-          <h2 style={summaryTitleStyle}>출력 대상</h2>
-          <p style={summaryValueStyle}>
-            {selectedPrintRowCount}건 선택 / 전체 {currentRowCount}건
-          </p>
+          <h2 style={summaryTitleStyle}>선택 대상</h2>
+          <p style={summaryValueStyle}>{selectedPrintRowCount}건</p>
           <p style={summaryDescriptionStyle}>
-            이 카드를 누르면 출력 전 확인 영역에서 대상 목록을 선택할 수 있습니다.
+            카드를 눌러 출력 대상을 확인하거나 선택합니다.
           </p>
         </div>
+
+        <section style={reportReviewCount > 0 ? summaryWarningCardStyle : summaryCardStyle}>
+          <h2 style={summaryTitleStyle}>확인 필요</h2>
+          <p style={summaryValueStyle}>{reportReviewCount}건</p>
+          <p style={summaryDescriptionStyle}>
+            {reportType === "beom_application"
+              ? "범 진급 신청서의 누락 입력·증빙 항목입니다."
+              : "현재 보고서는 별도 확인 항목이 없습니다."}
+          </p>
+        </section>
       </div>
 
       <section style={contentCardStyle}>
@@ -1961,6 +2028,25 @@ export default function ReportsPage() {
             </button>
           </div>
         </div>
+
+        <div style={reportGuideBoxStyle}>
+          <div>
+            <strong style={reportGuideTitleStyle}>{currentReportTitle}</strong>
+            <p style={reportGuideTextStyle}>{currentReportGuide.purpose}</p>
+          </div>
+          <div style={reportGuideMetaStyle}>
+            <span>기준: {currentReportGuide.standard}</span>
+            <span>소속: {selectedOrganizationName}</span>
+            <span>범위: {getPrintPeriodText()}</span>
+          </div>
+          <p style={reportGuideRuleStyle}>{currentReportGuide.outputRule}</p>
+        </div>
+
+        {reportReviewItems.length > 0 && (
+          <div style={reviewWarningBoxStyle}>
+            <strong>출력 전 확인:</strong> {reportReviewItems.join(", ")}
+          </div>
+        )}
 
         <div style={filterGridStyle}>
           <label style={fieldLabelStyle}>
@@ -2125,8 +2211,8 @@ export default function ReportsPage() {
             </button>
           </div>
           <div style={reprintNoticeStyle}>
-            기존에 출력했던 보고서도 같은 조건으로 다시 조회하여 현재 등록된 자료 기준으로 재출력할 수 있습니다.
-            출력 여부를 별도로 처리하지 않으므로 필요할 때 동일 조건으로 다시 출력하면 됩니다.
+            현재 데이터베이스에는 별도의 출력 이력 테이블이 없습니다. 따라서 출력 완료 여부는 저장되지 않으며,
+            같은 조건을 다시 조회하면 현재 등록된 자료를 기준으로 재출력할 수 있습니다.
           </div>
 
           {isTargetPreviewOpen && (
@@ -3233,6 +3319,24 @@ const summaryCardStyle: CSSProperties = {
   backgroundColor: "#ffffff",
 };
 
+const summarySuccessCardStyle: CSSProperties = {
+  ...summaryCardStyle,
+  borderColor: "#bbf7d0",
+  backgroundColor: "#f0fdf4",
+};
+
+const summarySelectedCardStyle: CSSProperties = {
+  ...summaryCardStyle,
+  borderColor: "#bfdbfe",
+  backgroundColor: "#eff6ff",
+};
+
+const summaryWarningCardStyle: CSSProperties = {
+  ...summaryCardStyle,
+  borderColor: "#fed7aa",
+  backgroundColor: "#fff7ed",
+};
+
 const summaryTargetCardOpenStyle: CSSProperties = {
   border: "2px solid #2563eb",
   backgroundColor: "#eff6ff",
@@ -3308,6 +3412,61 @@ const sectionDescriptionStyle: CSSProperties = {
   marginTop: "6px",
   marginBottom: 0,
   color: "#64748b",
+};
+
+const reportGuideBoxStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  gap: "10px 20px",
+  marginBottom: "16px",
+  padding: "16px",
+  border: "1px solid #dbeafe",
+  borderRadius: "12px",
+  backgroundColor: "#f8fbff",
+};
+
+const reportGuideTitleStyle: CSSProperties = {
+  color: "#0f172a",
+  fontSize: "17px",
+};
+
+const reportGuideTextStyle: CSSProperties = {
+  margin: "6px 0 0",
+  color: "#475569",
+  fontSize: "13px",
+  lineHeight: 1.6,
+};
+
+const reportGuideMetaStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  gap: "6px 12px",
+  color: "#334155",
+  fontSize: "12px",
+  fontWeight: 700,
+};
+
+const reportGuideRuleStyle: CSSProperties = {
+  gridColumn: "1 / -1",
+  margin: 0,
+  paddingTop: "10px",
+  borderTop: "1px solid #dbeafe",
+  color: "#1d4ed8",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
+const reviewWarningBoxStyle: CSSProperties = {
+  marginBottom: "16px",
+  padding: "12px 14px",
+  border: "1px solid #fed7aa",
+  borderRadius: "10px",
+  backgroundColor: "#fff7ed",
+  color: "#9a3412",
+  fontSize: "13px",
+  lineHeight: 1.6,
 };
 
 const filterGridStyle: CSSProperties = {

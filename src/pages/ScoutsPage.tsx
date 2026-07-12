@@ -45,6 +45,8 @@ type Badge = {
   is_general_badge: boolean;
 };
 
+type GeneralBadgeSortDirection = "asc" | "desc";
+
 type RankRequirement = {
   id: string;
   from_rank_id: string;
@@ -768,6 +770,7 @@ export default function ScoutsPage() {
   const [keyword, setKeyword] = useState("");
   const [sectionFilter, setSectionFilter] = useState<ScoutSectionFilter>("all");
   const [statusFilter, setStatusFilter] = useState<ScoutStatusFilter>("all");
+  const [isExcelPanelOpen, setIsExcelPanelOpen] = useState(false);
   const [isExcelGuideOpen, setIsExcelGuideOpen] = useState(false);
   const [scoutSortConfig, setScoutSortConfig] = useState<ScoutSortConfig>({
     key: "member_no",
@@ -790,6 +793,8 @@ export default function ScoutsPage() {
   const [integratedSection, setIntegratedSection] = useState<IntegratedSection>("profile");
   const [rankQuickForm, setRankQuickForm] = useState<RankQuickForm>(getEmptyRankQuickForm());
   const [badgeQuickForm, setBadgeQuickForm] = useState<BadgeQuickForm>(getEmptyBadgeQuickForm());
+  const [generalBadgeSortDirection, setGeneralBadgeSortDirection] =
+    useState<GeneralBadgeSortDirection>("asc");
   const [programQuickForm, setProgramQuickForm] = useState<ProgramQuickForm>(getEmptyProgramQuickForm());
   const [integratedSubmitting, setIntegratedSubmitting] = useState(false);
   const [integratedErrorMessage, setIntegratedErrorMessage] = useState("");
@@ -1210,6 +1215,40 @@ export default function ScoutsPage() {
     return new Map(badges.map((badge) => [badge.id, badge.name]));
   }, [badges]);
 
+
+  const requiredBadgeOptionGroups = useMemo(() => {
+    const badgeByNormalizedName = new Map(
+      badges.map((badge) => [normalizeBadgeGuideName(badge.name), badge]),
+    );
+
+    return REQUIRED_BADGE_GUIDES.map((guide) => ({
+      label: guide.label,
+      badges: guide.badgeNames
+        .map((badgeName) =>
+          badgeByNormalizedName.get(normalizeBadgeGuideName(badgeName)) ?? null,
+        )
+        .filter((badge): badge is Badge => badge !== null),
+    })).filter((group) => group.badges.length > 0);
+  }, [badges]);
+
+  const generalBadgeOptions = useMemo(() => {
+    const sortedBadges = badges
+      .filter(
+        (badge) =>
+          !REQUIRED_BADGE_NAME_SET.has(normalizeBadgeGuideName(badge.name)),
+      )
+      .sort((firstBadge, secondBadge) =>
+        firstBadge.name.localeCompare(secondBadge.name, "ko", {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
+
+    return generalBadgeSortDirection === "asc"
+      ? sortedBadges
+      : [...sortedBadges].reverse();
+  }, [badges, generalBadgeSortDirection]);
+
   const rankHistoriesByScoutId = useMemo(() => {
     const map = new Map<string, ScoutRankHistory[]>();
 
@@ -1374,6 +1413,60 @@ export default function ScoutsPage() {
     return rankHistoriesByScoutId.get(integratedScout.id) ?? [];
   }, [integratedScout, rankHistoriesByScoutId]);
 
+  const integratedRankApprovalTimeline = useMemo(() => {
+    if (!integratedScout?.current_rank_id) return [];
+
+    const currentRank = rankMap.get(integratedScout.current_rank_id) ?? null;
+    const currentRankKey = getScoutAdvancementRankKey(currentRank?.rank_name);
+    const currentRankIndex = getScoutAdvancementRankIndexByKey(currentRankKey);
+
+    if (currentRankIndex < 0) return [];
+
+    const latestApprovalDateByRankId = new Map<string, string>();
+
+    [...integratedScoutRankHistories]
+      .sort((a, b) => b.approved_at.localeCompare(a.approved_at))
+      .forEach((history) => {
+        if (!latestApprovalDateByRankId.has(history.rank_id)) {
+          latestApprovalDateByRankId.set(history.rank_id, history.approved_at.slice(0, 10));
+        }
+      });
+
+    return ranks
+      .map((rank) => ({
+        rank,
+        rankKey: getScoutAdvancementRankKey(rank.rank_name),
+      }))
+      .filter(({ rankKey }) => getScoutAdvancementRankIndexByKey(rankKey) >= 0)
+      .sort((a, b) => {
+        return (
+          getScoutAdvancementRankIndexByKey(a.rankKey) -
+          getScoutAdvancementRankIndexByKey(b.rankKey)
+        );
+      })
+      .map(({ rank, rankKey }) => {
+        const rankIndex = getScoutAdvancementRankIndexByKey(rankKey);
+        const approvedAt = latestApprovalDateByRankId.get(rank.id) ?? "";
+        const state =
+          rank.id === integratedScout.current_rank_id
+            ? "current"
+            : approvedAt
+              ? "completed"
+              : rankIndex < currentRankIndex
+                ? "missing_history"
+                : rankIndex === currentRankIndex + 1
+                  ? "next"
+                  : "pending";
+
+        return {
+          rankId: rank.id,
+          rankName: rank.rank_name,
+          approvedAt,
+          state,
+        };
+      });
+  }, [integratedScout, integratedScoutRankHistories, rankMap, ranks]);
+
   const integratedScoutBadges = useMemo(() => {
     if (!integratedScout) return [];
     return scoutBadgesByScoutId.get(integratedScout.id) ?? [];
@@ -1483,6 +1576,18 @@ export default function ScoutsPage() {
         })()
       : null;
 
+    const currentRequiredBadgeCount = currentGroups.reduce(
+      (total, group) => total + group.badgeItems.length,
+      0,
+    );
+    const currentRequiredBadgeMissingCount = currentGroups.reduce(
+      (total, group) => total + group.requiredBadgeMissingCount,
+      0,
+    );
+    const currentRequiredBadgeAcquiredCount = Math.max(
+      currentRequiredBadgeCount - currentRequiredBadgeMissingCount,
+      0,
+    );
     const currentGeneralRequiredCount = currentGroups.reduce(
       (total, group) => total + group.generalRequiredCount,
       0,
@@ -1499,6 +1604,9 @@ export default function ScoutsPage() {
         (total, group) => total + group.totalMissingCount,
         0,
       ),
+      currentRequiredBadgeCount,
+      currentRequiredBadgeAcquiredCount,
+      currentRequiredBadgeMissingCount,
       currentGeneralRequiredCount,
       currentGeneralMissingCount,
       generalBadgeCount,
@@ -2811,12 +2919,17 @@ export default function ScoutsPage() {
       return;
     }
 
-    if (badgeQuickForm.approved_at && !isManagedDateValueValid(badgeQuickForm.approved_at)) {
+    if (!badgeQuickForm.approved_at) {
+      setIntegratedErrorMessage("인가일을 입력해야 합니다.");
+      return;
+    }
+
+    if (!isManagedDateValueValid(badgeQuickForm.approved_at)) {
       setIntegratedErrorMessage(`인가일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`);
       return;
     }
 
-    if (badgeQuickForm.approved_at && badgeQuickForm.approved_at < badgeQuickForm.acquired_at) {
+    if (badgeQuickForm.approved_at < badgeQuickForm.acquired_at) {
       setIntegratedErrorMessage("인가일은 취득일보다 빠를 수 없습니다.");
       return;
     }
@@ -2836,7 +2949,7 @@ export default function ScoutsPage() {
       p_scout_id: integratedScout.id,
       p_badge_id: badgeQuickForm.badge_id,
       p_acquired_at: badgeQuickForm.acquired_at,
-      p_approved_at: badgeQuickForm.approved_at || null,
+      p_approved_at: badgeQuickForm.approved_at,
       p_instructor_name:
         badgeQuickForm.instructor_name.trim().length > 0
           ? badgeQuickForm.instructor_name.trim()
@@ -3950,19 +4063,12 @@ export default function ScoutsPage() {
     return scouts.filter((scout) => scout.status === "active").length;
   }, [scouts]);
 
-  const advancementTargetScoutCount = useMemo(() => {
-    return scouts.filter(
-      (scout) => scout.status === "active" && !isElementarySchoolGrade(scout.grade),
-    ).length;
+  const inactiveScoutCount = useMemo(() => {
+    return scouts.filter((scout) => scout.status === "inactive").length;
   }, [scouts]);
 
-  const rankSetupNeededScoutCount = useMemo(() => {
-    return scouts.filter(
-      (scout) =>
-        scout.status === "active" &&
-        !isElementarySchoolGrade(scout.grade) &&
-        !scout.current_rank_id,
-    ).length;
+  const graduatedScoutCount = useMemo(() => {
+    return scouts.filter((scout) => scout.status === "graduated").length;
   }, [scouts]);
 
   return (
@@ -3996,15 +4102,15 @@ export default function ScoutsPage() {
         </section>
 
         <section style={summaryCardStyle}>
-          <h2 style={summaryTitleStyle}>진급관리 대상</h2>
-          <p style={summaryValueStyle}>{advancementTargetScoutCount}명</p>
-          <p style={summaryDescriptionStyle}>조건 확인이 필요한 스카우트 이상 활동 대원입니다.</p>
+          <h2 style={summaryTitleStyle}>비활동 대원</h2>
+          <p style={summaryValueStyle}>{inactiveScoutCount}명</p>
+          <p style={summaryDescriptionStyle}>현재 비활동 상태로 관리되는 대원입니다.</p>
         </section>
 
         <section style={summaryCardStyle}>
-          <h2 style={summaryTitleStyle}>급위 확인 필요</h2>
-          <p style={summaryValueStyle}>{rankSetupNeededScoutCount}명</p>
-          <p style={summaryDescriptionStyle}>진급관리 전에 현재급위 등록이 필요한 대원입니다.</p>
+          <h2 style={summaryTitleStyle}>졸업 대원</h2>
+          <p style={summaryValueStyle}>{graduatedScoutCount}명</p>
+          <p style={summaryDescriptionStyle}>졸업 상태로 관리되는 대원입니다.</p>
         </section>
       </div>
 
@@ -4013,13 +4119,43 @@ export default function ScoutsPage() {
           <div>
             <h2 style={sectionTitleStyle}>대원 목록</h2>
             <p style={sectionDescriptionStyle}>
-              대원번호, 이름, 소속대, 학년, 현재급위와 활동 상태를 확인합니다.
+              대원번호, 이름, 학년, 현재급위와 활동 상태를 확인합니다.
             </p>
           </div>
 
           <div style={toolbarRightStyle}>
+            {canManageScouts && (
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={handleOpenCreateForm}
+              >
+                대원 등록
+              </button>
+            )}
+
             {canUseExcelImport && (
-              <>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={() => setIsExcelPanelOpen((current) => !current)}
+              >
+                {isExcelPanelOpen ? "엑셀 작업 접기" : "엑셀 대량 등록"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {canUseExcelImport && isExcelPanelOpen && (
+          <section style={excelPanelStyle}>
+            <div style={excelPanelHeaderStyle}>
+              <div>
+                <h3 style={formTitleStyle}>엑셀 대원 등록/수정</h3>
+                <p style={formDescriptionStyle}>
+                  엑셀 파일로 대원정보, 급위, 기능장 취득정보를 함께 등록하거나 수정합니다.
+                </p>
+              </div>
+              <div style={excelPanelActionStyle}>
                 <input
                   ref={excelFileInputRef}
                   type="file"
@@ -4039,33 +4175,8 @@ export default function ScoutsPage() {
                   style={excelButtonStyle}
                   onClick={() => excelFileInputRef.current?.click()}
                 >
-                  엑셀 등록/수정
+                  엑셀 파일 선택
                 </button>
-              </>
-            )}
-
-            {canManageScouts && (
-              <button
-                type="button"
-                style={primaryButtonStyle}
-                onClick={handleOpenCreateForm}
-              >
-                대원 등록
-              </button>
-            )}
-          </div>
-        </div>
-
-        {canUseExcelImport && (
-          <section style={excelPanelStyle}>
-            <div style={excelPanelHeaderStyle}>
-              <div>
-                <h3 style={formTitleStyle}>엑셀 대원 등록/수정</h3>
-                <p style={formDescriptionStyle}>
-                  엑셀 파일로 대원정보, 급위, 기능장 취득정보를 함께 등록하거나 수정합니다.
-                </p>
-              </div>
-              <div style={excelPanelActionStyle}>
                 <button
                   type="button"
                   style={secondaryButtonStyle}
@@ -4221,7 +4332,7 @@ export default function ScoutsPage() {
               type="search"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
-              placeholder="대원번호, 이름, 소속대, 학년, 급위 검색"
+              placeholder="대원번호, 이름, 학년, 급위 검색"
             />
           </label>
 
@@ -4955,6 +5066,57 @@ export default function ScoutsPage() {
 
                 {integratedSection === "rank" && (
                   <div style={integratedSectionStyle}>
+                    {integratedRankApprovalTimeline.length > 0 && (
+                      <div style={rankProgressPanelStyle}>
+                        <div style={rankProgressHeaderStyle}>
+                          <div>
+                            <strong>급위 진행 현황</strong>
+                            <span>실제 진급 인가 기록을 기준으로 표시합니다.</span>
+                          </div>
+                          {integratedRankApprovalTimeline.some((item) => item.state === "missing_history") && (
+                            <span style={rankProgressWarningBadgeStyle}>인가기록 확인 필요</span>
+                          )}
+                        </div>
+                        <div style={rankProgressGridStyle}>
+                          {integratedRankApprovalTimeline.map((item) => (
+                            <div
+                              key={`rank-progress-${item.rankId}`}
+                              style={
+                                item.state === "completed"
+                                  ? rankProgressCompletedItemStyle
+                                  : item.state === "current"
+                                    ? rankProgressCurrentItemStyle
+                                    : item.state === "next"
+                                      ? rankProgressNextItemStyle
+                                      : item.state === "missing_history"
+                                        ? rankProgressMissingItemStyle
+                                        : rankProgressPendingItemStyle
+                              }
+                            >
+                              <strong>{item.rankName}</strong>
+                              <span>
+                                {item.state === "completed"
+                                  ? "완료"
+                                  : item.state === "current"
+                                    ? "현재"
+                                    : item.state === "next"
+                                      ? "다음"
+                                      : item.state === "missing_history"
+                                        ? "인가기록 없음"
+                                        : "미도달"}
+                              </span>
+                              {item.approvedAt && <small>{item.approvedAt}</small>}
+                            </div>
+                          ))}
+                        </div>
+                        {integratedRankApprovalTimeline.some((item) => item.state === "missing_history") && (
+                          <div style={rankProgressWarningNoticeStyle}>
+                            현재급위 이전 단계 중 인가 기록이 없는 급위가 있습니다. 실제 인가일을 확인하여 아래 진급 이력 입력란에 등록해 주세요.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {canManageScouts && (
                       <form style={integratedInlineFormStyle} onSubmit={handleSaveIntegratedRank}>
                         <label style={fieldLabelStyle}>
@@ -5088,23 +5250,43 @@ export default function ScoutsPage() {
                         </p>
 
                         <div style={badgeGuideGeneralSummaryStyle}>
-                          <span>
-                            등록 일반기능장 <strong>{integratedBadgeGuide.generalBadgeCount}개</strong>
-                          </span>
-                          <span>
-                            현재급위까지 필요 <strong>{integratedBadgeGuide.currentGeneralRequiredCount}개</strong>
-                          </span>
-                          <span
-                            style={
-                              integratedBadgeGuide.currentGeneralMissingCount > 0
-                                ? badgeGuideGeneralSummaryMissingStyle
-                                : badgeGuideGeneralSummaryCompleteStyle
-                            }
-                          >
-                            {integratedBadgeGuide.currentGeneralMissingCount > 0
-                              ? `일반기능장 부족 ${integratedBadgeGuide.currentGeneralMissingCount}개`
-                              : "일반기능장 수 충족"}
-                          </span>
+                          <div style={badgeGuideSummaryGroupStyle}>
+                            <strong style={badgeGuideSummaryGroupTitleStyle}>필수기능장</strong>
+                            <span>
+                              필요 {integratedBadgeGuide.currentRequiredBadgeCount}개 · 등록 {integratedBadgeGuide.currentRequiredBadgeAcquiredCount}개
+                            </span>
+                            <span
+                              style={
+                                integratedBadgeGuide.currentRequiredBadgeMissingCount > 0
+                                  ? badgeGuideGeneralSummaryMissingStyle
+                                  : badgeGuideGeneralSummaryCompleteStyle
+                              }
+                            >
+                              {integratedBadgeGuide.currentRequiredBadgeMissingCount > 0
+                                ? `필수기능장 부족 ${integratedBadgeGuide.currentRequiredBadgeMissingCount}개`
+                                : "필수기능장 충족"}
+                            </span>
+                          </div>
+
+                          <div style={badgeGuideSummaryDividerStyle} />
+
+                          <div style={badgeGuideSummaryGroupStyle}>
+                            <strong style={badgeGuideSummaryGroupTitleStyle}>일반기능장</strong>
+                            <span>
+                              필요 {integratedBadgeGuide.currentGeneralRequiredCount}개 · 등록 {integratedBadgeGuide.generalBadgeCount}개
+                            </span>
+                            <span
+                              style={
+                                integratedBadgeGuide.currentGeneralMissingCount > 0
+                                  ? badgeGuideGeneralSummaryMissingStyle
+                                  : badgeGuideGeneralSummaryCompleteStyle
+                              }
+                            >
+                              {integratedBadgeGuide.currentGeneralMissingCount > 0
+                                ? `일반기능장 부족 ${integratedBadgeGuide.currentGeneralMissingCount}개`
+                                : "일반기능장 충족"}
+                            </span>
+                          </div>
                         </div>
 
                         {integratedBadgeGuide.currentGroups.length > 0 ? (
@@ -5179,25 +5361,92 @@ export default function ScoutsPage() {
                       </div>
                     )}
 
+                    {integratedRankApprovalTimeline.length > 0 && (
+                      <div style={badgeRankDatePanelStyle}>
+                        <div style={badgeRankDateHeaderStyle}>
+                          <strong>급위별 진급 인가일</strong>
+                          <span>
+                            기능장 취득일과 인가일 입력 시 해당 급위의 진급 인가일을 확인하세요.
+                          </span>
+                        </div>
+                        <div style={badgeRankDateGridStyle}>
+                          {integratedRankApprovalTimeline.map((item) => (
+                            <div key={item.rankId} style={badgeRankDateItemStyle}>
+                              <span style={badgeRankDateLabelStyle}>{item.rankName}</span>
+                              <strong
+                                style={
+                                  item.approvedAt
+                                    ? badgeRankDateValueStyle
+                                    : badgeRankDateMissingValueStyle
+                                }
+                              >
+                                {item.approvedAt || "미등록"}
+                              </strong>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={badgeRankDateNoticeStyle}>
+                          필수기능장의 취득 인가일은 해당 급위 진급 인가일 이전인지 확인한 후 등록하세요.
+                        </div>
+                      </div>
+                    )}
+
                     {canManageScouts && (
-                      <form style={integratedInlineFormStyle} onSubmit={handleCreateIntegratedBadge}>
+                      <form style={badgeEntryFormStyle} onSubmit={handleCreateIntegratedBadge}>
                         <label style={fieldLabelStyle}>
-                          <span style={fieldLabelTextStyle}>
-                            기능장 <span style={requiredStyle}>*</span>
+                          <span style={badgeSelectHeaderStyle}>
+                            <span style={fieldLabelTextStyle}>
+                              기능장 <span style={requiredStyle}>*</span>
+                            </span>
+                            <select
+                              style={badgeSortSelectStyle}
+                              value={generalBadgeSortDirection}
+                              onChange={(event) =>
+                                setGeneralBadgeSortDirection(
+                                  event.target.value as GeneralBadgeSortDirection,
+                                )
+                              }
+                              aria-label="일반기능장 정렬"
+                            >
+                              <option value="asc">일반 가나다순</option>
+                              <option value="desc">일반 역순</option>
+                            </select>
                           </span>
                           <select
-                            style={inputStyle}
+                            style={badgeEntryInputStyle}
                             value={badgeQuickForm.badge_id}
                             onChange={(event) =>
                               updateBadgeQuickForm("badge_id", event.target.value)
                             }
                           >
                             <option value="">기능장 선택</option>
-                            {badges.map((badge) => (
-                              <option key={badge.id} value={badge.id}>
-                                {badge.name}
-                              </option>
+                            {requiredBadgeOptionGroups.map((group) => (
+                              <optgroup
+                                key={group.label}
+                                label={`필수 · ${group.label}`}
+                              >
+                                {group.badges.map((badge) => (
+                                  <option key={badge.id} value={badge.id}>
+                                    {badge.name}
+                                  </option>
+                                ))}
+                              </optgroup>
                             ))}
+                            {generalBadgeOptions.length > 0 && (
+                              <optgroup
+                                label={`일반기능장 · ${
+                                  generalBadgeSortDirection === "asc"
+                                    ? "가나다순"
+                                    : "역순"
+                                }`}
+                              >
+                                {generalBadgeOptions.map((badge) => (
+                                  <option key={badge.id} value={badge.id}>
+                                    {badge.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
                           </select>
                         </label>
 
@@ -5206,11 +5455,12 @@ export default function ScoutsPage() {
                             취득일 <span style={requiredStyle}>*</span>
                           </span>
                           <input
-                            style={inputStyle}
+                            style={badgeEntryInputStyle}
                             type="date"
                             min={DATE_INPUT_MIN}
                             max={DATE_INPUT_MAX}
                             value={badgeQuickForm.acquired_at}
+                            required
                             onInput={limitDateInputYear}
                             onChange={(event) =>
                               updateBadgeQuickForm(
@@ -5222,13 +5472,16 @@ export default function ScoutsPage() {
                         </label>
 
                         <label style={fieldLabelStyle}>
-                          인가일
+                          <span style={fieldLabelTextStyle}>
+                            인가일 <span style={requiredStyle}>*</span>
+                          </span>
                           <input
-                            style={inputStyle}
+                            style={badgeEntryInputStyle}
                             type="date"
                             min={DATE_INPUT_MIN}
                             max={DATE_INPUT_MAX}
                             value={badgeQuickForm.approved_at}
+                            required
                             onInput={limitDateInputYear}
                             onChange={(event) =>
                               updateBadgeQuickForm(
@@ -5239,30 +5492,31 @@ export default function ScoutsPage() {
                           />
                         </label>
 
-                        <label style={checkboxLabelStyle}>
-                          <input
-                            type="checkbox"
-                            checked={badgeQuickForm.leader_confirmed}
-                            onChange={(event) =>
-                              updateBadgeQuickForm("leader_confirmed", event.target.checked)
-                            }
-                          />
-                          지도자 확인
-                        </label>
-
                         <label style={fieldLabelStyle}>
-                          지도자/비고
+                          <span style={badgeLeaderFieldHeaderStyle}>
+                            <span>지도자/비고</span>
+                            <span style={badgeCompactCheckboxLabelStyle}>
+                              <input
+                                type="checkbox"
+                                checked={badgeQuickForm.leader_confirmed}
+                                onChange={(event) =>
+                                  updateBadgeQuickForm("leader_confirmed", event.target.checked)
+                                }
+                              />
+                              지도자 확인
+                            </span>
+                          </span>
                           <input
-                            style={inputStyle}
+                            style={badgeEntryInputStyle}
                             value={badgeQuickForm.instructor_name}
                             onChange={(event) =>
                               updateBadgeQuickForm("instructor_name", event.target.value)
                             }
-                            placeholder="지도자명"
+                            placeholder="지도자명 또는 비고"
                           />
                         </label>
 
-                        <div style={integratedFormButtonCellStyle}>
+                        <div style={badgeEntryButtonCellStyle}>
                           <button
                             type="submit"
                             style={submitButtonStyle}
@@ -5270,6 +5524,10 @@ export default function ScoutsPage() {
                           >
                             {integratedSubmitting ? "등록 중..." : "기능장 등록"}
                           </button>
+                        </div>
+
+                        <div style={badgeEntryHelpStyle}>
+                          취득일과 인가일은 모두 필수입니다. 필수기능장은 진급 단계별로, 일반기능장은 선택한 정렬 순서로 표시됩니다.
                         </div>
                       </form>
                     )}
@@ -5810,7 +6068,7 @@ export default function ScoutsPage() {
                   {renderSortableHeader("member_no", "대원번호")}
                   {renderSortableHeader("name", "이름")}
                   {isSuperAdmin && renderSortableHeader("organization", "소속")}
-                  {renderSortableHeader("school_name", "소속대")}
+                  {isSuperAdmin && renderSortableHeader("school_name", "소속대")}
                   {renderSortableHeader("grade", "학년")}
                   {renderSortableHeader("scout_section", "구분")}
                   {renderSortableHeader("current_rank", "현재급위")}
@@ -5830,20 +6088,40 @@ export default function ScoutsPage() {
                     {isSuperAdmin && (
                       <td style={tdStyle}>{getOrganizationName(scout.organization_id)}</td>
                     )}
-                    <td style={tdStyle}>{scout.school_name ?? "-"}</td>
+                    {isSuperAdmin && <td style={tdStyle}>{scout.school_name ?? "-"}</td>}
                     <td style={tdStyle}>{scout.grade ?? "-"}</td>
                     <td style={tdStyle}>{getScoutSectionLabelByGrade(scout.grade)}</td>
                     <td style={tdStyle}>{getScoutCurrentRankDisplay(scout)}</td>
                     <td style={tdStyle}>{formatDate(scout.joined_at)}</td>
                     <td style={tdStyle}>
-                      {isElementarySchoolGrade(scout.grade)
-                        ? "현재"
-                        : scout.is_from_cub_scout
-                          ? "출신"
-                          : "-"}
+                      <span
+                        style={
+                          isElementarySchoolGrade(scout.grade) || scout.is_from_cub_scout
+                            ? booleanCheckActiveStyle
+                            : booleanCheckEmptyStyle
+                        }
+                        title={
+                          isElementarySchoolGrade(scout.grade)
+                            ? "현재 컵스카우트"
+                            : scout.is_from_cub_scout
+                              ? "컵스카우트 출신"
+                              : "해당 없음"
+                        }
+                      >
+                        {isElementarySchoolGrade(scout.grade) || scout.is_from_cub_scout ? "✓" : "-"}
+                      </span>
                     </td>
                     <td style={tdStyle}>
-                      {scout.beginner_course_exempted ? "면제" : "-"}
+                      <span
+                        style={
+                          scout.beginner_course_exempted
+                            ? booleanCheckActiveStyle
+                            : booleanCheckEmptyStyle
+                        }
+                        title={scout.beginner_course_exempted ? "초급과정 면제" : "해당 없음"}
+                      >
+                        {scout.beginner_course_exempted ? "✓" : "-"}
+                      </span>
                     </td>
                     <td style={tdStyle}>
                       {canManageScouts ? (
@@ -5885,7 +6163,7 @@ export default function ScoutsPage() {
                             style={smallButtonStyle}
                             onClick={() => handleOpenEditForm(scout)}
                           >
-                            기본수정
+                            정보수정
                           </button>
                         )}
                       </div>
@@ -5997,8 +6275,8 @@ const listSearchPanelStyle: CSSProperties = {
   alignItems: "flex-end",
   justifyContent: "space-between",
   gap: "12px",
-  padding: "14px 16px",
-  marginBottom: "14px",
+  padding: "10px 12px",
+  marginBottom: "12px",
   border: "1px solid #e5e7eb",
   borderRadius: "12px",
   backgroundColor: "#f8fafc",
@@ -6008,8 +6286,8 @@ const listSearchPanelStyle: CSSProperties = {
 const searchFieldLabelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "6px",
-  minWidth: "320px",
+  gap: "4px",
+  minWidth: "280px",
   flex: "1 1 420px",
   color: "#334155",
   fontSize: "14px",
@@ -6019,8 +6297,8 @@ const searchFieldLabelStyle: CSSProperties = {
 const filterFieldLabelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "6px",
-  minWidth: "150px",
+  gap: "4px",
+  minWidth: "138px",
   color: "#334155",
   fontSize: "14px",
   fontWeight: 800,
@@ -6211,6 +6489,30 @@ const primarySmallButtonStyle: CSSProperties = {
   border: "none",
   backgroundColor: "#2563eb",
   color: "#ffffff",
+};
+
+const booleanCheckActiveStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "24px",
+  height: "24px",
+  borderRadius: "999px",
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+  fontSize: "14px",
+  fontWeight: 900,
+};
+
+const booleanCheckEmptyStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "24px",
+  height: "24px",
+  color: "#94a3b8",
+  fontSize: "14px",
+  fontWeight: 700,
 };
 
 const rowActionGroupStyle: CSSProperties = {
@@ -6430,6 +6732,97 @@ const integratedTabActiveStyle: CSSProperties = {
   color: "#1d4ed8",
 };
 
+const rankProgressPanelStyle: CSSProperties = {
+  padding: "12px",
+  borderRadius: "12px",
+  border: "1px solid #e2e8f0",
+  backgroundColor: "#ffffff",
+  marginBottom: "12px",
+};
+
+const rankProgressHeaderStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: "12px",
+  marginBottom: "10px",
+};
+
+const rankProgressWarningBadgeStyle: CSSProperties = {
+  padding: "5px 9px",
+  borderRadius: "999px",
+  border: "1px solid #fcd34d",
+  backgroundColor: "#fef3c7",
+  color: "#92400e",
+  fontSize: "12px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const rankProgressGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: "8px",
+};
+
+const rankProgressItemBaseStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: "4px",
+  minHeight: "78px",
+  padding: "10px 8px",
+  borderRadius: "10px",
+  border: "1px solid",
+  textAlign: "center",
+};
+
+const rankProgressCompletedItemStyle: CSSProperties = {
+  ...rankProgressItemBaseStyle,
+  borderColor: "#bbf7d0",
+  backgroundColor: "#f0fdf4",
+  color: "#166534",
+};
+
+const rankProgressCurrentItemStyle: CSSProperties = {
+  ...rankProgressItemBaseStyle,
+  borderColor: "#60a5fa",
+  backgroundColor: "#eff6ff",
+  color: "#1d4ed8",
+};
+
+const rankProgressNextItemStyle: CSSProperties = {
+  ...rankProgressItemBaseStyle,
+  borderColor: "#fdba74",
+  backgroundColor: "#fff7ed",
+  color: "#c2410c",
+};
+
+const rankProgressMissingItemStyle: CSSProperties = {
+  ...rankProgressItemBaseStyle,
+  borderColor: "#fcd34d",
+  backgroundColor: "#fffbeb",
+  color: "#92400e",
+};
+
+const rankProgressPendingItemStyle: CSSProperties = {
+  ...rankProgressItemBaseStyle,
+  borderColor: "#e2e8f0",
+  backgroundColor: "#f8fafc",
+  color: "#94a3b8",
+};
+
+const rankProgressWarningNoticeStyle: CSSProperties = {
+  marginTop: "10px",
+  padding: "9px 11px",
+  borderRadius: "9px",
+  backgroundColor: "#fffbeb",
+  color: "#92400e",
+  fontSize: "12.5px",
+  fontWeight: 700,
+  lineHeight: 1.5,
+};
+
 const integratedSectionStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -6593,6 +6986,147 @@ const fieldLabelTextStyle: CSSProperties = {
   alignItems: "center",
   gap: "4px",
   lineHeight: 1.4,
+};
+
+
+const badgeSelectHeaderStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "8px",
+  minWidth: 0,
+};
+
+const badgeSortSelectStyle: CSSProperties = {
+  minWidth: "112px",
+  padding: "4px 7px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "7px",
+  backgroundColor: "#ffffff",
+  color: "#475569",
+  fontSize: "12px",
+  fontWeight: 700,
+};
+
+const badgeRankDatePanelStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "10px",
+  padding: "12px 14px",
+  borderRadius: "12px",
+  border: "1px solid #cbd5e1",
+  backgroundColor: "#f8fafc",
+};
+
+const badgeRankDateHeaderStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  justifyContent: "space-between",
+  gap: "12px",
+  flexWrap: "wrap",
+  color: "#0f172a",
+  fontSize: "14px",
+};
+
+const badgeRankDateGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+  gap: "8px",
+};
+
+const badgeRankDateItemStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  minWidth: 0,
+  padding: "9px 10px",
+  borderRadius: "9px",
+  border: "1px solid #e2e8f0",
+  backgroundColor: "#ffffff",
+};
+
+const badgeRankDateLabelStyle: CSSProperties = {
+  color: "#475569",
+  fontSize: "13px",
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
+
+const badgeRankDateValueStyle: CSSProperties = {
+  color: "#0f172a",
+  fontSize: "13px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const badgeRankDateMissingValueStyle: CSSProperties = {
+  ...badgeRankDateValueStyle,
+  color: "#b91c1c",
+};
+
+const badgeRankDateNoticeStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 700,
+  lineHeight: 1.45,
+};
+
+const badgeEntryFormStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "minmax(250px, 1.55fr) minmax(155px, 0.9fr) minmax(155px, 0.9fr) minmax(220px, 1.25fr) auto",
+  gap: "12px",
+  padding: "14px",
+  border: "1px solid #dbeafe",
+  borderRadius: "12px",
+  backgroundColor: "#eff6ff",
+  alignItems: "end",
+};
+
+const badgeEntryInputStyle: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+  padding: "10px 12px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  backgroundColor: "#ffffff",
+};
+
+const badgeLeaderFieldHeaderStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "8px",
+  minWidth: 0,
+};
+
+const badgeCompactCheckboxLabelStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "5px",
+  color: "#475569",
+  fontSize: "12px",
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
+
+const badgeEntryButtonCellStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-end",
+  justifyContent: "flex-end",
+  minWidth: "102px",
+};
+
+const badgeEntryHelpStyle: CSSProperties = {
+  gridColumn: "1 / -1",
+  color: "#64748b",
+  fontSize: "11.5px",
+  fontWeight: 600,
+  lineHeight: 1.4,
+  marginTop: "-4px",
 };
 
 const inputStyle: CSSProperties = {
@@ -6940,7 +7474,7 @@ const badgeGuideDescriptionStyle: CSSProperties = {
 const badgeGuideGeneralSummaryStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "8px 14px",
+  gap: "10px 14px",
   flexWrap: "wrap",
   padding: "10px 12px",
   marginBottom: "12px",
@@ -6950,6 +7484,25 @@ const badgeGuideGeneralSummaryStyle: CSSProperties = {
   color: "#334155",
   fontSize: "13px",
   lineHeight: 1.5,
+};
+
+const badgeGuideSummaryGroupStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "8px",
+  flexWrap: "wrap",
+};
+
+const badgeGuideSummaryGroupTitleStyle: CSSProperties = {
+  color: "#0f172a",
+  fontWeight: 900,
+};
+
+const badgeGuideSummaryDividerStyle: CSSProperties = {
+  width: "1px",
+  alignSelf: "stretch",
+  minHeight: "24px",
+  backgroundColor: "#dbeafe",
 };
 
 const badgeGuideGeneralSummaryMissingStyle: CSSProperties = {

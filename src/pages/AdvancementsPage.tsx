@@ -6,7 +6,13 @@ import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
 type ScoutStatus = "active" | "inactive" | "graduated";
-type RankStepState = "completed" | "current" | "next" | "exempted" | "pending";
+type RankStepState =
+  | "completed"
+  | "current"
+  | "next"
+  | "missing_history"
+  | "exempted"
+  | "pending";
 
 type UserProfile = {
   role: UserRole;
@@ -159,7 +165,7 @@ const ADVANCEMENT_FILTER_OPTIONS: Array<{
   {
     value: "program",
     label: "WSEP/MoP 미이수",
-    description: "WSEP 또는 MoP 이수 확인이 필요한 대원을 표시합니다.",
+    description: "범 진급에서 WSEP 또는 MoP 이수 확인이 필요한 대원을 표시합니다.",
   },
   {
     value: "not_reviewed",
@@ -247,33 +253,6 @@ function getEmptyPromotionApprovalForm(): PromotionApprovalForm {
     approved_at: getTodayText(),
     note: "",
   };
-}
-
-function addMonthsToDateText(value: string | null, months: number) {
-  if (!value || months <= 0) return null;
-
-  const baseDateText = value.slice(0, 10);
-  const [yearText, monthText, dayText] = baseDateText.split("-");
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-
-  if (!year || !month || !day) return null;
-
-  const targetMonthIndex = month - 1 + months;
-  const targetYear = year + Math.floor(targetMonthIndex / 12);
-  const normalizedMonthIndex = ((targetMonthIndex % 12) + 12) % 12;
-  const targetMonth = normalizedMonthIndex + 1;
-
-  const lastDayOfTargetMonth = new Date(
-    Date.UTC(targetYear, normalizedMonthIndex + 1, 0),
-  ).getUTCDate();
-
-  const targetDay = Math.min(day, lastDayOfTargetMonth);
-
-  return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(
-    targetDay,
-  ).padStart(2, "0")}`;
 }
 
 function getApprovalTypeLabel(value: string) {
@@ -400,6 +379,32 @@ function getMissingItemNumberValue(item: MissingItem, keys: string[]) {
 
 function normalizeMissingItemType(value: string) {
   return value.replace(/[\s_-]+/g, "").toLowerCase();
+}
+
+function isProgramMissingItem(item: MissingItem) {
+  const rawType = getMissingItemTextValue(item, ["type", "category"]);
+  const message = getMissingItemTextValue(item, ["message"]);
+  const normalizedText = normalizeMissingItemType(`${rawType} ${message}`);
+
+  return (
+    normalizedText.includes("program") ||
+    normalizedText.includes("wsep") ||
+    normalizedText.includes("mop") ||
+    normalizedText.includes("프로그램")
+  );
+}
+
+function isPeriodMissingItem(item: MissingItem) {
+  const rawType = getMissingItemTextValue(item, ["type", "category"]);
+  const message = getMissingItemTextValue(item, ["message"]);
+  const normalizedText = normalizeMissingItemType(`${rawType} ${message}`);
+
+  return (
+    normalizedText.includes("period") ||
+    normalizedText.includes("month") ||
+    normalizedText.includes("기간") ||
+    normalizedText.includes("활동기간")
+  );
 }
 
 function isGenericMissingMessage(value: string) {
@@ -925,15 +930,6 @@ export default function AdvancementsPage() {
       return;
     }
 
-    const reviewTargetBaseDate = getReviewBaseDate(reviewTargetScout);
-
-    if (!reviewTargetBaseDate) {
-      setPromotionReviewErrorMessage(
-        "현재급위 인가일이 없어 진급 판정을 실행할 수 없습니다. 대원관리에서 현재급위와 인가일을 먼저 등록해 주세요.",
-      );
-      return;
-    }
-
     setPromotionReviewSubmitting(true);
     setPromotionReviewErrorMessage("");
     setPromotionApprovalErrorMessage("");
@@ -969,7 +965,7 @@ export default function AdvancementsPage() {
   };
 
   const handleOpenPromotionApproval = (review: PromotionReview) => {
-    if (!canManageAdvancements || !review.final_passed) return;
+    if (!canManageAdvancements || !isReviewPassedForApproval(review)) return;
 
     setPromotionApprovalReviewId(review.id);
     setPromotionApprovalForm(getEmptyPromotionApprovalForm());
@@ -1085,6 +1081,40 @@ export default function AdvancementsPage() {
       ]),
     );
   }, [rankRequirements]);
+
+  const isProgramRequiredForTargetRank = (toRankId: string | null) => {
+    if (!toRankId) return false;
+
+    const targetRank = rankByIdMap.get(toRankId);
+    if (!targetRank) return false;
+
+    const normalizedRankName = targetRank.rank_name.replace(/\s+/g, "");
+    return targetRank.rank_code === "beom" || normalizedRankName === "범";
+  };
+
+  const isProgramRequiredForReview = (review: PromotionReview) => {
+    return isProgramRequiredForTargetRank(review.to_rank_id);
+  };
+
+  const isReviewPassedForApproval = (review: PromotionReview) => {
+    const attendanceRequired = isProgramRequiredForReview(review);
+    return review.final_passed && (!attendanceRequired || review.attendance_passed);
+  };
+
+  const getRelevantMissingItems = (review: PromotionReview) => {
+    const programRequired = isProgramRequiredForReview(review);
+    const seenMessages = new Set<string>();
+
+    return toMissingItems(review.missing_items).filter((item) => {
+      if (isPeriodMissingItem(item)) return false;
+      if (!programRequired && isProgramMissingItem(item)) return false;
+
+      const message = `${getMissingItemMessage(item)}|${getMissingItemDetail(item)}`;
+      if (seenMessages.has(message)) return false;
+      seenMessages.add(message);
+      return true;
+    });
+  };
 
   const organizationNameMap = useMemo(() => {
     return new Map(
@@ -1204,87 +1234,9 @@ export default function AdvancementsPage() {
     return nextRank.rank_name;
   };
 
-  const getLatestRankHistory = (scout: Scout, rankId: string) => {
-    const histories = historiesByScoutId.get(scout.id) ?? [];
-
-    return (
-      histories
-        .filter((history) => history.rank_id === rankId)
-        .sort((a, b) => b.approved_at.localeCompare(a.approved_at))[0] ?? null
-    );
-  };
-
   const isRankCompleted = (scout: Scout, rankId: string) => {
     const histories = historiesByScoutId.get(scout.id) ?? [];
     return histories.some((history) => history.rank_id === rankId);
-  };
-
-  const getCumulativeRequiredMonthsToRank = (targetRank: Rank) => {
-    return sortedRanks.reduce((totalMonths, rank) => {
-      if (rank.sort_order > targetRank.sort_order) {
-        return totalMonths;
-      }
-
-      const requirement = requirementByToRankIdMap.get(rank.id);
-
-      if (!requirement) {
-        return totalMonths;
-      }
-
-      return totalMonths + requirement.required_months;
-    }, 0);
-  };
-
-  const getEntryBasedExpectedDate = (scout: Scout) => {
-    if (isCubScoutByGrade(scout)) {
-      return null;
-    }
-
-    const nextRank = getNextRank(scout);
-
-    if (!nextRank) return null;
-
-    const cumulativeMonths = getCumulativeRequiredMonthsToRank(nextRank);
-
-    if (cumulativeMonths <= 0) return null;
-
-    return addMonthsToDateText(scout.joined_at, cumulativeMonths);
-  };
-
-  const getReviewBaseDate = (scout: Scout) => {
-    if (!scout.current_rank_id) return null;
-
-    const currentRank = rankByIdMap.get(scout.current_rank_id);
-
-    if (!currentRank) return null;
-
-    if (currentRank.rank_code === "beginner") {
-      if (scout.beginner_course_exempted) {
-        const beginnerHistory = getLatestRankHistory(scout, scout.current_rank_id);
-        return beginnerHistory?.approved_at ?? null;
-      }
-
-      return scout.joined_at;
-    }
-
-    const currentRankHistory = getLatestRankHistory(scout, scout.current_rank_id);
-    return currentRankHistory?.approved_at ?? null;
-  };
-
-  const getReviewBasedExpectedDate = (scout: Scout) => {
-    const nextRank = getNextRank(scout);
-
-    if (!nextRank || !scout.current_rank_id) return null;
-
-    const requirement = requirementByToRankIdMap.get(nextRank.id);
-
-    if (!requirement) return null;
-
-    const baseDate = getReviewBaseDate(scout);
-
-    if (!baseDate) return null;
-
-    return addMonthsToDateText(baseDate, requirement.required_months);
   };
 
   const getRequirementForTransition = (fromRankId: string | null, toRank: Rank | null) => {
@@ -1337,20 +1289,22 @@ export default function AdvancementsPage() {
     }
 
     const nextRank = getNextRank(scout);
-
     if (!nextRank) return "최종급위";
 
-    const expectedDate = getEntryBasedExpectedDate(scout);
+    const scoutReviews = reviewsByScoutId.get(scout.id) ?? [];
+    const currentStepReview = [...scoutReviews]
+      .filter(
+        (review) =>
+          review.from_rank_id === scout.current_rank_id &&
+          review.to_rank_id === nextRank.id,
+      )
+      .sort((a, b) => {
+        const bKey = `${b.review_date} ${b.created_at ?? ""}`;
+        const aKey = `${a.review_date} ${a.created_at ?? ""}`;
+        return bKey.localeCompare(aKey);
+      })[0] ?? null;
 
-    if (!expectedDate) {
-      if (nextRank.rank_code === "beginner") {
-        return "초급 인가일 등록 필요";
-      }
-
-      return getMissingRequirementDisplay(nextRank);
-    }
-
-    return expectedDate;
+    return currentStepReview?.available_at ?? "판정 후 확인";
   };
 
   const getRankStepState = (scout: Scout, rank: Rank): RankStepState => {
@@ -1389,13 +1343,36 @@ export default function AdvancementsPage() {
       return "exempted";
     }
 
+    const currentRank = scout.current_rank_id
+      ? rankByIdMap.get(scout.current_rank_id) ?? null
+      : null;
+
+    if (currentRank && rank.sort_order < currentRank.sort_order) {
+      return "missing_history";
+    }
+
     return "pending";
+  };
+
+  const getMissingPriorRankHistories = (scout: Scout) => {
+    if (!scout.current_rank_id || isCubScoutByGrade(scout)) return [];
+
+    const currentRank = rankByIdMap.get(scout.current_rank_id) ?? null;
+    if (!currentRank) return [];
+
+    return sortedRanks.filter(
+      (rank) =>
+        rank.sort_order < currentRank.sort_order &&
+        !isRankCompleted(scout, rank.id) &&
+        !(rank.rank_code === "beginner" && scout.beginner_course_exempted),
+    );
   };
 
   const getRankStepLabel = (state: RankStepState) => {
     if (state === "completed") return "완료";
     if (state === "current") return "현재";
     if (state === "next") return "다음";
+    if (state === "missing_history") return "인가기록 없음";
     if (state === "exempted") return "면제/인가필요";
     return "미도달";
   };
@@ -1428,6 +1405,15 @@ export default function AdvancementsPage() {
       };
     }
 
+    if (state === "missing_history") {
+      return {
+        ...progressCircleStyle,
+        backgroundColor: "#fef3c7",
+        border: "2px solid #f59e0b",
+        color: "#92400e",
+      };
+    }
+
     if (state === "exempted") {
       return {
         ...progressCircleStyle,
@@ -1447,6 +1433,10 @@ export default function AdvancementsPage() {
 
     if (state === "current") {
       return { ...progressStatusStyle, color: "#1d4ed8", fontWeight: 900 };
+    }
+
+    if (state === "missing_history") {
+      return { ...progressStatusStyle, color: "#92400e", fontWeight: 900 };
     }
 
     if (state === "next" || state === "exempted") {
@@ -1526,7 +1516,10 @@ export default function AdvancementsPage() {
         : 9999;
     }
     if (key === "next_rank") return getNextRank(scout)?.sort_order ?? 9999;
-    if (key === "expected_date") return getEntryBasedExpectedDate(scout) ?? "9999-12-31";
+    if (key === "expected_date") {
+      const value = getExpectedDateDisplay(scout);
+      return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "9999-12-31";
+    }
     if (key === "status") return SCOUT_STATUS_LABELS[scout.status] ?? scout.status;
     if (key === "rank_history_count") return historiesByScoutId.get(scout.id)?.length ?? 0;
     if (key === "review_count") return reviewsByScoutId.get(scout.id)?.length ?? 0;
@@ -1671,6 +1664,55 @@ export default function AdvancementsPage() {
     );
   };
 
+  const getAdvancementStatusLabel = (scout: Scout) => {
+    if (isCubScoutByGrade(scout)) return "자동진급";
+    if (!scout.current_rank_id) return "급위 등록 필요";
+
+    const nextRank = getNextRank(scout);
+    if (!nextRank) return "최종급위";
+
+    const latestReview = getLatestCurrentStepReview(scout);
+    if (!latestReview) return "판정 필요";
+    return isReviewPassedForApproval(latestReview) ? "진급 가능" : "보완 필요";
+  };
+
+  const getAdvancementStatusStyle = (scout: Scout): CSSProperties => {
+    const label = getAdvancementStatusLabel(scout);
+
+    if (label === "진급 가능") return advancementReadyBadgeStyle;
+    if (label === "보완 필요" || label === "급위 등록 필요") {
+      return advancementSupportBadgeStyle;
+    }
+    if (label === "판정 필요") return advancementReviewNeededBadgeStyle;
+    if (label === "자동진급") return advancementAutoBadgeStyle;
+    return advancementNeutralBadgeStyle;
+  };
+
+  const getAdvancementSupportSummary = (scout: Scout) => {
+    if (isCubScoutByGrade(scout)) return "학년 기준 자동 적용";
+    if (!scout.current_rank_id) return "현재급위와 인가일 등록";
+
+    const nextRank = getNextRank(scout);
+    if (!nextRank) return "추가 진급 없음";
+
+    const latestReview = getLatestCurrentStepReview(scout);
+    if (!latestReview) return "진급 판정 실행";
+    if (isReviewPassedForApproval(latestReview)) return "인가 처리 가능";
+
+    const items: string[] = [];
+    if (!latestReview.period_passed) items.push("활동기간");
+    if (!latestReview.required_badges_passed) items.push("필수 기능장");
+    if (!latestReview.general_badges_passed) items.push("일반 기능장");
+    if (isProgramRequiredForReview(latestReview) && !latestReview.program_passed) {
+      items.push("WSEP/MoP");
+    }
+    if (isProgramRequiredForReview(latestReview) && !latestReview.attendance_passed) {
+      items.push("출석률");
+    }
+
+    return items.length > 0 ? items.join(", ") : "조건 재확인";
+  };
+
   const isScoutMatchedAdvancementFilter = (
     scout: Scout,
     filter: AdvancementFilter,
@@ -1701,7 +1743,7 @@ export default function AdvancementsPage() {
           .get(scout.id)
           ?.some((history) => history.rank_id === nextRank.id) ?? false;
 
-      return latestReview.final_passed && !alreadyApprovedTargetRank;
+      return isReviewPassedForApproval(latestReview) && !alreadyApprovedTargetRank;
     }
 
     if (filter === "period") {
@@ -1716,7 +1758,10 @@ export default function AdvancementsPage() {
     }
 
     if (filter === "program") {
-      return !latestReview.program_passed;
+      return (
+        isProgramRequiredForReview(latestReview) &&
+        !latestReview.program_passed
+      );
     }
 
     return true;
@@ -1829,7 +1874,7 @@ export default function AdvancementsPage() {
       [...scoutReviews]
         .filter((review) => {
           return (
-            review.final_passed &&
+            isReviewPassedForApproval(review) &&
             review.from_rank_id === scout.current_rank_id &&
             review.to_rank_id === nextRank.id
           );
@@ -2168,7 +2213,12 @@ export default function AdvancementsPage() {
     if (!latestReview.required_badges_passed || !latestReview.general_badges_passed) {
       supportItems.push("기능장");
     }
-    if (!latestReview.program_passed) supportItems.push("WSEP/MoP");
+    if (
+      isProgramRequiredForReview(latestReview) &&
+      !latestReview.program_passed
+    ) {
+      supportItems.push("WSEP/MoP");
+    }
 
     return supportItems.length > 0
       ? `${supportItems.join(", ")} 보완 필요`
@@ -2263,7 +2313,7 @@ export default function AdvancementsPage() {
           <div>
             <h2 style={sectionTitleStyle}>대원별 진급 현황</h2>
             <p style={sectionDescriptionStyle}>
-              대원별 현재 급위, 다음 급위, 예상 진급일과 판정 기록을 확인합니다.
+              현재 급위와 다음 급위, 판정 상태, 보완 항목을 확인하고 필요한 대원을 선택해 판정·인가합니다.
             </p>
           </div>
         </div>
@@ -2308,7 +2358,7 @@ export default function AdvancementsPage() {
               type="search"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
-              placeholder="대원번호, 이름, 급위, 예상일 검색"
+              placeholder="대원번호, 이름, 급위, 보완 항목 검색"
             />
 
             {keyword.trim().length > 0 && (
@@ -2516,24 +2566,24 @@ export default function AdvancementsPage() {
                   {renderSortableHeader("member_no", "대원번호")}
                   {renderSortableHeader("name", "이름")}
                   {isSuperAdmin && renderSortableHeader("organization", "소속 조직")}
-                  {renderSortableHeader("school_name", "소속대")}
                   {renderSortableHeader("grade", "학년", "center")}
                   <th style={centerThStyle}>구분</th>
                   {renderSortableHeader("current_rank", "현재 급위", "center")}
                   {renderSortableHeader("next_rank", "다음 급위", "center")}
                   {renderSortableHeader("expected_date", "예상 진급일", "center")}
-                  {renderSortableHeader("status", "상태", "center")}
-                  {renderSortableHeader("rank_history_count", "진급 기록", "center")}
-                  {renderSortableHeader("review_count", "판정 기록", "center")}
+                  <th style={centerThStyle}>판정 상태</th>
+                  <th style={thStyle}>확인·보완 항목</th>
+                  {renderSortableHeader("status", "활동 상태", "center")}
                   <th style={centerThStyle}>상세</th>
                 </tr>
               </thead>
 
               <tbody>
                 {filteredScouts.map((scout) => {
-                  const historyCount = historiesByScoutId.get(scout.id)?.length ?? 0;
-                  const reviewCount = reviewsByScoutId.get(scout.id)?.length ?? 0;
-                  const expectedDate = getEntryBasedExpectedDate(scout);
+                  const expectedDateText = getExpectedDateDisplay(scout);
+                  const expectedDate = /^\d{4}-\d{2}-\d{2}$/.test(expectedDateText)
+                    ? expectedDateText
+                    : null;
                   const expectedDateStatus = getDateStatusLabel(expectedDate);
 
                   return (
@@ -2564,7 +2614,6 @@ export default function AdvancementsPage() {
                       {isSuperAdmin && (
                         <td style={tdStyle}>{getOrganizationName(scout.organization_id)}</td>
                       )}
-                      <td style={tdStyle}>{scout.school_name ?? "-"}</td>
                       <td style={centerTdStyle}>{scout.grade ?? "-"}</td>
                       <td style={centerTdStyle}>{isCubScoutByGrade(scout) ? "컵스카우트" : "스카우트"}</td>
                       <td style={centerTdStyle}>{getCurrentRankDisplay(scout)}</td>
@@ -2578,12 +2627,18 @@ export default function AdvancementsPage() {
                         </span>
                       </td>
                       <td style={centerTdStyle}>
+                        <span style={getAdvancementStatusStyle(scout)}>
+                          {getAdvancementStatusLabel(scout)}
+                        </span>
+                      </td>
+                      <td style={supportSummaryTdStyle}>
+                        {getAdvancementSupportSummary(scout)}
+                      </td>
+                      <td style={centerTdStyle}>
                         <span style={getStatusBadgeStyle(scout.status)}>
                           {SCOUT_STATUS_LABELS[scout.status]}
                         </span>
                       </td>
-                      <td style={centerTdStyle}>{historyCount}건</td>
-                      <td style={centerTdStyle}>{reviewCount}건</td>
                       <td style={centerTdStyle}>
                         <button
                           type="button"
@@ -2638,7 +2693,6 @@ export default function AdvancementsPage() {
                       <th style={thStyle}>대원번호</th>
                       <th style={thStyle}>이름</th>
                       {isSuperAdmin && <th style={thStyle}>소속 조직</th>}
-                      <th style={thStyle}>소속대</th>
                       <th style={centerThStyle}>학년</th>
                       <th style={centerThStyle}>현재 급위</th>
                       <th style={centerThStyle}>다음 급위</th>
@@ -2654,7 +2708,6 @@ export default function AdvancementsPage() {
                         {isSuperAdmin && (
                           <td style={tdStyle}>{getOrganizationName(scout.organization_id)}</td>
                         )}
-                        <td style={tdStyle}>{scout.school_name ?? "-"}</td>
                         <td style={centerTdStyle}>{scout.grade ?? "-"}</td>
                         <td style={centerTdStyle}>{getCurrentRankDisplay(scout)}</td>
                         <td style={centerTdStyle}>{getNextRankDisplay(scout)}</td>
@@ -2728,6 +2781,16 @@ export default function AdvancementsPage() {
                 </div>
               )}
             </div>
+
+            {getMissingPriorRankHistories(selectedScout).length > 0 && (
+              <div style={rankHistoryWarningStyle}>
+                <strong>진급 인가 기록 확인 필요</strong>
+                <span>
+                  현재 급위는 {getCurrentRankDisplay(selectedScout)}이지만 {getMissingPriorRankHistories(selectedScout).map((rank) => rank.rank_name).join(", ")} 인가 기록이 없습니다.
+                </span>
+                <span>대원 통합관리의 진급/급위에서 실제 인가일을 확인하여 등록해 주세요.</span>
+              </div>
+            )}
 
             {canManageAdvancements && !isCubScoutByGrade(selectedScout) && !selectedScout.current_rank_id && (
               <div style={initialApprovalBoxStyle}>
@@ -2876,16 +2939,25 @@ export default function AdvancementsPage() {
 
               {(() => {
                 const nextRank = getNextRank(selectedScout);
-                const entryBasedDate = getEntryBasedExpectedDate(selectedScout);
-                const reviewBaseDate = getReviewBaseDate(selectedScout);
-                const reviewBasedDate = getReviewBasedExpectedDate(selectedScout);
                 const requirement = getRequirementForTransition(
                   selectedScout.current_rank_id,
                   nextRank,
                 );
-                const cumulativeMonths = nextRank
-                  ? getCumulativeRequiredMonthsToRank(nextRank)
-                  : 0;
+                const currentStepReview = nextRank
+                  ? [...selectedScoutReviews]
+                      .filter(
+                        (review) =>
+                          review.from_rank_id === selectedScout.current_rank_id &&
+                          review.to_rank_id === nextRank.id,
+                      )
+                      .sort((a, b) => {
+                        const bKey = `${b.review_date} ${b.created_at ?? ""}`;
+                        const aKey = `${a.review_date} ${a.created_at ?? ""}`;
+                        return bKey.localeCompare(aKey);
+                      })[0] ?? null
+                  : null;
+                const periodBaseDate = currentStepReview?.base_date ?? null;
+                const availableDate = currentStepReview?.available_at ?? null;
 
                 return (
                   <>
@@ -2900,14 +2972,14 @@ export default function AdvancementsPage() {
                       <div style={expectedItemStyle}>
                         <div style={expectedLabelStyle}>예상 진급일</div>
                         <div style={expectedValueStyle}>
-                          {entryBasedDate ?? getExpectedDateDisplay(selectedScout)}
+                          {availableDate ?? "판정 후 확인"}
                         </div>
                       </div>
 
                       <div style={expectedItemStyle}>
-                        <div style={expectedLabelStyle}>판정 기준일</div>
+                        <div style={expectedLabelStyle}>기간 산정 기준일</div>
                         <div style={expectedValueStyle}>
-                          {reviewBaseDate ? formatDate(reviewBaseDate) : "기준일 없음"}
+                          {periodBaseDate ? formatDate(periodBaseDate) : "판정 후 확인"}
                         </div>
                       </div>
 
@@ -2920,17 +2992,11 @@ export default function AdvancementsPage() {
                     </div>
 
                     <p style={compactHelpTextStyle}>
-                      {cumulativeMonths > 0
-                        ? `입단일 기준 누적기간 ${cumulativeMonths}개월 · 판정 기준 예상일 ${reviewBasedDate ?? getMissingRequirementDisplay(nextRank)}`
-                        : "입단일 기준 누적기간은 등록된 진급 기준을 기준으로 계산합니다."}
+                      기간 산정 기준일은 이전 단계의 기간 충족일과 기능장 최종 충족일 중 더 늦은 날짜입니다. 예상 진급일은 최신 판정 결과를 기준으로 표시합니다.
                     </p>
                   </>
                 );
               })()}
-
-              <p style={helpTextStyle}>
-                예상 진급일은 참고용입니다. 실제 판정은 현재 급위, 인가일, 기능장, 과정 이수 조건을 기준으로 검토합니다.
-              </p>
             </div>
 
             {canManageAdvancements && !isCubScoutByGrade(selectedScout) && selectedScout.current_rank_id && getNextRank(selectedScout) && (
@@ -3005,7 +3071,7 @@ export default function AdvancementsPage() {
                         }}
                       >
                         {formatDate(review.review_date)} · {getRankName(review.to_rank_id)} ·{" "}
-                        {review.final_passed ? "가능" : "불가"}
+                        {isReviewPassedForApproval(review) ? "가능" : "보완 필요"}
                       </button>
                     ))}
                   </div>
@@ -3025,8 +3091,8 @@ export default function AdvancementsPage() {
                           </div>
                         </div>
 
-                        <span style={getReviewResultBadgeStyle(activeSelectedReview.final_passed)}>
-                          {activeSelectedReview.final_passed ? "진급 가능" : "진급 불가"}
+                        <span style={getReviewResultBadgeStyle(isReviewPassedForApproval(activeSelectedReview))}>
+                          {isReviewPassedForApproval(activeSelectedReview) ? "진급 가능" : "조건 보완 필요"}
                         </span>
                       </div>
 
@@ -3057,24 +3123,55 @@ export default function AdvancementsPage() {
                           </div>
                         </div>
 
-                        <div style={getConditionItemStyle(activeSelectedReview.program_passed)}>
+                        <div
+                          style={
+                            isProgramRequiredForReview(activeSelectedReview)
+                              ? getConditionItemStyle(activeSelectedReview.program_passed)
+                              : conditionNotApplicableItemStyle
+                          }
+                        >
                           <div style={conditionLabelStyle}>WSEP/MoP</div>
-                          <div style={getConditionValueStyle(activeSelectedReview.program_passed)}>
-                            {activeSelectedReview.program_passed ? "통과" : "미충족"}
+                          <div
+                            style={
+                              isProgramRequiredForReview(activeSelectedReview)
+                                ? getConditionValueStyle(activeSelectedReview.program_passed)
+                                : conditionNotApplicableValueStyle
+                            }
+                          >
+                            {!isProgramRequiredForReview(activeSelectedReview)
+                              ? "해당 없음"
+                              : activeSelectedReview.program_passed
+                                ? "이수 확인"
+                                : "미이수"}
                           </div>
                         </div>
                       </div>
 
-                      <div style={attendanceReferenceBoxStyle}>
-                        참고 지표: 출석률 {activeSelectedReview.attendance_rate}% ·{" "}
-                        {activeSelectedReview.attendance_present_count}/
-                        {activeSelectedReview.attendance_total_count} · 판정 제외
-                      </div>
+                      {isProgramRequiredForReview(activeSelectedReview) ? (
+                        <div style={getConditionItemStyle(activeSelectedReview.attendance_passed)}>
+                          <div style={conditionLabelStyle}>출석률</div>
+                          <div style={getConditionValueStyle(activeSelectedReview.attendance_passed)}>
+                            {activeSelectedReview.attendance_passed ? "통과" : "미충족"}
+                          </div>
+                          <div style={conditionMetaStyle}>
+                            {activeSelectedReview.attendance_rate}% · 출석 인정 {activeSelectedReview.attendance_present_count}/
+                            {activeSelectedReview.attendance_total_count}회 · 범 진급 필수
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={attendanceReferenceBoxStyle}>
+                          참고 지표: 출석률 {activeSelectedReview.attendance_rate}% · 출석 인정{" "}
+                          {activeSelectedReview.attendance_present_count}/
+                          {activeSelectedReview.attendance_total_count}회
+                        </div>
+                      )}
 
                       {(!activeSelectedReview.period_passed ||
                         !activeSelectedReview.required_badges_passed ||
                         !activeSelectedReview.general_badges_passed ||
-                        !activeSelectedReview.program_passed) && (
+                        (isProgramRequiredForReview(activeSelectedReview) &&
+                          (!activeSelectedReview.program_passed ||
+                            !activeSelectedReview.attendance_passed))) && (
                         <div style={missingBoxStyle}>
                           <div style={missingHeaderStyle}>
                             <div>
@@ -3086,7 +3183,8 @@ export default function AdvancementsPage() {
 
                             {(!activeSelectedReview.required_badges_passed ||
                               !activeSelectedReview.general_badges_passed ||
-                              !activeSelectedReview.program_passed) && (
+                              (isProgramRequiredForReview(activeSelectedReview) &&
+                                !activeSelectedReview.program_passed)) && (
                               <div style={repairActionGridStyle}>
                                 {(!activeSelectedReview.required_badges_passed ||
                                   !activeSelectedReview.general_badges_passed) && (
@@ -3094,16 +3192,17 @@ export default function AdvancementsPage() {
                                     to={`/merit-badges?scoutId=${selectedScout.id}`}
                                     style={repairActionLinkStyle}
                                   >
-                                    기능장 관리에서 확인
+                                    기능장 기록 확인
                                   </Link>
                                 )}
 
-                                {!activeSelectedReview.program_passed && (
+                                {isProgramRequiredForReview(activeSelectedReview) &&
+                                  !activeSelectedReview.program_passed && (
                                   <Link
                                     to={`/program-completions?scoutId=${selectedScout.id}`}
                                     style={repairActionLinkStyle}
                                   >
-                                    WSEP/MoP 이수 확인
+                                    프로그램 이수 기록 확인
                                   </Link>
                                 )}
                               </div>
@@ -3113,14 +3212,24 @@ export default function AdvancementsPage() {
                           <ul style={missingListStyle}>
                             {!activeSelectedReview.period_passed && (
                               <li>
-                                <strong>활동기간 확인이 필요합니다.</strong>
+                                <strong>활동기간이 부족합니다.</strong>
                                 <div style={missingDetailStyle}>
                                   진급 가능 예정일 {formatDate(activeSelectedReview.available_at)} · 남은 일수 {activeSelectedReview.days_remaining ?? "-"}일
                                 </div>
                               </li>
                             )}
 
-                            {toMissingItems(activeSelectedReview.missing_items).map((item, index) => (
+                            {isProgramRequiredForReview(activeSelectedReview) &&
+                              !activeSelectedReview.attendance_passed && (
+                                <li>
+                                  <strong>범 진급 출석률 기준을 충족하지 못했습니다.</strong>
+                                  <div style={missingDetailStyle}>
+                                    현재 출석률 {activeSelectedReview.attendance_rate}% · 출석 인정 {activeSelectedReview.attendance_present_count}/{activeSelectedReview.attendance_total_count}회
+                                  </div>
+                                </li>
+                              )}
+
+                            {getRelevantMissingItems(activeSelectedReview).map((item, index) => (
                               <li key={`${activeSelectedReview.id}-${index}`}>
                                 <strong>{getMissingItemMessage(item)}</strong>
                                 {getMissingItemDetail(item) && (
@@ -3129,7 +3238,7 @@ export default function AdvancementsPage() {
                               </li>
                             ))}
 
-                            {toMissingItems(activeSelectedReview.missing_items).length === 0 &&
+                            {getRelevantMissingItems(activeSelectedReview).length === 0 &&
                               (activeSelectedReview.required_badges_passed === false ||
                                 activeSelectedReview.general_badges_passed === false) && (
                                 <li>
@@ -3137,7 +3246,8 @@ export default function AdvancementsPage() {
                                 </li>
                               )}
 
-                            {toMissingItems(activeSelectedReview.missing_items).length === 0 &&
+                            {getRelevantMissingItems(activeSelectedReview).length === 0 &&
+                              isProgramRequiredForReview(activeSelectedReview) &&
                               activeSelectedReview.program_passed === false && (
                                 <li>
                                   <strong>WSEP 또는 MoP 이수 기록 확인이 필요합니다.</strong>
@@ -3151,7 +3261,7 @@ export default function AdvancementsPage() {
                         </div>
                       )}
 
-                      {canManageAdvancements && activeSelectedReview.final_passed && (
+                      {canManageAdvancements && isReviewPassedForApproval(activeSelectedReview) && (
                         <div style={approvalBoxStyle}>
                           <h4 style={approvalTitleStyle}>진급 인가 저장</h4>
 
@@ -3989,6 +4099,63 @@ const expectedDateInlineStyle: CSSProperties = {
 };
 
 
+const advancementStatusBadgeBaseStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: "78px",
+  padding: "4px 8px",
+  borderRadius: "999px",
+  border: "1px solid",
+  fontSize: "12px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const advancementReadyBadgeStyle: CSSProperties = {
+  ...advancementStatusBadgeBaseStyle,
+  borderColor: "#86efac",
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+};
+
+const advancementSupportBadgeStyle: CSSProperties = {
+  ...advancementStatusBadgeBaseStyle,
+  borderColor: "#fdba74",
+  backgroundColor: "#ffedd5",
+  color: "#c2410c",
+};
+
+const advancementReviewNeededBadgeStyle: CSSProperties = {
+  ...advancementStatusBadgeBaseStyle,
+  borderColor: "#93c5fd",
+  backgroundColor: "#dbeafe",
+  color: "#1d4ed8",
+};
+
+const advancementAutoBadgeStyle: CSSProperties = {
+  ...advancementStatusBadgeBaseStyle,
+  borderColor: "#c4b5fd",
+  backgroundColor: "#ede9fe",
+  color: "#6d28d9",
+};
+
+const advancementNeutralBadgeStyle: CSSProperties = {
+  ...advancementStatusBadgeBaseStyle,
+  borderColor: "#cbd5e1",
+  backgroundColor: "#f1f5f9",
+  color: "#475569",
+};
+
+const supportSummaryTdStyle: CSSProperties = {
+  ...tdStyle,
+  minWidth: "170px",
+  color: "#334155",
+  fontWeight: 700,
+  whiteSpace: "normal",
+  lineHeight: 1.4,
+};
+
 const statusBadgeStyle: CSSProperties = {
   display: "inline-block",
   padding: "4px 8px",
@@ -4067,6 +4234,20 @@ const noticeBoxStyle: CSSProperties = {
   fontWeight: 800,
   lineHeight: 1.55,
   marginTop: "8px",
+};
+
+const rankHistoryWarningStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px",
+  padding: "11px 13px",
+  borderRadius: "10px",
+  border: "1px solid #fcd34d",
+  backgroundColor: "#fffbeb",
+  color: "#92400e",
+  fontSize: "13px",
+  lineHeight: 1.5,
+  marginBottom: "12px",
 };
 
 const initialApprovalBoxStyle: CSSProperties = {
@@ -4276,7 +4457,7 @@ const compactErrorBoxStyle: CSSProperties = {
 };
 
 const reviewResultCardStyle: CSSProperties = {
-  padding: "12px",
+  padding: "14px",
   borderRadius: "12px",
   border: "1px solid #e5e7eb",
   backgroundColor: "#ffffff",
@@ -4309,7 +4490,7 @@ const activeReviewTabButtonStyle: CSSProperties = {
 };
 
 const reviewDetailBoxStyle: CSSProperties = {
-  padding: "12px",
+  padding: "14px",
   borderRadius: "12px",
   backgroundColor: "#f8fafc",
   border: "1px solid #e5e7eb",
@@ -4354,6 +4535,12 @@ const conditionFailItemStyle: CSSProperties = {
   borderColor: "#fecaca",
 };
 
+const conditionNotApplicableItemStyle: CSSProperties = {
+  ...conditionItemBaseStyle,
+  backgroundColor: "#f8fafc",
+  borderColor: "#e2e8f0",
+};
+
 const conditionLabelStyle: CSSProperties = {
   color: "#475569",
   fontSize: "13px",
@@ -4374,6 +4561,11 @@ const conditionPassValueStyle: CSSProperties = {
 const conditionFailValueStyle: CSSProperties = {
   ...conditionValueBaseStyle,
   color: "#b91c1c",
+};
+
+const conditionNotApplicableValueStyle: CSSProperties = {
+  ...conditionValueBaseStyle,
+  color: "#64748b",
 };
 
 const conditionMetaStyle: CSSProperties = {
@@ -4417,7 +4609,7 @@ const historyTitleStyle: CSSProperties = {
 };
 
 const missingBoxStyle: CSSProperties = {
-  padding: "12px 14px",
+  padding: "14px 16px",
   borderRadius: "10px",
   backgroundColor: "#fef2f2",
   border: "1px solid #fecaca",
@@ -4439,14 +4631,14 @@ const missingTitleStyle: CSSProperties = {
 };
 
 const missingListStyle: CSSProperties = {
-  margin: "10px 0 0",
-  paddingLeft: "18px",
-  lineHeight: 1.55,
+  margin: "12px 0 0",
+  paddingLeft: "20px",
+  lineHeight: 1.65,
   fontSize: "13px",
 };
 
 const missingDetailStyle: CSSProperties = {
-  marginTop: "2px",
+  marginTop: "3px",
   color: "#7f1d1d",
   fontSize: "12px",
 };

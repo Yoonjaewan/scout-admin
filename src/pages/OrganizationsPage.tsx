@@ -286,6 +286,33 @@ export default function OrganizationsPage() {
       "계속 진행하시겠습니까?",
     ].join("\n");
 
+    if (nextStatus === "closed") {
+      const { data: providedBackup, error: backupCheckError } = await supabase
+        .from("organization_backup_logs")
+        .select("id, provided_at")
+        .eq("organization_id", organization.id)
+        .eq("backup_type", "business_excel")
+        .not("provided_at", "is", null)
+        .is("deleted_at", null)
+        .order("provided_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (backupCheckError) {
+        setErrorMessage(
+          `이용종료 전 백업 제공 여부를 확인하지 못했습니다. 백업센터 SQL 적용 여부를 확인하세요. ${backupCheckError.message}`,
+        );
+        return;
+      }
+
+      if (!providedBackup) {
+        setErrorMessage(
+          `${organization.name}의 업무용 Excel 제공 완료 기록이 없습니다. 소속대 백업센터에서 업무용 Excel을 생성·전달한 뒤 '제공 완료'로 처리하세요.`,
+        );
+        return;
+      }
+    }
+
     if (!window.confirm(confirmMessage)) return;
 
     setProcessingId(organization.id);
@@ -473,7 +500,7 @@ export default function OrganizationsPage() {
                 <div style={readOnlyBoxStyle}>
                   <strong>상태 변경 안내</strong>
                   <p>
-                    이용중지는 일시적인 사용 제한에 적합합니다. 이용종료는 더 이상 사용하지 않는 소속대에 적용합니다. 두 경우 모두 기존 기록은 삭제되지 않습니다.
+                    이용중지는 일시적인 사용 제한에 적합합니다. 이용종료는 백업센터에서 백업 제공 완료 처리 후에만 가능합니다. 두 경우 모두 기존 기록은 삭제되지 않습니다.
                   </p>
                 </div>
 
