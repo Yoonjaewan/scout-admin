@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ChangeEvent, FormEvent } from "react";
 
+import { FeedbackToast, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -580,15 +581,26 @@ export default function SettingsPage() {
     <div>
       <header style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>환경설정</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>환경설정</h1><PageHelpButton title="환경설정" description="소속대 정보, 로고, 범 진급 출석률 운영 기준을 관리합니다." sections={[{ title: "사용 순서", content: "필수정보를 저장한 뒤 운영 기준과 로고를 확인합니다." },{ title: "주의사항", content: "범 진급 출석률 설정은 진급관리·통합관리·출석 화면과 동일해야 합니다." }]} /></div>
           <p style={pageDescriptionStyle}>
             소속대 정보와 사이드 메뉴에 표시할 로고를 관리합니다.
           </p>
         </div>
 
-        <button type="button" onClick={loadSettings} style={secondaryButtonStyle}>
-          새로고침
-        </button>
+        <div style={headerActionStyle}>
+          {role === "org_admin" ? (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("open-first-use-guide"))}
+              style={guideButtonStyle}
+            >
+              시작 안내 다시 보기
+            </button>
+          ) : null}
+          <button type="button" onClick={loadSettings} style={secondaryButtonStyle}>
+            새로고침
+          </button>
+        </div>
       </header>
 
       {organization ? (
@@ -637,7 +649,7 @@ export default function SettingsPage() {
       ) : null}
 
       {errorMessage ? <div style={errorBoxStyle}>{errorMessage}</div> : null}
-      {successMessage ? <div style={successBoxStyle}>{successMessage}</div> : null}
+      <FeedbackToast message={successMessage} tone="success" onClose={() => setSuccessMessage("")} />
 
       {organization && setupIncomplete ? (
         <div style={setupGuideBoxStyle}>
@@ -972,6 +984,25 @@ const pageHeaderStyle: CSSProperties = {
   marginBottom: "24px",
 };
 
+const headerActionStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+};
+
+const guideButtonStyle: CSSProperties = {
+  height: "40px",
+  padding: "0 14px",
+  borderRadius: "10px",
+  border: "1px solid #bfdbfe",
+  backgroundColor: "#eff6ff",
+  color: "#1d4ed8",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
 const pageTitleStyle: CSSProperties = {
   margin: 0,
   fontSize: "30px",
@@ -1291,16 +1322,6 @@ const errorBoxStyle: CSSProperties = {
   marginBottom: "16px",
 };
 
-const successBoxStyle: CSSProperties = {
-  padding: "14px 16px",
-  borderRadius: "12px",
-  backgroundColor: "#ecfdf5",
-  color: "#047857",
-  border: "1px solid #a7f3d0",
-  fontSize: "14px",
-  lineHeight: 1.5,
-  marginBottom: "16px",
-};
 
 const warningBoxStyle: CSSProperties = {
   padding: "12px 14px",

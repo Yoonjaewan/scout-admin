@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
+import { PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 import {
   InfoItem,
@@ -77,7 +78,7 @@ import {
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
 type ScoutStatus = "active" | "inactive" | "graduated";
 type StatusFilter = "active" | "all" | "inactive" | "graduated";
-type ReadinessFilter = "all" | "ready" | "needs_attention" | "review_needed";
+type ReadinessFilter = "all" | "ready" | "needs_attention" | "review_needed" | "action_needed";
 type DetailTab =
   "overview" | "advancement" | "badges" | "programs" | "attendance";
 
@@ -613,6 +614,7 @@ export default function ScoutIntegratedPage() {
   const requestedScoutId = searchParams.get("scoutId") ?? "";
   const [data, setData] = useState<IntegratedData>(EMPTY_DATA);
   const [selectedScoutId, setSelectedScoutId] = useState("");
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [readinessFilter, setReadinessFilter] =
@@ -623,6 +625,7 @@ export default function ScoutIntegratedPage() {
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showUsageGuide, setShowUsageGuide] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [badgeFormMode, setBadgeFormMode] = useState<"create" | "edit" | null>(
     null,
@@ -871,6 +874,12 @@ export default function ScoutIntegratedPage() {
       });
 
       setSelectedScoutId((current) => {
+        if (profile.role === "super_admin") {
+          return current && scouts.some((scout) => scout.id === current)
+            ? current
+            : "";
+        }
+
         if (current && scouts.some((scout) => scout.id === current)) {
           return current;
         }
@@ -898,6 +907,20 @@ export default function ScoutIntegratedPage() {
   }, [loadData]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    setShowUsageGuide(
+      window.localStorage.getItem("scout-integrated-guide-dismissed") !== "true",
+    );
+  }, []);
+
+  const handleDismissUsageGuide = () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("scout-integrated-guide-dismissed", "true");
+    }
+    setShowUsageGuide(false);
+  };
+
+  useEffect(() => {
     if (!requestedScoutId || data.scouts.length === 0) return;
 
     const requestedScout = data.scouts.find(
@@ -906,6 +929,7 @@ export default function ScoutIntegratedPage() {
 
     if (!requestedScout) return;
 
+    setSelectedOrganizationId(requestedScout.organization_id);
     setSelectedScoutId(requestedScout.id);
     setStatusFilter(requestedScout.status);
     setReadinessFilter("all");
@@ -974,6 +998,15 @@ export default function ScoutIntegratedPage() {
   const canManageScouts = canManageBadges;
   const canManageAdvancements = canManageBadges;
   const canManagePrograms = canManageBadges;
+  const isSuperAdmin = data.profile?.role === "super_admin";
+
+  const organizationScopedScouts = useMemo(() => {
+    if (!isSuperAdmin) return data.scouts;
+    if (!selectedOrganizationId) return data.scouts;
+    return data.scouts.filter(
+      (scout) => scout.organization_id === selectedOrganizationId,
+    );
+  }, [data.scouts, isSuperAdmin, selectedOrganizationId]);
 
   const scoutReadinessMap = useMemo(() => {
     return new Map(
@@ -996,7 +1029,7 @@ export default function ScoutIntegratedPage() {
   }, [data]);
 
   const summaryCounts = useMemo(() => {
-    const activeScouts = data.scouts.filter(
+    const activeScouts = organizationScopedScouts.filter(
       (scout) => scout.status === "active",
     );
     return activeScouts.reduce(
@@ -1007,21 +1040,30 @@ export default function ScoutIntegratedPage() {
         if (readiness?.status === "needs_attention")
           counts.needs_attention += 1;
         if (readiness?.status === "review_needed") counts.review_needed += 1;
+        if (readiness?.status === "needs_attention" || readiness?.status === "review_needed") {
+          counts.action_needed += 1;
+        }
         return counts;
       },
-      { all: 0, ready: 0, needs_attention: 0, review_needed: 0 },
+      { all: 0, ready: 0, needs_attention: 0, review_needed: 0, action_needed: 0 },
     );
-  }, [data.scouts, scoutReadinessMap]);
+  }, [organizationScopedScouts, scoutReadinessMap]);
 
-  const selectedScout = useMemo(
-    () => data.scouts.find((scout) => scout.id === selectedScoutId) ?? null,
-    [data.scouts, selectedScoutId],
-  );
+  const selectedScout = useMemo(() => {
+    if (isSuperAdmin && !selectedOrganizationId) return null;
+
+    return (
+      organizationScopedScouts.find((scout) => scout.id === selectedScoutId) ??
+      null
+    );
+  }, [isSuperAdmin, organizationScopedScouts, selectedOrganizationId, selectedScoutId]);
 
   const filteredScouts = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
 
-    return data.scouts.filter((scout) => {
+    if (isSuperAdmin && !selectedOrganizationId) return [];
+
+    return organizationScopedScouts.filter((scout) => {
       if (statusFilter !== "all" && scout.status !== statusFilter) {
         return false;
       }
@@ -1030,9 +1072,19 @@ export default function ScoutIntegratedPage() {
         return false;
       }
 
+      const scoutReadinessStatus = scoutReadinessMap.get(scout.id)?.status;
+      if (
+        readinessFilter === "action_needed" &&
+        scoutReadinessStatus !== "needs_attention" &&
+        scoutReadinessStatus !== "review_needed"
+      ) {
+        return false;
+      }
+
       if (
         readinessFilter !== "all" &&
-        scoutReadinessMap.get(scout.id)?.status !== readinessFilter
+        readinessFilter !== "action_needed" &&
+        scoutReadinessStatus !== readinessFilter
       ) {
         return false;
       }
@@ -1058,13 +1110,15 @@ export default function ScoutIntegratedPage() {
       return targetText.includes(normalizedKeyword);
     });
   }, [
-    data.scouts,
+    isSuperAdmin,
     keyword,
     organizationMap,
+    organizationScopedScouts,
     rankFilter,
     rankMap,
     readinessFilter,
     scoutReadinessMap,
+    selectedOrganizationId,
     statusFilter,
   ]);
 
@@ -1112,6 +1166,71 @@ export default function ScoutIntegratedPage() {
     );
   }, [data.attendance, selectedScout]);
 
+  const selectedRecentActivities = useMemo(() => {
+    if (!selectedScout) return [];
+
+    const items: Array<{
+      key: string;
+      date: string;
+      title: string;
+      detail: string;
+      tab: DetailTab;
+    }> = [];
+
+    selectedReviews.forEach((review) => {
+      items.push({
+        key: `review-${review.id}`,
+        date: review.review_date,
+        title: "진급 판정",
+        detail: review.final_passed ? "진급 가능" : "조건 보완",
+        tab: "advancement",
+      });
+    });
+
+    selectedRankHistories.forEach((history) => {
+      items.push({
+        key: `rank-${history.id}`,
+        date: history.approved_at,
+        title: "진급 인가",
+        detail: rankMap.get(history.rank_id)?.rank_name ?? "급위 확인",
+        tab: "advancement",
+      });
+    });
+
+    selectedScoutBadges.forEach((badgeRecord) => {
+      items.push({
+        key: `badge-${badgeRecord.id}`,
+        date: badgeRecord.approved_at ?? badgeRecord.acquired_at,
+        title: "기능장 기록",
+        detail: badgeMap.get(badgeRecord.badge_id)?.name ?? "기능장 확인",
+        tab: "badges",
+      });
+    });
+
+    selectedPrograms.forEach((program) => {
+      items.push({
+        key: `program-${program.id}`,
+        date: program.approved_at ?? program.completed_at,
+        title: "프로그램 이수",
+        detail: program.program_type,
+        tab: "programs",
+      });
+    });
+
+    return items
+      .filter((item) => Boolean(item.date))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5);
+  }, [
+    badgeMap,
+    rankMap,
+    selectedPrograms,
+    selectedRankHistories,
+    selectedReviews,
+    selectedScout,
+    selectedScoutBadges,
+  ]);
+
   const attendanceSummary = useMemo(
     () => getAttendanceSummary(selectedAttendance),
     [selectedAttendance],
@@ -1129,6 +1248,10 @@ export default function ScoutIntegratedPage() {
   const targetRankName = selectedReadiness?.targetRank?.rank_name ?? "-";
 
   const handleSelectScout = (scoutId: string) => {
+    const scout = data.scouts.find((item) => item.id === scoutId);
+    if (isSuperAdmin && scout) {
+      setSelectedOrganizationId(scout.organization_id);
+    }
     setSelectedScoutId(scoutId);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
@@ -1638,7 +1761,13 @@ export default function ScoutIntegratedPage() {
 
   const handleOpenScoutCreate = () => {
     if (!canManageScouts) return;
-    setScoutCreateForm(getEmptyScoutCreateForm(data.profile));
+    setScoutCreateForm({
+      ...getEmptyScoutCreateForm(data.profile),
+      organization_id:
+        data.profile?.role === "super_admin"
+          ? selectedOrganizationId
+          : data.profile?.organization_id ?? "",
+    });
     setScoutCreateError("");
     setScoutCreateOpen(true);
   };
@@ -1732,10 +1861,9 @@ export default function ScoutIntegratedPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>대원 통합관리</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>대원 통합관리</h1><PageHelpButton title="대원 통합관리" description="대원별 진급 준비상태와 활동기록을 한 화면에서 확인합니다." sections={[{ title: "사용 순서", content: "왼쪽에서 대원을 선택하고 종합현황을 확인한 뒤 필요한 탭으로 이동합니다." },{ title: "주의사항", content: "판정 결과보다 현재 실제 기능장·프로그램·출석 기록을 우선 확인합니다." }]} /></div>
           <p style={pageDescriptionStyle}>
-            대원을 선택하면 진급·기능장·프로그램·출석 현황을 한 화면에서 확인할
-            수 있습니다.
+            대원을 선택해 현재 진급 상태를 확인하고, 필요한 기록을 탭별로 관리합니다.
           </p>
         </div>
 
@@ -1749,13 +1877,134 @@ export default function ScoutIntegratedPage() {
         </div>
       </div>
 
+      {showUsageGuide && (
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto",
+            gap: "16px",
+            alignItems: "start",
+            padding: "14px 16px",
+            marginBottom: "16px",
+            border: "1px solid #bfdbfe",
+            borderRadius: "12px",
+            backgroundColor: "#eff6ff",
+          }}
+          aria-label="대원 통합관리 사용 안내"
+        >
+          <div style={{ display: "grid", gap: "8px" }}>
+            <strong style={{ color: "#1e3a8a", fontSize: "15px" }}>처음 사용하는 방법</strong>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                gap: "8px 16px",
+                color: "#334155",
+                fontSize: "14px",
+                lineHeight: 1.55,
+              }}
+            >
+              <span><b>1.</b> 왼쪽에서 대원을 선택합니다.</span>
+              <span><b>2.</b> 상단에서 현재 진급 상태와 보완 건수를 확인합니다.</span>
+              <span><b>3.</b> 필요한 업무는 진급·기능장·프로그램·출석 탭에서 처리합니다.</span>
+            </div>
+            <span style={{ color: "#64748b", fontSize: "13px" }}>
+              대원 등록·기본정보 수정은 대원 관리에서, 진급 준비와 활동 기록 관리는 이 화면에서 진행합니다.
+            </span>
+          </div>
+          <button
+            type="button"
+            style={{
+              border: "1px solid #93c5fd",
+              borderRadius: "8px",
+              backgroundColor: "#ffffff",
+              color: "#1d4ed8",
+              padding: "7px 10px",
+              fontWeight: 800,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+            onClick={handleDismissUsageGuide}
+          >
+            안내 닫기
+          </button>
+        </section>
+      )}
+
+      {isSuperAdmin && (
+        <section
+          style={{
+            ...searchAreaStyle,
+            marginBottom: "16px",
+            display: "grid",
+            gridTemplateColumns: "minmax(260px, 420px) 1fr",
+            alignItems: "end",
+            gap: "16px",
+          }}
+          aria-label="소속대 선택"
+        >
+          <label style={{ display: "grid", gap: "7px", fontWeight: 800, color: "#334155" }}>
+            소속대 선택
+            <select
+              style={selectStyle}
+              value={selectedOrganizationId}
+              onChange={(event) => {
+                const organizationId = event.target.value;
+                setSelectedOrganizationId(organizationId);
+                setKeyword("");
+                setStatusFilter("active");
+                setReadinessFilter("all");
+                setRankFilter("");
+                setActiveTab("overview");
+
+                if (!organizationId) {
+                  setSelectedScoutId("");
+                  const nextParams = new URLSearchParams(searchParams);
+                  nextParams.delete("scoutId");
+                  setSearchParams(nextParams, { replace: true });
+                  return;
+                }
+
+                const firstScout =
+                  data.scouts.find(
+                    (scout) =>
+                      scout.organization_id === organizationId &&
+                      scout.status === "active",
+                  ) ??
+                  data.scouts.find(
+                    (scout) => scout.organization_id === organizationId,
+                  );
+
+                setSelectedScoutId(firstScout?.id ?? "");
+                const nextParams = new URLSearchParams(searchParams);
+                if (firstScout) nextParams.set("scoutId", firstScout.id);
+                else nextParams.delete("scoutId");
+                setSearchParams(nextParams, { replace: true });
+              }}
+            >
+              <option value="">전체 소속대 요약</option>
+              {data.organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div style={{ color: "#64748b", fontSize: "14px", lineHeight: 1.6 }}>
+            {selectedOrganizationId
+              ? `${organizationMap.get(selectedOrganizationId) ?? "선택 소속대"} 대원을 조회하고 관리합니다.`
+              : "전체 소속대에서는 요약 현황만 표시합니다. 개별 대원 관리는 소속대를 선택한 후 진행하세요."}
+          </div>
+        </section>
+      )}
+
       {errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
       <section style={summaryCardGridStyle} aria-label="대원 진급 준비 요약">
         <SummaryFilterCard
-          label="전체 대원"
+          label="활동 대원"
           count={summaryCounts.all}
-          description="활동 중인 전체 대원"
+          description="현재 활동 중인 대원"
           tone="neutral"
           selected={readinessFilter === "all"}
           onClick={() => {
@@ -1786,18 +2035,26 @@ export default function ScoutIntegratedPage() {
           }}
         />
         <SummaryFilterCard
-          label="판정 필요"
-          count={summaryCounts.review_needed}
-          description="급위 또는 최근 판정 확인"
+          label="오늘 확인"
+          count={summaryCounts.action_needed}
+          description="판정 또는 보완 조치 필요"
           tone="warning"
-          selected={readinessFilter === "review_needed"}
+          selected={readinessFilter === "action_needed"}
           onClick={() => {
             setStatusFilter("active");
-            setReadinessFilter("review_needed");
+            setReadinessFilter("action_needed");
           }}
         />
       </section>
 
+      {isSuperAdmin && !selectedOrganizationId ? (
+        <section style={emptyDetailStyle}>
+          <h2 style={panelTitleStyle}>소속대를 선택하세요</h2>
+          <p style={panelDescriptionStyle}>
+            전체 소속대 요약을 확인한 뒤, 상단에서 소속대를 선택하면 해당 대원의 통합관리 화면이 표시됩니다.
+          </p>
+        </section>
+      ) : (
       <div style={workspaceStyle}>
         <aside style={scoutPanelStyle}>
           <div style={panelHeaderStyle}>
@@ -1910,10 +2167,10 @@ export default function ScoutIntegratedPage() {
                 const readiness = scoutReadinessMap.get(scout.id) ?? null;
                 const readinessLabel =
                   readiness?.status === "ready"
-                    ? "진급 가능"
+                    ? "● 진급 가능"
                     : readiness?.status === "needs_attention"
-                      ? "조건 보완"
-                      : "판정 필요";
+                      ? "● 조건 보완"
+                      : "● 판정 필요";
 
                 return (
                   <button
@@ -1946,7 +2203,7 @@ export default function ScoutIntegratedPage() {
                     </div>
                     <div style={scoutItemMetaStyle}>
                       {readiness?.missingLabels.length
-                        ? `⚠ ${readiness.missingLabels.slice(0, 2).join(", ")}${readiness.missingLabels.length > 2 ? " 외" : ""}`
+                        ? `보완 ${readiness.missingLabels.length}건`
                         : readiness?.latestReview?.available_at
                           ? `예상 진급일 ${formatDate(readiness.latestReview.available_at)}`
                           : (scout.member_no ?? "대원번호 미등록")}
@@ -2021,7 +2278,9 @@ export default function ScoutIntegratedPage() {
                   </div>
                 )}
 
-                <div style={readinessProgressGridStyle}>
+                <div>
+                  <div style={{ margin: "10px 0 6px", fontSize: "13px", fontWeight: 800, color: "#475569" }}>진급조건 체크</div>
+                  <div style={{ ...readinessProgressGridStyle, gap: "6px" }}> 
                   <ReadinessProgressItem
                     label="활동기간"
                     passed={selectedReadiness?.periodPassed ?? false}
@@ -2083,9 +2342,16 @@ export default function ScoutIntegratedPage() {
                             : `${selectedReadiness.attendanceSummary.rate}%`
                     }
                   />
+                  </div>
                 </div>
 
-                <div style={profileInfoGridStyle}>
+                <div
+                  style={{
+                    ...profileInfoGridStyle,
+                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                    gap: "8px",
+                  }}
+                >
                   <InfoItem
                     label="학교/학년"
                     value={
@@ -2094,12 +2360,7 @@ export default function ScoutIntegratedPage() {
                         .join(" / ") || "-"
                     }
                   />
-                  <InfoItem
-                    label="입단일"
-                    value={formatDate(selectedScout.joined_at)}
-                  />
-                  <InfoItem label="현재급위" value={currentRankName} />
-                  <InfoItem label="다음 판정급위" value={targetRankName} />
+                  <InfoItem label="현재 → 다음" value={`${currentRankName} → ${targetRankName}`} />
                   <InfoItem
                     label="예상 진급일"
                     value={formatDate(latestReview?.available_at)}
@@ -2159,6 +2420,56 @@ export default function ScoutIntegratedPage() {
                   </div>
                 </section>
               )}
+
+              <section
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0, 1fr)",
+                  gap: "6px",
+                  padding: "10px 12px",
+                  marginBottom: "10px",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "12px",
+                  backgroundColor: "#ffffff",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                  <h3 style={{ margin: 0, fontSize: "15px", color: "#0f172a" }}>최근 활동 기록</h3>
+                  <span style={{ fontSize: "12px", color: "#64748b" }}>최근 {selectedRecentActivities.length}건</span>
+                </div>
+                {selectedRecentActivities.length === 0 ? (
+                  <div style={{ fontSize: "13px", color: "#64748b" }}>표시할 최근 활동 기록이 없습니다.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: "4px" }}>
+                    {selectedRecentActivities.map((activity) => (
+                      <button
+                        key={activity.key}
+                        type="button"
+                        onClick={() => setActiveTab(activity.tab)}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "88px 100px minmax(0, 1fr)",
+                          alignItems: "center",
+                          gap: "8px",
+                          width: "100%",
+                          padding: "6px 8px",
+                          border: "none",
+                          borderTop: "1px solid #f1f5f9",
+                          background: "transparent",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          color: "#334155",
+                          fontSize: "12px",
+                        }}
+                      >
+                        <span>{formatDate(activity.date)}</span>
+                        <strong>{activity.title}</strong>
+                        <span>{activity.detail}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
 
               <RankProgressOverview
                 scout={selectedScout}
@@ -2279,6 +2590,7 @@ export default function ScoutIntegratedPage() {
           )}
         </main>
       </div>
+      )}
 
       {excelImportOpen && data.profile && (
         <ScoutExcelImportDrawer

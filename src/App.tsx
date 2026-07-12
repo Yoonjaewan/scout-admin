@@ -2370,6 +2370,179 @@ function RecentMeetingList({ items }: { items: RecentMeetingItem[] }) {
   );
 }
 
+
+type FirstUseWizardStep = {
+  title: string;
+  description: string;
+  actionLabel: string;
+  actionPath: string;
+};
+
+const FIRST_USE_WIZARD_STEPS: FirstUseWizardStep[] = [
+  {
+    title: "소속대 정보 확인",
+    description: "대번호와 소속 대명을 확인하고, 필요하면 지역과 로고를 등록합니다.",
+    actionLabel: "환경설정 열기",
+    actionPath: "/settings",
+  },
+  {
+    title: "운영 기준 설정",
+    description: "범 진급 시 출석률을 판정 조건에 적용할지 소속대 운영 기준을 확인합니다.",
+    actionLabel: "운영 기준 확인",
+    actionPath: "/settings",
+  },
+  {
+    title: "대원 등록",
+    description: "대원을 직접 등록하거나 엑셀 양식으로 여러 대원을 한 번에 등록합니다.",
+    actionLabel: "대원 관리 열기",
+    actionPath: "/scouts",
+  },
+  {
+    title: "기존 기록 입력",
+    description: "현재급위와 인가일, 기능장, WSEP·MoP, 출석 기록을 확인합니다.",
+    actionLabel: "대원 통합관리 열기",
+    actionPath: "/scout-integrated",
+  },
+  {
+    title: "진급 상태 확인",
+    description: "대시보드와 대원 통합관리에서 진급 가능 여부와 보완 항목을 확인합니다.",
+    actionLabel: "대시보드 열기",
+    actionPath: "/dashboard",
+  },
+];
+
+function FirstUseWizard({
+  open,
+  organizationSetupComplete,
+  stepIndex,
+  onStepChange,
+  onMove,
+  onClose,
+  onComplete,
+}: {
+  open: boolean;
+  organizationSetupComplete: boolean;
+  stepIndex: number;
+  onStepChange: (stepIndex: number) => void;
+  onMove: (path: string) => void;
+  onClose: () => void;
+  onComplete: () => void;
+}) {
+  if (!open) return null;
+
+  const currentStep = FIRST_USE_WIZARD_STEPS[stepIndex];
+  const isLastStep = stepIndex === FIRST_USE_WIZARD_STEPS.length - 1;
+  const progress = Math.round(((stepIndex + 1) / FIRST_USE_WIZARD_STEPS.length) * 100);
+
+  return (
+    <div style={firstUseOverlayStyle} role="presentation">
+      <section
+        style={firstUsePanelStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="first-use-wizard-title"
+      >
+        <div style={firstUseHeaderStyle}>
+          <div>
+            <span style={firstUseEyebrowStyle}>처음 사용 안내</span>
+            <h2 id="first-use-wizard-title" style={firstUseTitleStyle}>
+              스카우트 진급관리 시작하기
+            </h2>
+            <p style={firstUseDescriptionStyle}>
+              아래 순서대로 확인하면 소속대 운영을 바로 시작할 수 있습니다.
+            </p>
+          </div>
+          <button type="button" style={firstUseCloseButtonStyle} onClick={onClose} aria-label="시작 안내 닫기">
+            ×
+          </button>
+        </div>
+
+        <div style={firstUseProgressHeaderStyle}>
+          <strong>{stepIndex + 1}/{FIRST_USE_WIZARD_STEPS.length}단계</strong>
+          <span>{progress}%</span>
+        </div>
+        <div style={firstUseProgressTrackStyle}>
+          <div style={{ ...firstUseProgressBarStyle, width: `${progress}%` }} />
+        </div>
+
+        <div style={firstUseStepListStyle}>
+          {FIRST_USE_WIZARD_STEPS.map((step, index) => {
+            const completed = index < stepIndex || (index === 0 && organizationSetupComplete);
+            const active = index === stepIndex;
+            return (
+              <button
+                key={step.title}
+                type="button"
+                style={{
+                  ...firstUseStepButtonStyle,
+                  ...(active ? firstUseStepButtonActiveStyle : {}),
+                }}
+                onClick={() => onStepChange(index)}
+              >
+                <span style={completed ? firstUseStepNumberCompleteStyle : firstUseStepNumberStyle}>
+                  {completed ? "✓" : index + 1}
+                </span>
+                <span>
+                  <strong style={firstUseStepTitleStyle}>{step.title}</strong>
+                  <small style={firstUseStepSummaryStyle}>{step.description}</small>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={firstUseCurrentCardStyle}>
+          <span style={firstUseCurrentLabelStyle}>현재 단계</span>
+          <strong style={firstUseCurrentTitleStyle}>{currentStep.title}</strong>
+          <p style={firstUseCurrentDescriptionStyle}>{currentStep.description}</p>
+          <button
+            type="button"
+            style={firstUsePrimaryButtonStyle}
+            onClick={() => onMove(currentStep.actionPath)}
+          >
+            {currentStep.actionLabel}
+          </button>
+        </div>
+
+        {!organizationSetupComplete && stepIndex > 1 ? (
+          <div style={firstUseWarningStyle}>
+            대번호와 소속 대명을 먼저 저장해야 다른 업무 화면을 사용할 수 있습니다.
+          </div>
+        ) : null}
+
+        <div style={firstUseFooterStyle}>
+          <button
+            type="button"
+            style={secondaryButtonStyle}
+            onClick={() => onStepChange(Math.max(stepIndex - 1, 0))}
+            disabled={stepIndex === 0}
+          >
+            이전
+          </button>
+          <div style={firstUseFooterRightStyle}>
+            <button type="button" style={secondaryButtonStyle} onClick={onClose}>
+              나중에 계속
+            </button>
+            {isLastStep ? (
+              <button type="button" style={firstUsePrimaryButtonStyle} onClick={onComplete}>
+                안내 완료
+              </button>
+            ) : (
+              <button
+                type="button"
+                style={firstUsePrimaryButtonStyle}
+                onClick={() => onStepChange(Math.min(stepIndex + 1, FIRST_USE_WIZARD_STEPS.length - 1))}
+              >
+                다음
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -2379,6 +2552,8 @@ function AppLayout() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loadingRole, setLoadingRole] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [firstUseGuideOpen, setFirstUseGuideOpen] = useState(false);
+  const [firstUseStepIndex, setFirstUseStepIndex] = useState(0);
 
   const organizationSetupComplete = useMemo(() => {
     return isOrganizationSetupComplete(role, organizationInfo);
@@ -2455,6 +2630,29 @@ function AppLayout() {
   }, [navigate]);
 
   useEffect(() => {
+    if (loadingRole || !role || !currentUserId) return;
+    if (role !== "org_admin") return;
+
+    const storageKey = `scout-first-use-guide-complete:${currentUserId}`;
+    const completed = window.localStorage.getItem(storageKey) === "true";
+
+    if (!completed) {
+      setFirstUseStepIndex(organizationSetupComplete ? 1 : 0);
+      setFirstUseGuideOpen(true);
+    }
+  }, [currentUserId, loadingRole, organizationSetupComplete, role]);
+
+  useEffect(() => {
+    const openGuide = () => {
+      setFirstUseStepIndex(organizationSetupComplete ? 1 : 0);
+      setFirstUseGuideOpen(true);
+    };
+
+    window.addEventListener("open-first-use-guide", openGuide);
+    return () => window.removeEventListener("open-first-use-guide", openGuide);
+  }, [organizationSetupComplete]);
+
+  useEffect(() => {
     const handleOrganizationInfoUpdated = async () => {
       if (!currentUserId) return;
 
@@ -2492,6 +2690,19 @@ function AppLayout() {
 
     navigate("/settings", { replace: true });
   }, [loadingRole, location.pathname, navigate, organizationSetupComplete, role]);
+
+  const handleFirstUseMove = (path: string) => {
+    setFirstUseGuideOpen(false);
+    navigate(path);
+  };
+
+  const handleFirstUseComplete = () => {
+    if (currentUserId) {
+      window.localStorage.setItem(`scout-first-use-guide-complete:${currentUserId}`, "true");
+    }
+    setFirstUseGuideOpen(false);
+    navigate(organizationSetupComplete ? "/dashboard" : "/settings");
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -2614,6 +2825,16 @@ function AppLayout() {
         `}
       </style>
 
+      <FirstUseWizard
+        open={firstUseGuideOpen}
+        organizationSetupComplete={organizationSetupComplete}
+        stepIndex={firstUseStepIndex}
+        onStepChange={setFirstUseStepIndex}
+        onMove={handleFirstUseMove}
+        onClose={() => setFirstUseGuideOpen(false)}
+        onComplete={handleFirstUseComplete}
+      />
+
       <aside className="app-fixed-sidebar" data-app-sidebar="true" style={sidebarStyle}>
         <div style={logoAreaStyle}>
           <div style={sidebarLogoBoxStyle}>
@@ -2679,6 +2900,19 @@ function AppLayout() {
             );
           })}
         </nav>
+
+        {role === "org_admin" ? (
+          <button
+            type="button"
+            style={firstUseSidebarButtonStyle}
+            onClick={() => {
+              setFirstUseStepIndex(organizationSetupComplete ? 1 : 0);
+              setFirstUseGuideOpen(true);
+            }}
+          >
+            시작 안내 다시 보기
+          </button>
+        ) : null}
 
       </aside>
 
@@ -2856,6 +3090,233 @@ function App() {
     </Routes>
   );
 }
+
+
+const firstUseOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 2147483647,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "24px",
+  boxSizing: "border-box",
+  backgroundColor: "rgba(15, 23, 42, 0.66)",
+};
+
+const firstUsePanelStyle: CSSProperties = {
+  width: "min(920px, 100%)",
+  maxHeight: "calc(100vh - 48px)",
+  overflowY: "auto",
+  borderRadius: "20px",
+  border: "1px solid #dbeafe",
+  backgroundColor: "#ffffff",
+  boxShadow: "0 28px 80px rgba(15, 23, 42, 0.28)",
+  padding: "26px",
+  boxSizing: "border-box",
+};
+
+const firstUseHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "18px",
+};
+
+const firstUseEyebrowStyle: CSSProperties = {
+  color: "#2563eb",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const firstUseTitleStyle: CSSProperties = {
+  margin: "5px 0 0",
+  color: "#0f172a",
+  fontSize: "26px",
+  fontWeight: 900,
+};
+
+const firstUseDescriptionStyle: CSSProperties = {
+  margin: "8px 0 0",
+  color: "#64748b",
+  fontSize: "14px",
+  lineHeight: 1.6,
+};
+
+const firstUseCloseButtonStyle: CSSProperties = {
+  width: "36px",
+  height: "36px",
+  borderRadius: "10px",
+  border: "1px solid #cbd5e1",
+  backgroundColor: "#ffffff",
+  color: "#475569",
+  fontSize: "24px",
+  cursor: "pointer",
+};
+
+const firstUseProgressHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  marginTop: "22px",
+  color: "#334155",
+  fontSize: "13px",
+};
+
+const firstUseProgressTrackStyle: CSSProperties = {
+  height: "8px",
+  marginTop: "8px",
+  borderRadius: "999px",
+  backgroundColor: "#e2e8f0",
+  overflow: "hidden",
+};
+
+const firstUseProgressBarStyle: CSSProperties = {
+  height: "100%",
+  borderRadius: "999px",
+  backgroundColor: "#2563eb",
+  transition: "width 180ms ease",
+};
+
+const firstUseStepListStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+  gap: "10px",
+  marginTop: "20px",
+};
+
+const firstUseStepButtonStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "34px minmax(0, 1fr)",
+  gap: "10px",
+  alignItems: "flex-start",
+  padding: "12px",
+  borderRadius: "12px",
+  border: "1px solid #e2e8f0",
+  backgroundColor: "#ffffff",
+  textAlign: "left",
+  cursor: "pointer",
+  fontFamily: "inherit",
+};
+
+const firstUseStepButtonActiveStyle: CSSProperties = {
+  borderColor: "#60a5fa",
+  backgroundColor: "#eff6ff",
+  boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.08)",
+};
+
+const firstUseStepNumberStyle: CSSProperties = {
+  width: "30px",
+  height: "30px",
+  borderRadius: "999px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: "#e2e8f0",
+  color: "#475569",
+  fontWeight: 900,
+};
+
+const firstUseStepNumberCompleteStyle: CSSProperties = {
+  ...firstUseStepNumberStyle,
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+};
+
+const firstUseStepTitleStyle: CSSProperties = {
+  display: "block",
+  color: "#0f172a",
+  fontSize: "14px",
+  fontWeight: 900,
+};
+
+const firstUseStepSummaryStyle: CSSProperties = {
+  display: "block",
+  marginTop: "4px",
+  color: "#64748b",
+  fontSize: "12px",
+  lineHeight: 1.45,
+};
+
+const firstUseCurrentCardStyle: CSSProperties = {
+  marginTop: "18px",
+  padding: "18px",
+  borderRadius: "14px",
+  border: "1px solid #bfdbfe",
+  backgroundColor: "#f8fbff",
+};
+
+const firstUseCurrentLabelStyle: CSSProperties = {
+  display: "block",
+  color: "#2563eb",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const firstUseCurrentTitleStyle: CSSProperties = {
+  display: "block",
+  marginTop: "5px",
+  color: "#0f172a",
+  fontSize: "19px",
+  fontWeight: 900,
+};
+
+const firstUseCurrentDescriptionStyle: CSSProperties = {
+  margin: "7px 0 14px",
+  color: "#475569",
+  fontSize: "14px",
+  lineHeight: 1.6,
+};
+
+const firstUsePrimaryButtonStyle: CSSProperties = {
+  minHeight: "40px",
+  padding: "0 16px",
+  borderRadius: "10px",
+  border: "none",
+  backgroundColor: "#2563eb",
+  color: "#ffffff",
+  fontSize: "14px",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const firstUseWarningStyle: CSSProperties = {
+  marginTop: "12px",
+  padding: "11px 13px",
+  borderRadius: "10px",
+  border: "1px solid #fde68a",
+  backgroundColor: "#fffbeb",
+  color: "#92400e",
+  fontSize: "13px",
+  fontWeight: 700,
+};
+
+const firstUseFooterStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "12px",
+  marginTop: "20px",
+};
+
+const firstUseFooterRightStyle: CSSProperties = {
+  display: "flex",
+  gap: "10px",
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+};
+
+const firstUseSidebarButtonStyle: CSSProperties = {
+  width: "100%",
+  minHeight: "38px",
+  marginTop: "auto",
+  padding: "0 12px",
+  borderRadius: "9px",
+  border: "1px solid rgba(147, 197, 253, 0.42)",
+  backgroundColor: "rgba(37, 99, 235, 0.16)",
+  color: "#bfdbfe",
+  fontSize: "12px",
+  fontWeight: 800,
+  cursor: "pointer",
+};
 
 const loadingPageStyle: CSSProperties = {
   minHeight: "100vh",

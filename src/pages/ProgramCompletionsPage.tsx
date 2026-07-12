@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
+import { EmptyState, FeedbackToast, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -1252,7 +1253,7 @@ export default function ProgramCompletionsPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>프로그램 이수 관리</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>프로그램 이수 관리</h1><PageHelpButton title="프로그램 이수 관리" description="WSEP·MoP 이수와 승인 상태를 관리합니다." sections={[{ title: "사용 순서", content: "범 진급 대상과 미이수·승인 필요 대원을 우선 확인합니다." },{ title: "주의사항", content: "이수일, 수료증 번호, 승인일을 실제 증빙과 일치하게 입력합니다." }]} /></div>
           <p style={pageDescriptionStyle}>
             대원의 현재 급위와 다음 급위를 기준으로 WSEP·MoP 이수 여부와 범 진급 영향을 관리합니다.
           </p>
@@ -1373,14 +1374,14 @@ export default function ProgramCompletionsPage() {
           범 진급 대상은 WSEP 또는 MoP 중 1개 이상의 이수·승인 기록이 필요합니다. 프로그램 부족 대원을 먼저 확인하고, 승인일과 수료증번호까지 점검하세요.
         </div>
 
-        {actionMessage && <div style={infoBoxStyle}>{actionMessage}</div>}
+        <FeedbackToast message={actionMessage} tone="success" onClose={() => setActionMessage("")} />
 
         {loading && <div style={emptyStateStyle}>프로그램 이수 현황을 불러오는 중입니다...</div>}
 
         {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
         {!loading && !errorMessage && filteredScouts.length === 0 && (
-          <div style={emptyStateStyle}>조회되는 대원이 없습니다.</div>
+          <EmptyState title="조회되는 대원이 없습니다" description="검색 조건을 초기화하거나 먼저 대원을 등록하세요." />
         )}
 
         {!loading && !errorMessage && filteredScouts.length > 0 && (
@@ -2282,14 +2283,6 @@ const errorBoxStyle: CSSProperties = {
   marginBottom: "16px",
 };
 
-const infoBoxStyle: CSSProperties = {
-  padding: "14px 16px",
-  borderRadius: "10px",
-  backgroundColor: "#eff6ff",
-  color: "#1d4ed8",
-  fontWeight: 700,
-  marginBottom: "16px",
-};
 
 const warningBoxStyle: CSSProperties = {
   padding: "14px 16px",

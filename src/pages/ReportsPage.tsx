@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, CSSProperties, KeyboardEvent } from "react";
+import { EmptyState, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -1952,7 +1953,7 @@ export default function ReportsPage() {
 
       <div style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>보고서 출력</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>보고서 출력</h1><PageHelpButton title="보고서 출력" description="진급·기능장 보고서와 신청서·인증서를 출력합니다." sections={[{ title: "사용 순서", content: "보고서 종류와 조회 조건을 선택한 뒤 출력 대상을 확인하고 인쇄합니다." },{ title: "주의사항", content: "별도 출력 이력은 저장되지 않으므로 동일 조건으로 재출력할 수 있습니다." }]} /></div>
           <p style={pageDescriptionStyle}>
             진급 인가 보고서, 기능장 인가 보고서, 대원별 진급 이력표, 범스카우트 진급 신청서, 진급 인증서를 확인하고 인쇄 또는 PDF로 저장합니다.
           </p>
@@ -2246,7 +2247,7 @@ export default function ReportsPage() {
               </div>
 
               {reportTargetPreviewRows.length === 0 ? (
-                <div style={targetPreviewEmptyStyle}>현재 조건에 맞는 출력 대상이 없습니다.</div>
+                <EmptyState title="출력 대상이 없습니다" description="조회 조건을 조정한 뒤 출력 대상을 다시 확인하세요." />
               ) : (
                 <div style={targetPreviewTableWrapStyle}>
                   <table style={targetPreviewTableStyle}>
@@ -2451,7 +2452,7 @@ export default function ReportsPage() {
       {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
       {!loading && !errorMessage && currentRowCount === 0 && (
-        <div style={emptyStateStyle}>현재 선택한 조건에 맞는 출력 대상이 없습니다.</div>
+        <EmptyState title="출력 대상이 없습니다" description="보고서 종류, 기간, 소속대 및 대상 조건을 다시 확인하세요." />
       )}
 
       {!loading && !errorMessage && currentRowCount > 0 && selectedPrintRowCount === 0 && (
@@ -3627,14 +3628,6 @@ const targetPreviewActionStyle: CSSProperties = {
   gap: "8px",
 };
 
-const targetPreviewEmptyStyle: CSSProperties = {
-  padding: "16px",
-  borderRadius: "10px",
-  backgroundColor: "#f8fafc",
-  color: "#64748b",
-  textAlign: "center",
-  fontSize: "14px",
-};
 
 const targetPreviewTableWrapStyle: CSSProperties = {
   maxHeight: "360px",

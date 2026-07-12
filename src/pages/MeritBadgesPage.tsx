@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
+import { EmptyState, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -1428,7 +1429,7 @@ export default function MeritBadgesPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>기능장 관리</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>기능장 관리</h1><PageHelpButton title="기능장 관리" description="대원별 기능장 취득·인가 기록을 관리합니다." sections={[{ title: "사용 순서", content: "대원을 선택한 뒤 기능장을 등록하고 지도자 확인과 인가일을 점검합니다." },{ title: "주의사항", content: "이미 진급 인가에 사용된 기록은 수정·삭제가 제한될 수 있습니다." }]} /></div>
           <p style={pageDescriptionStyle}>
             대원별 필수 기능장과 일반 기능장 취득 현황을 조회하고 등록·수정·삭제 처리합니다.
           </p>
@@ -1825,7 +1826,7 @@ export default function MeritBadgesPage() {
         {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
         {!loading && !errorMessage && filteredScoutBadges.length === 0 && (
-          <div style={emptyStateStyle}>조회되는 기능장 취득 기록이 없습니다.</div>
+          <EmptyState title="기능장 취득 기록이 없습니다" description="대원을 선택한 뒤 기능장 취득 기록을 등록하세요." />
         )}
 
         {!loading && !errorMessage && filteredScoutBadges.length > 0 && (

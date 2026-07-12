@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
+import { EmptyState, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -2245,7 +2246,7 @@ export default function AdvancementsPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>진급 관리</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>진급 관리</h1><PageHelpButton title="진급 관리" description="진급 판정과 진급 인가를 처리하는 핵심 업무 화면입니다." sections={[{ title: "사용 순서", content: "대원을 선택하고 조건을 확인한 뒤 판정, 보완, 인가 순으로 진행합니다." },{ title: "주의사항", content: "필수 기능장과 일반 기능장 조건은 모두 충족해야 합니다." }]} /></div>
           <p style={pageDescriptionStyle}>
             컵스카우트는 학년에 따른 자동 급위를 확인하고, 스카우트 이상은 진급 판정과 인가 기록을 관리합니다.
           </p>
@@ -2535,7 +2536,7 @@ export default function AdvancementsPage() {
         {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
         {!loading && !errorMessage && filteredScouts.length === 0 && (
-          <div style={emptyStateStyle}>현재 표시 기준에 해당하는 대원이 없습니다.</div>
+          <EmptyState title="현재 조건에 맞는 대원이 없습니다" description="조회 구분을 변경하거나 대원 정보를 먼저 확인하세요." />
         )}
 
         {!loading && !errorMessage && filteredScouts.length > 0 && (

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
+import { EmptyState, FeedbackToast, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -1300,7 +1301,7 @@ export default function MeetingsPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>집회/출석 관리</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>집회/출석 관리</h1><PageHelpButton title="집회/출석 관리" description="집회를 등록하고 활동 대원의 출석을 입력합니다." sections={[{ title: "사용 순서", content: "집회를 선택한 뒤 미입력 대원을 확인하고 개별 또는 일괄 저장합니다." },{ title: "주의사항", content: "출석 대상은 활동 상태 대원만 적용됩니다." }]} /></div>
           <p style={pageDescriptionStyle}>
             집회별 출석 입력 누락과 결석 현황을 우선 확인하고, 활동 대원의 출석 기록을 관리합니다.
           </p>
@@ -1414,7 +1415,7 @@ export default function MeetingsPage() {
         {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
         {!loading && !errorMessage && filteredMeetings.length === 0 && (
-          <div style={emptyStateStyle}>조회되는 집회/활동이 없습니다.</div>
+          <EmptyState title="등록된 집회가 없습니다" description="집회 또는 활동을 먼저 등록하면 출석 입력을 시작할 수 있습니다." />
         )}
 
         {!loading && !errorMessage && filteredMeetings.length > 0 && (
@@ -1594,9 +1595,7 @@ export default function MeetingsPage() {
             </p>
 
             {attendanceErrorMessage && <div style={errorBoxStyle}>{attendanceErrorMessage}</div>}
-            {attendanceSuccessMessage && (
-              <div style={successBoxStyle}>{attendanceSuccessMessage}</div>
-            )}
+            <FeedbackToast message={attendanceSuccessMessage} tone="success" onClose={() => setAttendanceSuccessMessage("")} />
 
             {canManageMeetings && (
               <div style={bulkPanelStyle}>
@@ -2257,15 +2256,6 @@ const errorBoxStyle: CSSProperties = {
   lineHeight: 1.5,
 };
 
-const successBoxStyle: CSSProperties = {
-  padding: "14px 16px",
-  borderRadius: "10px",
-  backgroundColor: "#ecfdf5",
-  color: "#047857",
-  fontWeight: 700,
-  marginBottom: "16px",
-  lineHeight: 1.5,
-};
 
 const tableWrapStyle: CSSProperties = {
   overflowX: "auto",

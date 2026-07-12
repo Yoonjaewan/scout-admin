@@ -3,6 +3,7 @@ import type { ChangeEvent, CSSProperties, FormEvent } from "react";
 import * as XLSX from "xlsx";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import { EmptyState, FeedbackToast, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -4049,7 +4050,7 @@ export default function ScoutsPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <h1 style={pageTitleStyle}>대원 관리</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>대원 관리</h1><PageHelpButton title="대원 관리" description="대원 등록·기본정보 수정·상태 변경을 처리하는 화면입니다." sections={[{ title: "사용 순서", content: "대원을 등록하거나 엑셀로 일괄 입력한 뒤 기본정보와 활동 상태를 관리합니다." },{ title: "주의사항", content: "진급·기능장·프로그램·출석의 종합 확인은 대원 통합관리를 사용합니다." }]} /></div>
           <p style={pageDescriptionStyle}>
             소속대의 대원 정보를 등록하고 관리합니다.
           </p>
@@ -4210,7 +4211,7 @@ export default function ScoutsPage() {
             )}
 
             {excelErrorMessage && <div style={errorBoxStyle}>{excelErrorMessage}</div>}
-            {excelSuccessMessage && <div style={successBoxStyle}>{excelSuccessMessage}</div>}
+            <FeedbackToast message={excelSuccessMessage} tone="success" onClose={() => setExcelSuccessMessage("")} />
 
             {excelPreviewRows.length > 0 && (
               <div style={excelPreviewWrapStyle}>
@@ -4983,9 +4984,7 @@ export default function ScoutsPage() {
                   <div style={errorBoxStyle}>{integratedErrorMessage}</div>
                 )}
 
-                {integratedSuccessMessage && (
-                  <div style={successBoxStyle}>{integratedSuccessMessage}</div>
-                )}
+                <FeedbackToast message={integratedSuccessMessage} tone="success" onClose={() => setIntegratedSuccessMessage("")} />
 
                 {integratedSection === "profile" && (
                   <div style={integratedSectionStyle}>
@@ -5180,7 +5179,7 @@ export default function ScoutsPage() {
                     </div>
 
                     {integratedScoutRankHistories.length === 0 ? (
-                      <div style={emptyStateStyle}>등록된 진급 이력이 없습니다.</div>
+                      <EmptyState title="진급 이력이 없습니다" description="현재급위와 급위별 인가일을 확인하세요." />
                     ) : (
                       <div style={compactTableWrapStyle}>
                         <table style={tableStyle}>
@@ -5514,7 +5513,7 @@ export default function ScoutsPage() {
                     </div>
 
                     {integratedScoutBadges.length === 0 ? (
-                      <div style={emptyStateStyle}>등록된 기능장 취득기록이 없습니다.</div>
+                      <EmptyState title="기능장 기록이 없습니다" description="기능장 탭에서 취득 기록을 등록하세요." />
                     ) : (
                       <div style={compactTableWrapStyle}>
                         <table style={tableStyle}>
@@ -5644,7 +5643,7 @@ export default function ScoutsPage() {
                     </div>
 
                     {integratedScoutPrograms.length === 0 ? (
-                      <div style={emptyStateStyle}>등록된 프로그램 이수기록이 없습니다.</div>
+                      <EmptyState title="프로그램 이수 기록이 없습니다" description="WSEP 또는 MoP 이수 기록을 등록하세요." />
                     ) : (
                       <div style={compactTableWrapStyle}>
                         <table style={tableStyle}>
@@ -5723,7 +5722,7 @@ export default function ScoutsPage() {
                     </div>
 
                     {!integratedAttendanceStats || integratedAttendanceStats.recentItems.length === 0 ? (
-                      <div style={emptyStateStyle}>출석 대상 집회가 없습니다.</div>
+                      <EmptyState title="출석 대상 집회가 없습니다" description="집회/출석 관리에서 출석 대상 집회를 먼저 등록하세요." />
                     ) : (
                       <div style={compactTableWrapStyle}>
                         <table style={tableStyle}>
@@ -5831,9 +5830,7 @@ export default function ScoutsPage() {
                         {integratedReviewErrorMessage && (
                           <div style={errorBoxStyle}>{integratedReviewErrorMessage}</div>
                         )}
-                        {integratedReviewSuccessMessage && (
-                          <div style={successBoxStyle}>{integratedReviewSuccessMessage}</div>
-                        )}
+                        <FeedbackToast message={integratedReviewSuccessMessage} tone="success" onClose={() => setIntegratedReviewSuccessMessage("")} />
 
                         <div style={subsectionHeaderStyle}>
                           <h4 style={subsectionTitleStyle}>최근 진급 판정 결과</h4>
@@ -6031,7 +6028,7 @@ export default function ScoutsPage() {
         )}
 
         {!loading && !errorMessage && filteredScouts.length === 0 && (
-          <div style={emptyStateStyle}>조회되는 대원이 없습니다.</div>
+          <EmptyState title="조회되는 대원이 없습니다" description="검색 조건을 초기화하거나 먼저 대원을 등록하세요." />
         )}
 
         {!loading && !errorMessage && filteredScouts.length > 0 && (
@@ -6398,14 +6395,6 @@ const excelSummaryStyle: CSSProperties = {
   fontWeight: 800,
 };
 
-const successBoxStyle: CSSProperties = {
-  padding: "16px",
-  borderRadius: "10px",
-  backgroundColor: "#ecfdf5",
-  color: "#047857",
-  fontWeight: 700,
-  marginBottom: "16px",
-};
 
 const errorBadgeStyle: CSSProperties = {
   display: "inline-block",
