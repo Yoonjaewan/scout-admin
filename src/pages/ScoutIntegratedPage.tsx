@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import {
   InfoItem,
@@ -608,6 +609,8 @@ function getScoutReadinessSummary(
 }
 
 export default function ScoutIntegratedPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedScoutId = searchParams.get("scoutId") ?? "";
   const [data, setData] = useState<IntegratedData>(EMPTY_DATA);
   const [selectedScoutId, setSelectedScoutId] = useState("");
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
@@ -894,6 +897,31 @@ export default function ScoutIntegratedPage() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (!requestedScoutId || data.scouts.length === 0) return;
+
+    const requestedScout = data.scouts.find(
+      (scout) => scout.id === requestedScoutId,
+    );
+
+    if (!requestedScout) return;
+
+    setSelectedScoutId(requestedScout.id);
+    setStatusFilter(requestedScout.status);
+    setReadinessFilter("all");
+    setRankFilter("");
+    setKeyword("");
+    setActiveTab("overview");
+
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          `[data-scout-id="${CSS.escape(requestedScout.id)}"]`,
+        )
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }, [data.scouts, requestedScoutId]);
+
   const rankMap = useMemo(
     () => new Map(data.ranks.map((rank) => [rank.id, rank])),
     [data.ranks],
@@ -1102,6 +1130,11 @@ export default function ScoutIntegratedPage() {
 
   const handleSelectScout = (scoutId: string) => {
     setSelectedScoutId(scoutId);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("scoutId", scoutId);
+      return next;
+    }, { replace: true });
     setBadgeFormMode(null);
     setBadgeForm(getEmptyBadgeForm());
     setBadgeFormError("");
@@ -1885,6 +1918,7 @@ export default function ScoutIntegratedPage() {
                 return (
                   <button
                     key={scout.id}
+                    data-scout-id={scout.id}
                     type="button"
                     style={{
                       ...scoutItemStyle,

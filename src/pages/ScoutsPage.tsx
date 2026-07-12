@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, CSSProperties, FormEvent } from "react";
 import * as XLSX from "xlsx";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -755,6 +756,7 @@ function normalizeLookupText(value: unknown) {
 }
 
 export default function ScoutsPage() {
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [scouts, setScouts] = useState<Scout[]>([]);
   const [ranks, setRanks] = useState<Rank[]>([]);
@@ -2734,6 +2736,11 @@ export default function ScoutsPage() {
     if (currentRankUpdateError) {
       throw new Error(`현재급위 반영에 실패했습니다. ${currentRankUpdateError.message}`);
     }
+  };
+
+  const handleGoToIntegratedManagement = (scout: Scout) => {
+    const searchParams = new URLSearchParams({ scoutId: scout.id });
+    navigate(`/scout-integrated?${searchParams.toString()}`);
   };
 
   const handleOpenIntegratedManagement = (scout: Scout) => {
@@ -4917,7 +4924,7 @@ export default function ScoutsPage() {
           document.body,
         )}
 
-        {integratedScout &&
+        {false && integratedScout &&
           typeof document !== "undefined" &&
           createPortal(
             <div
@@ -6153,7 +6160,7 @@ export default function ScoutsPage() {
                         <button
                           type="button"
                           style={primarySmallButtonStyle}
-                          onClick={() => handleOpenIntegratedManagement(scout)}
+                          onClick={() => handleGoToIntegratedManagement(scout)}
                         >
                           {canManageScouts ? "통합관리" : "상세조회"}
                         </button>
