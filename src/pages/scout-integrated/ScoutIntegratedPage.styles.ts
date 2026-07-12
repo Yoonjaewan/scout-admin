@@ -1236,8 +1236,9 @@ export const allPassedBoxStyle: CSSProperties = {
 
 export const overviewMainGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(0, 7fr) minmax(260px, 3fr)",
+  gridTemplateColumns: "minmax(0, 3fr) minmax(320px, 2fr)",
   gap: "14px",
+  alignItems: "stretch",
 };
 
 export const twoColumnGridStyle: CSSProperties = {
@@ -2186,4 +2187,190 @@ export const generalRequirementTitleStyle: CSSProperties = {
   color: "#334155",
   fontSize: "13px",
   fontWeight: 900,
+};
+
+
+export const overviewConditionGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "9px",
+};
+
+export function overviewConditionItemStyle(
+  passed: boolean | null,
+): CSSProperties {
+  return {
+    minWidth: 0,
+    minHeight: "86px",
+    padding: "11px 12px",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignContent: "start",
+    gap: "6px 8px",
+    border:
+      passed === null
+        ? "1px solid #cbd5e1"
+        : passed
+          ? "1px solid #bbf7d0"
+          : "1px solid #fecaca",
+    borderRadius: "11px",
+    backgroundColor:
+      passed === null ? "#f8fafc" : passed ? "#f8fff9" : "#fff8f8",
+    color: "#0f172a",
+    fontFamily: "inherit",
+    textAlign: "left",
+    cursor: "pointer",
+    boxSizing: "border-box",
+  };
+}
+
+export const overviewConditionLabelStyle: CSSProperties = {
+  minWidth: 0,
+  color: "#0f172a",
+  fontSize: "14px",
+  fontWeight: 900,
+};
+
+export function overviewConditionStatusStyle(
+  passed: boolean | null,
+): CSSProperties {
+  return {
+    minHeight: "23px",
+    padding: "0 8px",
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: "999px",
+    backgroundColor:
+      passed === null ? "#e2e8f0" : passed ? "#dcfce7" : "#fee2e2",
+    color:
+      passed === null ? "#475569" : passed ? "#166534" : "#b91c1c",
+    fontSize: "11px",
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  };
+}
+
+export const overviewConditionDetailStyle: CSSProperties = {
+  gridColumn: "1 / -1",
+  color: "#64748b",
+  fontSize: "11px",
+  lineHeight: 1.45,
+  wordBreak: "keep-all",
+};
+
+export function overviewActionButtonStyle(
+  state: "ready" | "attention" | "pending",
+): CSSProperties {
+  const palette = {
+    ready: {
+      border: "#16a34a",
+      backgroundColor: "#16a34a",
+      color: "#ffffff",
+    },
+    attention: {
+      border: "#dc2626",
+      backgroundColor: "#fff7f7",
+      color: "#b91c1c",
+    },
+    pending: {
+      border: "#2563eb",
+      backgroundColor: "#2563eb",
+      color: "#ffffff",
+    },
+  }[state];
+
+  return {
+    minHeight: "36px",
+    padding: "0 12px",
+    border: `1px solid ${palette.border}`,
+    borderRadius: "8px",
+    backgroundColor: palette.backgroundColor,
+    color: palette.color,
+    fontFamily: "inherit",
+    fontSize: "12px",
+    fontWeight: 900,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
+}
+
+export const overviewRecordCheckSectionStyle: CSSProperties = {
+  marginTop: "12px",
+  paddingTop: "12px",
+  borderTop: "1px solid #e2e8f0",
+};
+
+export const overviewRecordCheckHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "12px",
+  marginBottom: "8px",
+  color: "#0f172a",
+  fontSize: "13px",
+};
+
+export const recentTimelineStyle: CSSProperties = {
+  display: "grid",
+  gap: "12px",
+};
+
+export const recentTimelineGroupStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "86px minmax(0, 1fr)",
+  gap: "10px",
+  alignItems: "start",
+};
+
+export const recentTimelineDateStyle: CSSProperties = {
+  paddingTop: "7px",
+  color: "#64748b",
+  fontSize: "11px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+export const recentTimelineItemStyle: CSSProperties = {
+  position: "relative",
+  width: "100%",
+  minWidth: 0,
+  padding: "7px 0 9px 17px",
+  display: "grid",
+  gridTemplateColumns: "10px minmax(0, 1fr)",
+  gap: "8px",
+  border: "none",
+  borderBottom: "1px solid #f1f5f9",
+  backgroundColor: "transparent",
+  color: "#334155",
+  fontFamily: "inherit",
+  textAlign: "left",
+  cursor: "pointer",
+};
+
+export const recentTimelineDotStyle: CSSProperties = {
+  width: "8px",
+  height: "8px",
+  marginTop: "5px",
+  borderRadius: "999px",
+  backgroundColor: "#2563eb",
+  boxShadow: "0 0 0 3px #dbeafe",
+};
+
+export const recentTimelineContentStyle: CSSProperties = {
+  minWidth: 0,
+  display: "grid",
+  gap: "3px",
+};
+
+export const recentTimelineTitleStyle: CSSProperties = {
+  color: "#0f172a",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+export const recentTimelineDetailStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: "12px",
+  lineHeight: 1.4,
+  wordBreak: "keep-all",
 };

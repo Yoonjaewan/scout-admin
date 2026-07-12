@@ -1166,71 +1166,6 @@ export default function ScoutIntegratedPage() {
     );
   }, [data.attendance, selectedScout]);
 
-  const selectedRecentActivities = useMemo(() => {
-    if (!selectedScout) return [];
-
-    const items: Array<{
-      key: string;
-      date: string;
-      title: string;
-      detail: string;
-      tab: DetailTab;
-    }> = [];
-
-    selectedReviews.forEach((review) => {
-      items.push({
-        key: `review-${review.id}`,
-        date: review.review_date,
-        title: "진급 판정",
-        detail: review.final_passed ? "진급 가능" : "조건 보완",
-        tab: "advancement",
-      });
-    });
-
-    selectedRankHistories.forEach((history) => {
-      items.push({
-        key: `rank-${history.id}`,
-        date: history.approved_at,
-        title: "진급 인가",
-        detail: rankMap.get(history.rank_id)?.rank_name ?? "급위 확인",
-        tab: "advancement",
-      });
-    });
-
-    selectedScoutBadges.forEach((badgeRecord) => {
-      items.push({
-        key: `badge-${badgeRecord.id}`,
-        date: badgeRecord.approved_at ?? badgeRecord.acquired_at,
-        title: "기능장 기록",
-        detail: badgeMap.get(badgeRecord.badge_id)?.name ?? "기능장 확인",
-        tab: "badges",
-      });
-    });
-
-    selectedPrograms.forEach((program) => {
-      items.push({
-        key: `program-${program.id}`,
-        date: program.approved_at ?? program.completed_at,
-        title: "프로그램 이수",
-        detail: program.program_type,
-        tab: "programs",
-      });
-    });
-
-    return items
-      .filter((item) => Boolean(item.date))
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .slice(0, 5);
-  }, [
-    badgeMap,
-    rankMap,
-    selectedPrograms,
-    selectedRankHistories,
-    selectedReviews,
-    selectedScout,
-    selectedScoutBadges,
-  ]);
-
   const attendanceSummary = useMemo(
     () => getAttendanceSummary(selectedAttendance),
     [selectedAttendance],
@@ -2421,56 +2356,6 @@ export default function ScoutIntegratedPage() {
                 </section>
               )}
 
-              <section
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "minmax(0, 1fr)",
-                  gap: "6px",
-                  padding: "10px 12px",
-                  marginBottom: "10px",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "12px",
-                  backgroundColor: "#ffffff",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-                  <h3 style={{ margin: 0, fontSize: "15px", color: "#0f172a" }}>최근 활동 기록</h3>
-                  <span style={{ fontSize: "12px", color: "#64748b" }}>최근 {selectedRecentActivities.length}건</span>
-                </div>
-                {selectedRecentActivities.length === 0 ? (
-                  <div style={{ fontSize: "13px", color: "#64748b" }}>표시할 최근 활동 기록이 없습니다.</div>
-                ) : (
-                  <div style={{ display: "grid", gap: "4px" }}>
-                    {selectedRecentActivities.map((activity) => (
-                      <button
-                        key={activity.key}
-                        type="button"
-                        onClick={() => setActiveTab(activity.tab)}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "88px 100px minmax(0, 1fr)",
-                          alignItems: "center",
-                          gap: "8px",
-                          width: "100%",
-                          padding: "6px 8px",
-                          border: "none",
-                          borderTop: "1px solid #f1f5f9",
-                          background: "transparent",
-                          textAlign: "left",
-                          cursor: "pointer",
-                          color: "#334155",
-                          fontSize: "12px",
-                        }}
-                      >
-                        <span>{formatDate(activity.date)}</span>
-                        <strong>{activity.title}</strong>
-                        <span>{activity.detail}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-
               <RankProgressOverview
                 scout={selectedScout}
                 ranks={data.ranks}
@@ -2478,22 +2363,45 @@ export default function ScoutIntegratedPage() {
                 targetRank={selectedReadiness?.targetRank ?? null}
               />
 
-              <nav style={tabBarStyle} aria-label="대원 통합관리 상세 탭">
-                {TAB_OPTIONS.map((tab) => (
-                  <button
-                    key={tab.value}
-                    type="button"
-                    style={{
-                      ...tabButtonStyle,
-                      ...(activeTab === tab.value ? activeTabButtonStyle : {}),
-                    }}
-                    onClick={() => setActiveTab(tab.value)}
-                    aria-pressed={activeTab === tab.value}
+              <section
+                style={{
+                  margin: "12px 0 10px",
+                  padding: "12px 14px 10px",
+                  border: "1px solid #dbe3ee",
+                  borderRadius: "12px",
+                  backgroundColor: "#ffffff",
+                }}
+                aria-labelledby="scout-management-tabs-title"
+              >
+                <div style={{ marginBottom: "8px" }}>
+                  <h3
+                    id="scout-management-tabs-title"
+                    style={{ margin: 0, color: "#0f172a", fontSize: "16px", fontWeight: 900 }}
                   >
-                    {tab.label}
-                  </button>
-                ))}
-              </nav>
+                    대원 관리 항목
+                  </h3>
+                  <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "12px", lineHeight: 1.45 }}>
+                    선택한 대원의 종합현황을 확인하거나 진급·기능장·프로그램·출석 기록을 관리합니다.
+                  </p>
+                </div>
+
+                <nav style={{ ...tabBarStyle, margin: 0 }} aria-label="대원 통합관리 상세 탭">
+                  {TAB_OPTIONS.map((tab) => (
+                    <button
+                      key={tab.value}
+                      type="button"
+                      style={{
+                        ...tabButtonStyle,
+                        ...(activeTab === tab.value ? activeTabButtonStyle : {}),
+                      }}
+                      onClick={() => setActiveTab(tab.value)}
+                      aria-pressed={activeTab === tab.value}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </nav>
+              </section>
 
               {activeTab === "overview" && (
                 <OverviewPanel

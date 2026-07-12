@@ -1,8 +1,6 @@
 import type { CSSProperties } from "react";
 import {
-  ConditionRow,
   DetailedConditionCard,
-  RecentRecordRow,
   RecordCheckRow,
   SupportItem
 } from "./ScoutIntegratedDisplayComponents";
@@ -21,7 +19,7 @@ import {
   dataDifferenceNoticeStyle,
   emptyContentStyle,
   errorBoxStyle,
-  inlineActionButtonStyle,
+  //inlineActionButtonStyle,
   overviewSectionHeaderStyle,
   overviewSectionTitleStyle,
   overviewStackStyle,
@@ -51,7 +49,23 @@ import {
   tdStyle,
   thStyle,
   //twoColumnGridStyle,
-  overviewMainGridStyle
+  overviewMainGridStyle,
+  overviewConditionGridStyle,
+  overviewConditionItemStyle,
+  overviewConditionLabelStyle,
+  overviewConditionDetailStyle,
+  overviewConditionStatusStyle,
+  overviewActionButtonStyle,
+  overviewRecordCheckSectionStyle,
+  overviewRecordCheckHeaderStyle,
+  recentTimelineStyle,
+  recentTimelineGroupStyle,
+  recentTimelineDateStyle,
+  recentTimelineItemStyle,
+  recentTimelineDotStyle,
+  recentTimelineContentStyle,
+  recentTimelineTitleStyle,
+  recentTimelineDetailStyle
 } from "./ScoutIntegratedPage.styles";
 
 
@@ -565,40 +579,201 @@ export function OverviewPanel({
     });
   }
 
+  const currentRequiredPassed =
+    stageSummary.stage !== null &&
+    stageSummary.missingRequiredNames.length === 0;
+  const currentGeneralPassed =
+    stageSummary.stage !== null && stageSummary.generalMissing === 0;
+  const currentProgramPassed =
+    !isBeomTarget || programs.some((program) => Boolean(program.approved_at));
+  const currentAttendancePassed =
+    !isBeomTarget ||
+    !attendanceRequiredForBeom ||
+    (attendanceRate !== null && attendanceRate >= 80);
+  const currentPeriodPassed = latestReview?.period_passed ?? null;
+  const overallReady =
+    Boolean(latestReview) &&
+    Boolean(currentPeriodPassed) &&
+    currentRequiredPassed &&
+    currentGeneralPassed &&
+    currentProgramPassed &&
+    currentAttendancePassed;
+  const actionState: "ready" | "attention" | "pending" =
+    !latestReview ? "pending" : overallReady ? "ready" : "attention";
+
+  const conditionItems: Array<{
+    key: string;
+    label: string;
+    passed: boolean | null;
+    detail: string;
+    action: () => void;
+  }> = [
+    {
+      key: "period",
+      label: "활동기간",
+      passed: currentPeriodPassed,
+      detail: latestReview
+        ? `필요 ${latestReview.required_months}개월 · ${
+            latestReview.period_passed
+              ? "충족"
+              : `예상일 ${formatDate(latestReview.available_at)}`
+          }`
+        : "진급 판정을 실행하면 기간 기준을 확인할 수 있습니다.",
+      action: onMoveToAdvancement,
+    },
+    {
+      key: "required-badges",
+      label: "필수 기능장",
+      passed: stageSummary.stage === null ? null : currentRequiredPassed,
+      detail:
+        stageSummary.stage === null
+          ? "현재 급위의 기준을 확인하지 못했습니다."
+          : `${stageSummary.requiredOwned}/${stageSummary.requiredTotal}개${
+              stageSummary.missingRequiredNames.length > 0
+                ? ` · 미취득 ${stageSummary.missingRequiredNames.join(", ")}`
+                : " · 필수 항목 완료"
+            }`,
+      action: onMoveToBadges,
+    },
+    {
+      key: "general-badges",
+      label: "일반 기능장",
+      passed: stageSummary.stage === null ? null : currentGeneralPassed,
+      detail:
+        stageSummary.stage === null
+          ? "현재 급위의 기준을 확인하지 못했습니다."
+          : `필요 ${stageSummary.generalRequired}개 · 보유 ${stageSummary.generalOwned}개${
+              stageSummary.generalMissing > 0
+                ? ` · ${stageSummary.generalMissing}개 부족`
+                : ""
+            }`,
+      action: onMoveToBadges,
+    },
+    {
+      key: "program",
+      label: "프로그램",
+      passed: currentProgramPassed,
+      detail: isBeomTarget
+        ? `승인 완료 ${programs.filter((program) => Boolean(program.approved_at)).length}건`
+        : "현재 진급 단계에서는 해당 없음",
+      action: onMoveToPrograms,
+    },
+    {
+      key: "attendance",
+      label: "출석률",
+      passed:
+        isBeomTarget && attendanceRequiredForBeom
+          ? attendanceRate === null
+            ? null
+            : currentAttendancePassed
+          : true,
+      detail:
+        attendanceRate === null
+          ? "출석 기록 없음"
+          : `${attendanceRate}%${
+              isBeomTarget && attendanceRequiredForBeom
+                ? " · 범 진급 기준 80%"
+                : " · 참고 지표"
+            }`,
+      action: onMoveToAttendance,
+    },
+  ];
+
+  const recentActivityItems: Array<{
+    key: string;
+    date: string;
+    title: string;
+    detail: string;
+    action: () => void;
+  }> = [
+    ...(latestHistory
+      ? [{
+          key: `rank-${latestHistory.id}`,
+          date: latestHistory.approved_at,
+          title: "진급 인가",
+          detail: ranks.find((rank) => rank.id === latestHistory.rank_id)?.rank_name ?? "급위 확인",
+          action: onMoveToAdvancement,
+        }]
+      : []),
+    ...(latestReview
+      ? [{
+          key: `review-${latestReview.id}`,
+          date: latestReview.review_date,
+          title: "진급 판정",
+          detail: latestReview.final_passed ? "저장 판정 통과" : "저장 판정 보완 필요",
+          action: onMoveToAdvancement,
+        }]
+      : []),
+    ...(latestBadge
+      ? [{
+          key: `badge-${latestBadge.id}`,
+          date: latestBadge.approved_at ?? latestBadge.acquired_at,
+          title: "기능장 취득",
+          detail: badgeMap.get(latestBadge.badge_id)?.name ?? "기능장 확인",
+          action: onMoveToBadges,
+        }]
+      : []),
+    ...(latestProgram
+      ? [{
+          key: `program-${latestProgram.id}`,
+          date: latestProgram.approved_at ?? latestProgram.completed_at,
+          title: "프로그램 이수",
+          detail: latestProgram.program_type,
+          action: onMoveToPrograms,
+        }]
+      : []),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  const recentActivityGroups = recentActivityItems.reduce<
+    Array<{ date: string; items: typeof recentActivityItems }>
+  >((groups, item) => {
+    const date = formatDate(item.date);
+    const currentGroup = groups[groups.length - 1];
+    if (currentGroup?.date === date) {
+      currentGroup.items.push(item);
+    } else {
+      groups.push({ date, items: [item] });
+    }
+    return groups;
+  }, []);
+
+
   return (
     <div style={overviewStackStyle}>
-      {showPriority && <section style={priorityCardStyle}>
-        <div style={overviewSectionHeaderStyle}>
-          <div>
-            <h3 style={overviewSectionTitleStyle}>지금 확인할 사항</h3>
-            <p style={contentDescriptionStyle}>
-              대장이 우선 확인하고 조치해야 할 항목입니다.
-            </p>
+      {showPriority && (
+        <section style={priorityCardStyle}>
+          <div style={overviewSectionHeaderStyle}>
+            <div>
+              <h3 style={overviewSectionTitleStyle}>지금 확인할 사항</h3>
+              <p style={contentDescriptionStyle}>
+                대장이 우선 확인하고 조치해야 할 항목입니다.
+              </p>
+            </div>
+            <span style={priorityCountStyle}>{actionItems.length}건</span>
           </div>
-          <span style={priorityCountStyle}>{actionItems.length}건</span>
-        </div>
 
-        <div style={priorityListStyle}>
-          {actionItems.map((item, index) => (
-            <button
-              key={`${item.text}-${index}`}
-              type="button"
-              style={priorityItemStyle(item.type)}
-              onClick={item.action}
-            >
-              <span style={priorityNumberStyle}>{index + 1}</span>
-              <span>{item.text}</span>
-              <span style={priorityMoveStyle}>확인</span>
-            </button>
-          ))}
-        </div>
-      </section>}
+          <div style={priorityListStyle}>
+            {actionItems.map((item, index) => (
+              <button
+                key={`${item.text}-${index}`}
+                type="button"
+                style={priorityItemStyle(item.type)}
+                onClick={item.action}
+              >
+                <span style={priorityNumberStyle}>{index + 1}</span>
+                <span>{item.text}</span>
+                <span style={priorityMoveStyle}>확인</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div style={overviewMainGridStyle}>
         <section style={contentCardStyle}>
           <div style={overviewSectionHeaderStyle}>
             <div>
-              <h3 style={contentTitleStyle}>다음 진급 조건</h3>
+              <h3 style={contentTitleStyle}>다음 진급 준비 체크</h3>
               <p style={contentDescriptionStyle}>
                 {currentRank?.rank_name ?? "급위 미등록"} →{" "}
                 {targetRank?.rank_name ?? "다음 급위 확인 필요"}
@@ -606,63 +781,34 @@ export function OverviewPanel({
             </div>
             <button
               type="button"
-              style={inlineActionButtonStyle}
+              style={overviewActionButtonStyle(actionState)}
               onClick={onMoveToAdvancement}
             >
-              진급 업무
+              {!latestReview
+                ? "진급 판정하기"
+                : overallReady
+                  ? "진급 인가 확인"
+                  : "보완사항 확인"}
             </button>
           </div>
 
-          <ConditionRow
-            label="활동기간"
-            passed={latestReview?.period_passed ?? null}
-            detail={
-              latestReview
-                ? `필요 ${latestReview.required_months}개월 · 예상일 ${formatDate(
-                    latestReview.available_at,
-                  )}${
-                    latestReview.days_remaining &&
-                    latestReview.days_remaining > 0
-                      ? ` · ${latestReview.days_remaining}일 남음`
-                      : ""
-                  }`
-                : "판정 후 상세 기준을 확인할 수 있습니다."
-            }
-          />
-          <ConditionRow
-            label="필수 기능장"
-            passed={
-              stageSummary.stage === null
-                ? null
-                : stageSummary.missingRequiredNames.length === 0
-            }
-            detail={
-              stageSummary.stage === null
-                ? "현재 급위의 기준을 확인하지 못했습니다."
-                : `${stageSummary.requiredOwned}/${stageSummary.requiredTotal}개 · ${
-                    stageSummary.missingRequiredNames.length > 0
-                      ? `미취득 ${stageSummary.missingRequiredNames.join(", ")}`
-                      : "필수 항목 완료"
-                  }`
-            }
-          />
-          <ConditionRow
-            label="일반 기능장"
-            passed={
-              stageSummary.stage === null
-                ? null
-                : stageSummary.generalMissing === 0
-            }
-            detail={
-              stageSummary.stage === null
-                ? "현재 급위의 기준을 확인하지 못했습니다."
-                : `필요 ${stageSummary.generalRequired}개 · 보유 ${stageSummary.generalOwned}개${
-                    stageSummary.generalMissing > 0
-                      ? ` · ${stageSummary.generalMissing}개 부족`
-                      : ""
-                  }`
-            }
-          />
+          <div style={overviewConditionGridStyle}>
+            {conditionItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                style={overviewConditionItemStyle(item.passed)}
+                onClick={item.action}
+              >
+                <span style={overviewConditionLabelStyle}>{item.label}</span>
+                <span style={overviewConditionStatusStyle(item.passed)}>
+                  {item.passed === null ? "확인 필요" : item.passed ? "충족" : "보완 필요"}
+                </span>
+                <span style={overviewConditionDetailStyle}>{item.detail}</span>
+              </button>
+            ))}
+          </div>
+
           {latestReview &&
             ((latestReview.required_badges_passed &&
               (stageSummary.stage === null ||
@@ -676,38 +822,38 @@ export function OverviewPanel({
                 보완한 뒤 진급 판정을 다시 실행해야 합니다.
               </div>
             )}
-          <ConditionRow
-            label="프로그램"
-            passed={
-              isBeomTarget
-                ? programs.some((program) => Boolean(program.approved_at))
-                : true
-            }
-            detail={
-              isBeomTarget
-                ? `승인 완료 ${programs.filter((program) => Boolean(program.approved_at)).length}건`
-                : "현재 진급 단계에서는 해당 없음"
-            }
-          />
-          <ConditionRow
-            label="출석률"
-            passed={
-              isBeomTarget && attendanceRequiredForBeom
-                ? attendanceRate === null
-                  ? null
-                  : attendanceRate >= 80
-                : true
-            }
-            detail={
-              attendanceRate === null
-                ? "출석 기록 없음"
-                : `${attendanceRate}%${
-                    isBeomTarget && attendanceRequiredForBeom
-                      ? " · 범 진급 기준 80%"
-                      : " · 참고 지표"
-                  }`
-            }
-          />
+
+          <div style={overviewRecordCheckSectionStyle}>
+            <div style={overviewRecordCheckHeaderStyle}>
+              <div>
+                <strong>기록 확인</strong>
+                <span>인가일·승인일·출석 입력 누락을 함께 확인합니다.</span>
+              </div>
+            </div>
+
+            <div style={recordCheckGridStyle}>
+              <RecordCheckRow
+                label="기능장 인가일"
+                count={scoutBadges.filter((row) => !row.approved_at).length}
+                onClick={onMoveToBadges}
+              />
+              <RecordCheckRow
+                label="프로그램 승인일"
+                count={programs.filter((row) => !row.approved_at).length}
+                onClick={onMoveToPrograms}
+              />
+              <RecordCheckRow
+                label="출석 입력"
+                count={notEnteredCount}
+                onClick={onMoveToAttendance}
+              />
+              <RecordCheckRow
+                label="진급 판정"
+                count={latestReview ? 0 : 1}
+                onClick={onMoveToAdvancement}
+              />
+            </div>
+          </div>
         </section>
 
         <section style={contentCardStyle}>
@@ -715,94 +861,57 @@ export function OverviewPanel({
             <div>
               <h3 style={contentTitleStyle}>최근 활동 기록</h3>
               <p style={contentDescriptionStyle}>
-                기록이 마지막으로 갱신된 시점을 확인합니다.
+                최근 입력된 기록을 날짜순으로 확인합니다.
               </p>
             </div>
           </div>
 
-          <RecentRecordRow
-            label="최근 진급 인가"
-            value={
-              latestHistory
-                ? `${
-                    ranks.find((rank) => rank.id === latestHistory.rank_id)
-                      ?.rank_name ?? "-"
-                  } · ${formatDate(latestHistory.approved_at)}`
-                : "기록 없음"
-            }
-          />
-          <RecentRecordRow
-            label="최근 진급 판정"
-            value={
-              latestReview
-                ? `${formatDate(latestReview.review_date)} · ${
-                    latestReview.final_passed
-                      ? "저장 판정 통과"
-                      : "저장 판정 보완 필요"
-                  }`
-                : "기록 없음"
-            }
-          />
-          <RecentRecordRow
-            label="최근 기능장 취득"
-            value={
-              latestBadge
-                ? `${
-                    badgeMap.get(latestBadge.badge_id)?.name ?? "-"
-                  } · ${formatDate(latestBadge.acquired_at)}`
-                : "기록 없음"
-            }
-          />
-          <RecentRecordRow
-            label="최근 프로그램 이수"
-            value={
-              latestProgram
-                ? `${latestProgram.program_type} · ${formatDate(
-                    latestProgram.completed_at,
-                  )}`
-                : "기록 없음"
-            }
-          />
-          <RecentRecordRow
-            label="출석 입력 상태"
-            value={`입력 ${attendanceRows.length - notEnteredCount}건 · 미입력 ${notEnteredCount}건`}
-          />
+          {recentActivityGroups.length === 0 ? (
+            <div style={emptyContentStyle}>최근 활동 기록이 없습니다.</div>
+          ) : (
+            <div style={recentTimelineStyle}>
+              {recentActivityGroups.map((group) => (
+                <div key={group.date} style={recentTimelineGroupStyle}>
+                  <div style={recentTimelineDateStyle}>{group.date}</div>
+                  <div>
+                    {group.items.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        style={recentTimelineItemStyle}
+                        onClick={item.action}
+                      >
+                        <span style={recentTimelineDotStyle} aria-hidden="true" />
+                        <span style={recentTimelineContentStyle}>
+                          <strong style={recentTimelineTitleStyle}>{item.title}</strong>
+                          <span style={recentTimelineDetailStyle}>{item.detail}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              <div style={recentTimelineGroupStyle}>
+                <div style={recentTimelineDateStyle}>현재 상태</div>
+                <button
+                  type="button"
+                  style={recentTimelineItemStyle}
+                  onClick={onMoveToAttendance}
+                >
+                  <span style={recentTimelineDotStyle} aria-hidden="true" />
+                  <span style={recentTimelineContentStyle}>
+                    <strong style={recentTimelineTitleStyle}>출석 입력</strong>
+                    <span style={recentTimelineDetailStyle}>
+                      입력 {attendanceRows.length - notEnteredCount}건 · 미입력 {notEnteredCount}건
+                    </span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </div>
-
-      <section style={contentCardStyle}>
-        <div style={overviewSectionHeaderStyle}>
-          <div>
-            <h3 style={contentTitleStyle}>기록 확인 필요</h3>
-            <p style={contentDescriptionStyle}>
-              누락되거나 날짜 확인이 필요한 기록입니다.
-            </p>
-          </div>
-        </div>
-
-        <div style={recordCheckGridStyle}>
-          <RecordCheckRow
-            label="기능장 인가일"
-            count={scoutBadges.filter((row) => !row.approved_at).length}
-            onClick={onMoveToBadges}
-          />
-          <RecordCheckRow
-            label="프로그램 승인일"
-            count={programs.filter((row) => !row.approved_at).length}
-            onClick={onMoveToPrograms}
-          />
-          <RecordCheckRow
-            label="출석 입력"
-            count={notEnteredCount}
-            onClick={onMoveToAttendance}
-          />
-          <RecordCheckRow
-            label="진급 판정"
-            count={latestReview ? 0 : 1}
-            onClick={onMoveToAdvancement}
-          />
-        </div>
-      </section>
     </div>
   );
 }

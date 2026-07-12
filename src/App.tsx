@@ -2563,6 +2563,9 @@ function AppLayout() {
   const [errorMessage, setErrorMessage] = useState("");
   const [firstUseGuideOpen, setFirstUseGuideOpen] = useState(false);
   const [firstUseStepIndex, setFirstUseStepIndex] = useState(0);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const sidebarWidth = sidebarCollapsed ? 72 : 200;
 
   const organizationSetupComplete = useMemo(() => {
     return isOrganizationSetupComplete(role, organizationInfo);
@@ -2726,7 +2729,7 @@ function AppLayout() {
         return;
       }
 
-      if (event.clientX < 0 || event.clientX > 240) {
+      if (event.clientX < 0 || event.clientX > sidebarWidth) {
         return;
       }
 
@@ -2762,7 +2765,7 @@ function AppLayout() {
     return () => {
       document.removeEventListener("pointerdown", handleSidebarPointerDownCapture, true);
     };
-  }, [location.pathname, navigate, visibleMenus]);
+  }, [location.pathname, navigate, sidebarWidth, visibleMenus]);
 
   if (loadingRole) {
     return (
@@ -2818,7 +2821,7 @@ function AppLayout() {
             position: fixed !important;
             left: 0 !important;
             top: 0 !important;
-            width: 240px !important;
+            width: ${sidebarWidth}px !important;
             height: 100vh !important;
             z-index: 2147483647 !important;
           }
@@ -2826,9 +2829,9 @@ function AppLayout() {
           #app-main-content {
             position: relative !important;
             z-index: 0 !important;
-            margin-left: 240px !important;
-            width: calc(100vw - 240px) !important;
-            max-width: calc(100vw - 240px) !important;
+            margin-left: ${sidebarWidth}px !important;
+            width: calc(100vw - ${sidebarWidth}px) !important;
+            max-width: calc(100vw - ${sidebarWidth}px) !important;
             overflow-x: hidden !important;
           }
         `}
@@ -2844,9 +2847,32 @@ function AppLayout() {
         onComplete={handleFirstUseComplete}
       />
 
-      <aside className="app-fixed-sidebar" data-app-sidebar="true" style={sidebarStyle}>
-        <div style={logoAreaStyle}>
-          <div style={sidebarLogoBoxStyle}>
+      <aside
+        className="app-fixed-sidebar"
+        data-app-sidebar="true"
+        style={{
+          ...sidebarStyle,
+          width: `${sidebarWidth}px`,
+          padding: sidebarCollapsed ? "14px 8px" : "16px 12px",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setSidebarCollapsed((current) => !current)}
+          style={sidebarCollapseButtonStyle}
+          aria-label={sidebarCollapsed ? "사이드 메뉴 펼치기" : "사이드 메뉴 접기"}
+          title={sidebarCollapsed ? "사이드 메뉴 펼치기" : "사이드 메뉴 접기"}
+        >
+          {sidebarCollapsed ? "≫" : "≪"}
+        </button>
+        <div style={{ ...logoAreaStyle, marginTop: "46px" }}>
+          <div
+            style={{
+              ...sidebarLogoBoxStyle,
+              height: sidebarCollapsed ? "48px" : "76px",
+              marginBottom: sidebarCollapsed ? "8px" : "10px",
+            }}
+          >
             {organizationInfo?.logoUrl ? (
               <img
                 src={organizationInfo.logoUrl}
@@ -2854,9 +2880,12 @@ function AppLayout() {
                 style={sidebarLogoImageStyle}
               />
             ) : (
-              <div style={logoTitleStyle}>Scout</div>
+              <div style={{ ...logoTitleStyle, fontSize: sidebarCollapsed ? "18px" : "24px" }}>
+                {sidebarCollapsed ? "S" : "Scout"}
+              </div>
             )}
           </div>
+          {!sidebarCollapsed ? (
           <div style={logoInfoLineStyle}>
             {role === "super_admin" ? (
               <>
@@ -2881,13 +2910,25 @@ function AppLayout() {
               </>
             )}
           </div>
-          <div style={loginInfoStyle}>{role === "super_admin" ? "운영 관리" : "로그인 정보"}</div>
-          <button type="button" onClick={handleLogout} style={logoutButtonStyle}>
-            로그아웃
+          ) : null}
+          {!sidebarCollapsed ? (
+            <div style={loginInfoStyle}>{role === "super_admin" ? "운영 관리" : "로그인 정보"}</div>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleLogout}
+            style={{
+              ...logoutButtonStyle,
+              padding: sidebarCollapsed ? "0" : "0 12px",
+              fontSize: sidebarCollapsed ? "11px" : undefined,
+            }}
+            title="로그아웃"
+          >
+            {sidebarCollapsed ? "종료" : "로그아웃"}
           </button>
         </div>
 
-        {isOrganizationSetupRequired(role) && !organizationSetupComplete ? (
+        {!sidebarCollapsed && isOrganizationSetupRequired(role) && !organizationSetupComplete ? (
           <div style={setupRequiredSidebarStyle}>
             소속대 정보 등록 후 이용할 수 있습니다.
           </div>
@@ -2901,16 +2942,16 @@ function AppLayout() {
 
             return (
               <div key={menu.to} style={sideMenuItemWrapStyle}>
-                {groupLabel ? (
+                {groupLabel && !sidebarCollapsed ? (
                   <div style={menuGroupLabelStyle}>{groupLabel}</div>
                 ) : null}
-                <SideMenuLink to={menu.to} label={menu.label} />
+                <SideMenuLink to={menu.to} label={menu.label} collapsed={sidebarCollapsed} />
               </div>
             );
           })}
         </nav>
 
-        {role === "org_admin" ? (
+        {role === "org_admin" && !sidebarCollapsed ? (
           <button
             type="button"
             style={firstUseSidebarButtonStyle}
@@ -2925,7 +2966,15 @@ function AppLayout() {
 
       </aside>
 
-      <main id="app-main-content" style={mainStyle}>
+      <main
+        id="app-main-content"
+        style={{
+          ...mainStyle,
+          marginLeft: `${sidebarWidth}px`,
+          width: `calc(100vw - ${sidebarWidth}px)`,
+          maxWidth: `calc(100vw - ${sidebarWidth}px)`,
+        }}
+      >
         {isOrganizationSetupRequired(role) && !organizationSetupComplete ? (
           <section style={setupRequiredNoticeStyle}>
             <h2 style={setupRequiredTitleStyle}>소속대 정보를 먼저 등록하세요</h2>
@@ -3016,7 +3065,7 @@ function AppLayout() {
   );
 }
 
-function SideMenuLink({ to, label }: { to: string; label: string }) {
+function SideMenuLink({ to, label, collapsed = false }: { to: string; label: string; collapsed?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const isActive =
@@ -3064,7 +3113,7 @@ function SideMenuLink({ to, label }: { to: string; label: string }) {
         pointerEvents: "auto",
         userSelect: "none",
         minHeight: "42px",
-        padding: "10px 12px 10px 14px",
+        padding: collapsed ? "10px 4px" : "10px 12px 10px 14px",
         borderRadius: "9px",
         border: isActive ? "1px solid #60a5fa" : "1px solid transparent",
         color: isActive ? "#ffffff" : "#cbd5e1",
@@ -3072,7 +3121,7 @@ function SideMenuLink({ to, label }: { to: string; label: string }) {
         boxShadow: isActive
           ? "inset 4px 0 0 #bfdbfe, 0 6px 14px rgba(15, 23, 42, 0.18)"
           : "none",
-        textAlign: "left",
+        textAlign: collapsed ? "center" : "left",
         textDecoration: "none",
         fontFamily: "inherit",
         fontSize: "14px",
@@ -3081,8 +3130,10 @@ function SideMenuLink({ to, label }: { to: string; label: string }) {
         cursor: "pointer",
       }}
       aria-current={isActive ? "page" : undefined}
+      aria-label={label}
+      title={collapsed ? label : undefined}
     >
-      {label}
+      {collapsed ? label.slice(0, 2) : label}
     </button>
   );
 }
@@ -3333,7 +3384,7 @@ const firstUseSidebarButtonStyle: CSSProperties = {
 
 const loadingPageStyle: CSSProperties = {
   minHeight: "100vh",
-  padding: "40px",
+  padding: "24px",
   boxSizing: "border-box",
   backgroundColor: "#f8fafc",
 };
@@ -3347,7 +3398,7 @@ const layoutStyle: CSSProperties = {
 };
 
 const sidebarStyle: CSSProperties = {
-  width: "240px",
+  width: "200px",
   height: "100vh",
   position: "fixed",
   left: 0,
@@ -3355,7 +3406,7 @@ const sidebarStyle: CSSProperties = {
   zIndex: 2147483647,
   backgroundColor: "#0f172a",
   color: "#ffffff",
-  padding: "18px 14px",
+  padding: "16px 12px",
   boxSizing: "border-box",
   display: "flex",
   flexDirection: "column",
@@ -3364,6 +3415,28 @@ const sidebarStyle: CSSProperties = {
   pointerEvents: "auto",
   isolation: "isolate",
   transform: "translateZ(0)",
+};
+
+const sidebarCollapseButtonStyle: CSSProperties = {
+  position: "absolute",
+  top: "12px",
+  right: "14px",
+  zIndex: 2147483647,
+  width: "36px",
+  height: "36px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #60a5fa",
+  borderRadius: "10px",
+  backgroundColor: "#2563eb",
+  color: "#ffffff",
+  boxShadow: "0 4px 12px rgba(15, 23, 42, 0.28)",
+  fontFamily: "inherit",
+  fontSize: "19px",
+  lineHeight: 1,
+  fontWeight: 900,
+  cursor: "pointer",
 };
 
 const logoAreaStyle: CSSProperties = {
@@ -3470,9 +3543,9 @@ const menuGroupLabelStyle: CSSProperties = {
 };
 
 const mainStyle: CSSProperties = {
-  marginLeft: "240px",
-  width: "calc(100vw - 240px)",
-  maxWidth: "calc(100vw - 240px)",
+  marginLeft: "200px",
+  width: "calc(100vw - 200px)",
+  maxWidth: "calc(100vw - 200px)",
   minWidth: 0,
   minHeight: "100vh",
   padding: "40px",
