@@ -14,6 +14,7 @@ import RegisterPage from "./pages/RegisterPage";
 import PendingApprovalPage from "./pages/PendingApprovalPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import SignupRequestsPage from "./pages/SignupRequestsPage";
+import UserManagementPage from "./pages/UserManagementPage";
 import OrganizationsPage from "./pages/OrganizationsPage";
 import OrganizationBackupsPage from "./pages/OrganizationBackupsPage";
 import ScoutsPage from "./pages/ScoutsPage";
@@ -370,6 +371,12 @@ const MENU_ITEMS: MenuItem[] = [
     allowedRoles: ["super_admin"],
   },
   {
+    to: "/admin/users",
+    label: "사용자 관리",
+    description: "소속대별 테스트 계정을 생성하고 회수합니다.",
+    allowedRoles: ["super_admin"],
+  },
+  {
     to: "/admin/organizations",
     label: "소속대 관리",
     description: "승인된 소속대의 이용 상태를 관리합니다.",
@@ -386,6 +393,7 @@ const MENU_ITEMS: MenuItem[] = [
 const SUPER_ADMIN_MENU_ORDER = [
   "/dashboard",
   "/admin/signup-requests",
+  "/admin/users",
   "/admin/organizations",
   "/admin/organization-backups",
   "/scout-integrated",
@@ -401,6 +409,7 @@ const SUPER_ADMIN_MENU_ORDER = [
 const SUPER_ADMIN_MENU_LABELS: Record<string, string> = {
   "/dashboard": "대시보드",
   "/admin/signup-requests": "이용신청 관리",
+  "/admin/users": "사용자 관리",
   "/admin/organizations": "소속대 관리",
   "/admin/organization-backups": "소속대 백업센터",
   "/scout-integrated": "전체 대원 통합관리",
@@ -2982,6 +2991,10 @@ function AppLayout() {
             <Route
               path="/admin/signup-requests"
               element={<SignupRequestsPage />}
+            />
+            <Route
+              path="/admin/users"
+              element={<UserManagementPage />}
             />
             <Route
               path="/admin/organizations"

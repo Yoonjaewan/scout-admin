@@ -31,6 +31,22 @@ type OrganizationStatusFilter =
   | "needs_info";
 type SummaryTone = "default" | "warning" | "success" | "danger" | "muted";
 
+type TestUserRole = "org_admin" | "leader" | "viewer";
+
+type TestUserItem = {
+  userId: string;
+  email: string;
+  name: string;
+  role: TestUserRole;
+  organizationId: string;
+  expiresAt: string | null;
+  createdAt: string | null;
+};
+
+type CreatedTestCredential = TestUserItem & {
+  password: string;
+};
+
 type OrganizationItem = {
   id: string;
   name: string;
@@ -74,6 +90,15 @@ export default function SignupRequestsPage() {
   const [organizationProcessingId, setOrganizationProcessingId] = useState<
     string | null
   >(null);
+  const [testUsers, setTestUsers] = useState<TestUserItem[]>([]);
+  const [testUserCount, setTestUserCount] = useState<1 | 3 | 5>(1);
+  const [testUserRole, setTestUserRole] = useState<TestUserRole>("leader");
+  const [testUserExpiryDays, setTestUserExpiryDays] = useState<7 | 14 | 30>(14);
+  const [selectedTestUserIds, setSelectedTestUserIds] = useState<string[]>([]);
+  const [createdTestCredentials, setCreatedTestCredentials] = useState<
+    CreatedTestCredential[]
+  >([]);
+  const [testUserProcessing, setTestUserProcessing] = useState(false);
 
   const loadRequests = async (options?: { keepMessage?: boolean }) => {
     setLoading(true);
@@ -147,9 +172,15 @@ export default function SignupRequestsPage() {
     >[])
       .map((row) => ({
         id: getStringValue(row, ["id", "user_id"]) || "",
+        userId: getStringValue(row, ["user_id", "id"]) || "",
         organizationId: getStringValue(row, ["organization_id"]),
         role: getStringValue(row, ["role"]) || "",
         status: getStringValue(row, ["approval_status", "status"]) || "approved",
+        email: getStringValue(row, ["email"]) || "",
+        name: getStringValue(row, ["name", "display_name", "full_name"]) || "테스트 사용자",
+        isTestUser: row.is_test_user === true,
+        testExpiresAt: getStringValue(row, ["test_expires_at"]),
+        createdAt: getStringValue(row, ["created_at"]),
       }))
       .filter((profile) => profile.id);
 
@@ -223,6 +254,25 @@ export default function SignupRequestsPage() {
       .sort((left, right) => left.name.localeCompare(right.name, "ko"));
 
     setOrganizations(organizationRows);
+    setTestUsers(
+      profileRows
+        .filter(
+          (profile) =>
+            profile.isTestUser &&
+            Boolean(profile.organizationId) &&
+            isApprovedProfileStatus(profile.status),
+        )
+        .map((profile) => ({
+          userId: profile.userId,
+          email: profile.email,
+          name: profile.name,
+          role: isApprovalRole(profile.role) ? profile.role : "viewer",
+          organizationId: profile.organizationId as string,
+          expiresAt: profile.testExpiresAt,
+          createdAt: profile.createdAt,
+        }))
+        .sort((left, right) => left.email.localeCompare(right.email, "ko")),
+    );
 
     const initialNotes: Record<string, string> = {};
     const initialApprovalRoles: Record<string, ApprovalRole> = {};
@@ -354,6 +404,18 @@ export default function SignupRequestsPage() {
 
     return filteredOrganizations[0];
   }, [filteredOrganizations, selectedOrganizationId]);
+
+  const selectedOrganizationTestUsers = useMemo(() => {
+    if (!selectedOrganization) return [];
+    return testUsers.filter(
+      (testUser) => testUser.organizationId === selectedOrganization.id,
+    );
+  }, [selectedOrganization, testUsers]);
+
+  useEffect(() => {
+    setSelectedTestUserIds([]);
+    setCreatedTestCredentials([]);
+  }, [selectedOrganization?.id]);
 
   const selectedRequest = useMemo(() => {
     if (filteredRequests.length === 0) return null;
@@ -524,6 +586,131 @@ export default function SignupRequestsPage() {
     await loadRequests({ keepMessage: true });
     setSuccessMessage(`${request.name}님의 이용신청을 반려했습니다.`);
     setProcessingId(null);
+  };
+
+  const invokeTestUserFunction = async (body: Record<string, unknown>) => {
+    const { data, error } = await supabase.functions.invoke("manage-test-users", {
+      body,
+    });
+
+    if (error) {
+      throw new Error(error.message || "테스트 사용자 관리 요청에 실패했습니다.");
+    }
+
+    const response = data as {
+      ok?: boolean;
+      message?: string;
+      users?: TestUserItem[];
+      credentials?: CreatedTestCredential[];
+    };
+
+    if (!response?.ok) {
+      throw new Error(response?.message || "테스트 사용자 관리에 실패했습니다.");
+    }
+
+    return response;
+  };
+
+  const handleCreateTestUsers = async () => {
+    if (!selectedOrganization) return;
+
+    if (selectedOrganization.status !== "active") {
+      setErrorMessage("이용중인 소속대에만 테스트 계정을 생성할 수 있습니다.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `${selectedOrganization.name}에 ${getRoleLabel(testUserRole)} 테스트 계정 ${testUserCount}개를 생성하시겠습니까?`,
+    );
+    if (!confirmed) return;
+
+    setTestUserProcessing(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+    setCreatedTestCredentials([]);
+
+    try {
+      const response = await invokeTestUserFunction({
+        action: "create",
+        organization_id: selectedOrganization.id,
+        role: testUserRole,
+        count: testUserCount,
+        expiry_days: testUserExpiryDays,
+      });
+
+      const credentials = response.credentials ?? [];
+      setCreatedTestCredentials(credentials);
+      await loadRequests({ keepMessage: true });
+      setSuccessMessage(`${credentials.length}개의 테스트 계정을 생성했습니다.`);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "테스트 계정을 생성하지 못했습니다.",
+      );
+    } finally {
+      setTestUserProcessing(false);
+    }
+  };
+
+  const handleDeleteTestUsers = async () => {
+    if (selectedTestUserIds.length === 0) {
+      setErrorMessage("삭제할 테스트 계정을 선택하세요.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `선택한 테스트 계정 ${selectedTestUserIds.length}개를 삭제하시겠습니까?\n삭제 후에는 복구할 수 없습니다.`,
+    );
+    if (!confirmed) return;
+
+    setTestUserProcessing(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      await invokeTestUserFunction({
+        action: "delete",
+        user_ids: selectedTestUserIds,
+      });
+      await loadRequests({ keepMessage: true });
+      setSelectedTestUserIds([]);
+      setSuccessMessage("선택한 테스트 계정을 삭제했습니다.");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "테스트 계정을 삭제하지 못했습니다.",
+      );
+    } finally {
+      setTestUserProcessing(false);
+    }
+  };
+
+  const handleCopyTestCredentials = async () => {
+    if (createdTestCredentials.length === 0) {
+      setErrorMessage("복사할 신규 계정 정보가 없습니다.");
+      return;
+    }
+
+    const organizationName = selectedOrganization?.name ?? "소속대";
+    const text = [
+      `${organizationName} 테스트 계정`,
+      "",
+      ...createdTestCredentials.flatMap((item, index) => [
+        `${index + 1}. ${getRoleLabel(item.role)}`,
+        `아이디: ${item.email}`,
+        `비밀번호: ${item.password}`,
+        item.expiresAt ? `사용기한: ${formatDateTime(item.expiresAt)}` : "",
+        "",
+      ]),
+      "테스트 종료 후 계정은 삭제될 수 있습니다.",
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setSuccessMessage("신규 테스트 계정 정보를 클립보드에 복사했습니다.");
+    } catch {
+      setErrorMessage("클립보드 복사에 실패했습니다. 계정 정보를 직접 복사하세요.");
+    }
   };
 
   return (
@@ -1059,6 +1246,173 @@ export default function SignupRequestsPage() {
                   )}
                 </div>
               </div>
+            )}
+
+            {selectedOrganization && (
+              <section style={testUserPanelStyle}>
+                <div style={testUserHeaderStyle}>
+                  <div>
+                    <h3 style={testUserTitleStyle}>테스트 사용자 관리</h3>
+                    <p style={testUserDescriptionStyle}>
+                      선택한 소속대에 체험용 계정을 발급하고 종료 후 삭제합니다.
+                    </p>
+                  </div>
+                  <span style={testUserCountBadgeStyle}>
+                    현재 {selectedOrganizationTestUsers.length}명
+                  </span>
+                </div>
+
+                <div style={testUserControlGridStyle}>
+                  <label style={testUserLabelStyle}>
+                    생성 개수
+                    <select
+                      value={testUserCount}
+                      onChange={(event) =>
+                        setTestUserCount(Number(event.target.value) as 1 | 3 | 5)
+                      }
+                      style={testUserSelectStyle}
+                      disabled={testUserProcessing}
+                    >
+                      <option value={1}>1명</option>
+                      <option value={3}>3명</option>
+                      <option value={5}>5명</option>
+                    </select>
+                  </label>
+
+                  <label style={testUserLabelStyle}>
+                    사용 권한
+                    <select
+                      value={testUserRole}
+                      onChange={(event) =>
+                        setTestUserRole(event.target.value as TestUserRole)
+                      }
+                      style={testUserSelectStyle}
+                      disabled={testUserProcessing}
+                    >
+                      <option value="org_admin">조직관리자</option>
+                      <option value="leader">지도자</option>
+                      <option value="viewer">조회전용</option>
+                    </select>
+                  </label>
+
+                  <label style={testUserLabelStyle}>
+                    사용 기간
+                    <select
+                      value={testUserExpiryDays}
+                      onChange={(event) =>
+                        setTestUserExpiryDays(Number(event.target.value) as 7 | 14 | 30)
+                      }
+                      style={testUserSelectStyle}
+                      disabled={testUserProcessing}
+                    >
+                      <option value={7}>7일</option>
+                      <option value={14}>14일</option>
+                      <option value={30}>30일</option>
+                    </select>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleCreateTestUsers}
+                    disabled={testUserProcessing || selectedOrganization.status !== "active"}
+                    style={{
+                      ...testUserCreateButtonStyle,
+                      opacity:
+                        testUserProcessing || selectedOrganization.status !== "active"
+                          ? 0.6
+                          : 1,
+                    }}
+                  >
+                    {testUserProcessing ? "처리 중..." : "테스트 계정 생성"}
+                  </button>
+                </div>
+
+                {createdTestCredentials.length > 0 && (
+                  <div style={credentialBoxStyle}>
+                    <div style={credentialHeaderStyle}>
+                      <strong>방금 생성한 계정</strong>
+                      <button
+                        type="button"
+                        onClick={handleCopyTestCredentials}
+                        style={copyButtonStyle}
+                      >
+                        계정 목록 복사
+                      </button>
+                    </div>
+                    <div style={credentialListStyle}>
+                      {createdTestCredentials.map((credential) => (
+                        <div key={credential.userId} style={credentialItemStyle}>
+                          <strong>{credential.email}</strong>
+                          <span>비밀번호 {credential.password}</span>
+                          <span>{getRoleLabel(credential.role)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p style={credentialWarningStyle}>
+                      비밀번호는 이 화면에서 다시 조회할 수 없습니다. 지금 복사해 전달하세요.
+                    </p>
+                  </div>
+                )}
+
+                <div style={testUserListHeaderStyle}>
+                  <strong>발급된 테스트 계정</strong>
+                  <button
+                    type="button"
+                    onClick={handleDeleteTestUsers}
+                    disabled={testUserProcessing || selectedTestUserIds.length === 0}
+                    style={{
+                      ...testUserDeleteButtonStyle,
+                      opacity:
+                        testUserProcessing || selectedTestUserIds.length === 0 ? 0.55 : 1,
+                    }}
+                  >
+                    선택 계정 삭제
+                  </button>
+                </div>
+
+                {selectedOrganizationTestUsers.length === 0 ? (
+                  <div style={testUserEmptyStyle}>발급된 테스트 계정이 없습니다.</div>
+                ) : (
+                  <div style={testUserTableWrapStyle}>
+                    <table style={testUserTableStyle}>
+                      <thead>
+                        <tr>
+                          <th style={testUserThStyle}>선택</th>
+                          <th style={testUserThStyle}>이메일</th>
+                          <th style={testUserThStyle}>권한</th>
+                          <th style={testUserThStyle}>사용기한</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedOrganizationTestUsers.map((testUser) => (
+                          <tr key={testUser.userId}>
+                            <td style={testUserTdCenterStyle}>
+                              <input
+                                type="checkbox"
+                                checked={selectedTestUserIds.includes(testUser.userId)}
+                                onChange={(event) =>
+                                  setSelectedTestUserIds((current) =>
+                                    event.target.checked
+                                      ? [...current, testUser.userId]
+                                      : current.filter((id) => id !== testUser.userId),
+                                  )
+                                }
+                              />
+                            </td>
+                            <td style={testUserTdStyle}>{testUser.email}</td>
+                            <td style={testUserTdStyle}>{getRoleLabel(testUser.role)}</td>
+                            <td style={testUserTdStyle}>
+                              {testUser.expiresAt
+                                ? formatDateTime(testUser.expiresAt)
+                                : "기한 없음"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
             )}
           </>
         )}
@@ -1928,6 +2282,44 @@ const organizationStatusBadgeStyle = (status: string): CSSProperties => {
     }),
   };
 };
+
+const testUserPanelStyle: CSSProperties = {
+  marginTop: "18px",
+  padding: "18px",
+  borderRadius: "16px",
+  border: "1px solid #c7d2fe",
+  backgroundColor: "#f8faff",
+};
+
+const testUserHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "16px",
+  marginBottom: "16px",
+};
+
+const testUserTitleStyle: CSSProperties = { margin: 0, fontSize: "18px", fontWeight: 900, color: "#0f172a" };
+const testUserDescriptionStyle: CSSProperties = { margin: "6px 0 0", color: "#64748b", fontSize: "13px" };
+const testUserCountBadgeStyle: CSSProperties = { padding: "6px 10px", borderRadius: "999px", backgroundColor: "#e0e7ff", color: "#3730a3", fontSize: "12px", fontWeight: 900, whiteSpace: "nowrap" };
+const testUserControlGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(3, minmax(150px, 1fr)) auto", gap: "12px", alignItems: "end", marginBottom: "16px" };
+const testUserLabelStyle: CSSProperties = { display: "flex", flexDirection: "column", gap: "7px", color: "#334155", fontSize: "13px", fontWeight: 800 };
+const testUserSelectStyle: CSSProperties = { height: "40px", borderRadius: "9px", border: "1px solid #cbd5e1", backgroundColor: "#fff", padding: "0 10px", fontWeight: 700 };
+const testUserCreateButtonStyle: CSSProperties = { height: "40px", padding: "0 16px", borderRadius: "9px", border: "none", backgroundColor: "#4f46e5", color: "#fff", fontWeight: 900, cursor: "pointer" };
+const credentialBoxStyle: CSSProperties = { padding: "14px", borderRadius: "12px", border: "1px solid #86efac", backgroundColor: "#f0fdf4", marginBottom: "16px" };
+const credentialHeaderStyle: CSSProperties = { display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", marginBottom: "10px", color: "#166534" };
+const copyButtonStyle: CSSProperties = { height: "34px", padding: "0 12px", borderRadius: "8px", border: "1px solid #86efac", backgroundColor: "#fff", color: "#166534", fontWeight: 900, cursor: "pointer" };
+const credentialListStyle: CSSProperties = { display: "grid", gap: "8px" };
+const credentialItemStyle: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(160px, auto) auto", gap: "12px", padding: "10px 12px", borderRadius: "9px", backgroundColor: "#fff", color: "#334155", fontSize: "13px" };
+const credentialWarningStyle: CSSProperties = { margin: "10px 0 0", color: "#b45309", fontSize: "12px", fontWeight: 800 };
+const testUserListHeaderStyle: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "10px", color: "#0f172a" };
+const testUserDeleteButtonStyle: CSSProperties = { height: "36px", padding: "0 12px", borderRadius: "8px", border: "1px solid #fecaca", backgroundColor: "#fff1f2", color: "#be123c", fontWeight: 900, cursor: "pointer" };
+const testUserEmptyStyle: CSSProperties = { padding: "24px", textAlign: "center", borderRadius: "10px", border: "1px dashed #cbd5e1", backgroundColor: "#fff", color: "#64748b" };
+const testUserTableWrapStyle: CSSProperties = { overflowX: "auto", border: "1px solid #e2e8f0", borderRadius: "10px", backgroundColor: "#fff" };
+const testUserTableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse", minWidth: "680px" };
+const testUserThStyle: CSSProperties = { padding: "10px 12px", backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569", textAlign: "left", fontSize: "13px" };
+const testUserTdStyle: CSSProperties = { padding: "10px 12px", borderBottom: "1px solid #f1f5f9", color: "#334155", fontSize: "13px" };
+const testUserTdCenterStyle: CSSProperties = { ...testUserTdStyle, textAlign: "center" };
 
 const statusBadgeStyle = (status: string): CSSProperties => {
   const styleMap: Record<string, CSSProperties> = {
