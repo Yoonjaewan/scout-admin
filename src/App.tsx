@@ -31,6 +31,16 @@ import SuperAdminRoute from "./routes/SuperAdminRoute";
 
 import { supabase } from "./lib/supabase";
 
+import dashboardIcon from "./assets/sidebar-icons/dashboard.png";
+import scoutIntegratedIcon from "./assets/sidebar-icons/scout-integrated.png";
+import scoutsIcon from "./assets/sidebar-icons/scouts.png";
+import advancementsIcon from "./assets/sidebar-icons/advancements.png";
+import meritBadgesIcon from "./assets/sidebar-icons/merit-badges.png";
+import programsIcon from "./assets/sidebar-icons/programs.png";
+import meetingsIcon from "./assets/sidebar-icons/meetings.png";
+import reportsIcon from "./assets/sidebar-icons/reports.png";
+import settingsIcon from "./assets/sidebar-icons/settings.png";
+
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
 type OrganizationStatus = "active" | "suspended" | "closed" | "inactive" | string;
 
@@ -436,6 +446,26 @@ function getSidebarGroupLabel(role: UserRole, menuPath: string) {
   if (menuPath === "/reports") return "문서·설정";
 
   return null;
+}
+
+function getMenuIcon(menuPath: string) {
+  const iconMap: Record<string, { src?: string; fallback: string }> = {
+    "/dashboard": { src: dashboardIcon, fallback: "대" },
+    "/scout-integrated": { src: scoutIntegratedIcon, fallback: "통" },
+    "/scouts": { src: scoutsIcon, fallback: "원" },
+    "/advancements": { src: advancementsIcon, fallback: "진" },
+    "/merit-badges": { src: meritBadgesIcon, fallback: "장" },
+    "/program-completions": { src: programsIcon, fallback: "프" },
+    "/meetings": { src: meetingsIcon, fallback: "출" },
+    "/reports": { src: reportsIcon, fallback: "보" },
+    "/settings": { src: settingsIcon, fallback: "설" },
+    "/admin/signup-requests": { fallback: "신" },
+    "/admin/users": { fallback: "사" },
+    "/admin/organizations": { fallback: "조" },
+    "/admin/organization-backups": { fallback: "백" },
+  };
+
+  return iconMap[menuPath] || { fallback: "•" };
 }
 
 function getMenuLabelForRole(role: UserRole, menu: MenuItem) {
@@ -2945,7 +2975,12 @@ function AppLayout() {
                 {groupLabel && !sidebarCollapsed ? (
                   <div style={menuGroupLabelStyle}>{groupLabel}</div>
                 ) : null}
-                <SideMenuLink to={menu.to} label={menu.label} collapsed={sidebarCollapsed} />
+                <SideMenuLink
+                  to={menu.to}
+                  label={menu.label}
+                  icon={getMenuIcon(menu.to)}
+                  collapsed={sidebarCollapsed}
+                />
               </div>
             );
           })}
@@ -3065,7 +3100,17 @@ function AppLayout() {
   );
 }
 
-function SideMenuLink({ to, label, collapsed = false }: { to: string; label: string; collapsed?: boolean }) {
+function SideMenuLink({
+  to,
+  label,
+  icon,
+  collapsed = false,
+}: {
+  to: string;
+  label: string;
+  icon: { src?: string; fallback: string };
+  collapsed?: boolean;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const isActive =
@@ -3107,14 +3152,17 @@ function SideMenuLink({ to, label, collapsed = false }: { to: string; label: str
       }}
       style={{
         width: "100%",
-        display: "block",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: collapsed ? "center" : "flex-start",
+        gap: collapsed ? "0" : "10px",
         position: "relative",
         zIndex: 2147483647,
         pointerEvents: "auto",
         userSelect: "none",
-        minHeight: "42px",
+        minHeight: collapsed ? "46px" : "42px",
         padding: collapsed ? "10px 4px" : "10px 12px 10px 14px",
-        borderRadius: "9px",
+        borderRadius: collapsed ? "12px" : "9px",
         border: isActive ? "1px solid #60a5fa" : "1px solid transparent",
         color: isActive ? "#ffffff" : "#cbd5e1",
         backgroundColor: isActive ? "#2563eb" : "transparent",
@@ -3133,7 +3181,40 @@ function SideMenuLink({ to, label, collapsed = false }: { to: string; label: str
       aria-label={label}
       title={collapsed ? label : undefined}
     >
-      {collapsed ? label.slice(0, 2) : label}
+      <span
+        aria-hidden="true"
+        style={{
+          width: collapsed ? "34px" : "28px",
+          height: collapsed ? "34px" : "28px",
+          minWidth: collapsed ? "34px" : "28px",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          borderRadius: collapsed ? "10px" : "8px",
+          backgroundColor: icon.src ? "#ffffff" : "rgba(255,255,255,0.12)",
+          color: "#ffffff",
+          fontSize: collapsed ? "16px" : "13px",
+          fontWeight: 900,
+          boxShadow: icon.src ? "0 2px 8px rgba(15, 23, 42, 0.18)" : "none",
+        }}
+      >
+        {icon.src ? (
+          <img
+            src={icon.src}
+            alt=""
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              display: "block",
+            }}
+          />
+        ) : (
+          icon.fallback
+        )}
+      </span>
+      {!collapsed ? <span>{label}</span> : null}
     </button>
   );
 }

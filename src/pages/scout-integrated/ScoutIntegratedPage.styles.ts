@@ -2209,13 +2209,13 @@ export function overviewConditionItemStyle(
     gap: "6px 8px",
     border:
       passed === null
-        ? "1px solid #cbd5e1"
+        ? "1px solid #94a3b8"
         : passed
-          ? "1px solid #bbf7d0"
-          : "1px solid #fecaca",
+          ? "2px solid #22c55e"
+          : "2px solid #ef4444",
     borderRadius: "11px",
     backgroundColor:
-      passed === null ? "#f8fafc" : passed ? "#f8fff9" : "#fff8f8",
+      passed === null ? "#f1f5f9" : passed ? "#ecfdf3" : "#fff1f2",
     color: "#0f172a",
     fontFamily: "inherit",
     textAlign: "left",
@@ -2241,9 +2241,8 @@ export function overviewConditionStatusStyle(
     alignItems: "center",
     borderRadius: "999px",
     backgroundColor:
-      passed === null ? "#e2e8f0" : passed ? "#dcfce7" : "#fee2e2",
-    color:
-      passed === null ? "#475569" : passed ? "#166534" : "#b91c1c",
+      passed === null ? "#cbd5e1" : passed ? "#16a34a" : "#dc2626",
+    color: "#ffffff",
     fontSize: "11px",
     fontWeight: 900,
     whiteSpace: "nowrap",
@@ -2316,15 +2315,22 @@ export const recentTimelineStyle: CSSProperties = {
 };
 
 export const recentTimelineGroupStyle: CSSProperties = {
+  position: "relative",
   display: "grid",
-  gridTemplateColumns: "86px minmax(0, 1fr)",
-  gap: "10px",
+  gridTemplateColumns: "92px minmax(0, 1fr)",
+  gap: "12px",
   alignItems: "start",
 };
 
 export const recentTimelineDateStyle: CSSProperties = {
-  paddingTop: "7px",
-  color: "#64748b",
+  minHeight: "25px",
+  padding: "4px 8px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "999px",
+  backgroundColor: "#eff6ff",
+  color: "#1d4ed8",
   fontSize: "11px",
   fontWeight: 900,
   whiteSpace: "nowrap",
@@ -2334,9 +2340,9 @@ export const recentTimelineItemStyle: CSSProperties = {
   position: "relative",
   width: "100%",
   minWidth: 0,
-  padding: "7px 0 9px 17px",
+  padding: "8px 0 10px 8px",
   display: "grid",
-  gridTemplateColumns: "10px minmax(0, 1fr)",
+  gridTemplateColumns: "12px minmax(0, 1fr)",
   gap: "8px",
   border: "none",
   borderBottom: "1px solid #f1f5f9",
@@ -2348,12 +2354,12 @@ export const recentTimelineItemStyle: CSSProperties = {
 };
 
 export const recentTimelineDotStyle: CSSProperties = {
-  width: "8px",
-  height: "8px",
-  marginTop: "5px",
+  width: "10px",
+  height: "10px",
+  marginTop: "4px",
   borderRadius: "999px",
   backgroundColor: "#2563eb",
-  boxShadow: "0 0 0 3px #dbeafe",
+  boxShadow: "0 0 0 4px #dbeafe",
 };
 
 export const recentTimelineContentStyle: CSSProperties = {
@@ -2373,4 +2379,54 @@ export const recentTimelineDetailStyle: CSSProperties = {
   fontSize: "12px",
   lineHeight: 1.4,
   wordBreak: "keep-all",
+};
+
+
+export const collapsedWorkspaceStyle: CSSProperties = {
+  gridTemplateColumns: "54px minmax(0, 1fr)",
+  gap: "10px",
+};
+
+export const collapsedScoutPanelStyle: CSSProperties = {
+  width: "54px",
+  minWidth: "54px",
+};
+
+export const collapsedScoutPanelHeaderStyle: CSSProperties = {
+  minHeight: "100%",
+  padding: "10px 7px",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "flex-start",
+  gap: "10px",
+  borderBottom: "none",
+};
+
+export const collapsedScoutPanelLabelStyle: CSSProperties = {
+  writingMode: "vertical-rl",
+  textOrientation: "upright",
+  color: "#475569",
+  fontSize: "12px",
+  fontWeight: 900,
+  letterSpacing: "0.08em",
+};
+
+export const scoutPanelCollapseButtonStyle: CSSProperties = {
+  width: "34px",
+  height: "34px",
+  minWidth: "34px",
+  padding: 0,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #60a5fa",
+  borderRadius: "9px",
+  backgroundColor: "#2563eb",
+  color: "#ffffff",
+  boxShadow: "0 3px 10px rgba(37, 99, 235, 0.22)",
+  fontFamily: "inherit",
+  fontSize: "17px",
+  lineHeight: 1,
+  fontWeight: 900,
+  cursor: "pointer",
 };

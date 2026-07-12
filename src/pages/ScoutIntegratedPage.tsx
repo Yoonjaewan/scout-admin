@@ -72,7 +72,12 @@ import {
   tabBarStyle,
   tabButtonStyle,
   activeTabButtonStyle,
-  errorBoxStyle
+  errorBoxStyle,
+  collapsedWorkspaceStyle,
+  collapsedScoutPanelStyle,
+  scoutPanelCollapseButtonStyle,
+  collapsedScoutPanelHeaderStyle,
+  collapsedScoutPanelLabelStyle
 } from "./scout-integrated/ScoutIntegratedPage.styles";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -626,6 +631,8 @@ export default function ScoutIntegratedPage() {
   const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(true);
   const [showUsageGuide, setShowUsageGuide] = useState(false);
+  const [usageGuideExpanded, setUsageGuideExpanded] = useState(false);
+  const [scoutListCollapsed, setScoutListCollapsed] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [badgeFormMode, setBadgeFormMode] = useState<"create" | "edit" | null>(
     null,
@@ -917,6 +924,7 @@ export default function ScoutIntegratedPage() {
     if (typeof window !== "undefined") {
       window.localStorage.setItem("scout-integrated-guide-dismissed", "true");
     }
+    setUsageGuideExpanded(false);
     setShowUsageGuide(false);
   };
 
@@ -1816,10 +1824,8 @@ export default function ScoutIntegratedPage() {
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr auto",
-            gap: "16px",
-            alignItems: "start",
-            padding: "14px 16px",
+            gap: usageGuideExpanded ? "10px" : "0",
+            padding: usageGuideExpanded ? "14px 16px" : "10px 14px",
             marginBottom: "16px",
             border: "1px solid #bfdbfe",
             borderRadius: "12px",
@@ -1827,42 +1833,85 @@ export default function ScoutIntegratedPage() {
           }}
           aria-label="대원 통합관리 사용 안내"
         >
-          <div style={{ display: "grid", gap: "8px" }}>
-            <strong style={{ color: "#1e3a8a", fontSize: "15px" }}>처음 사용하는 방법</strong>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-                gap: "8px 16px",
-                color: "#334155",
-                fontSize: "14px",
-                lineHeight: 1.55,
-              }}
-            >
-              <span><b>1.</b> 왼쪽에서 대원을 선택합니다.</span>
-              <span><b>2.</b> 상단에서 현재 진급 상태와 보완 건수를 확인합니다.</span>
-              <span><b>3.</b> 필요한 업무는 진급·기능장·프로그램·출석 탭에서 처리합니다.</span>
-            </div>
-            <span style={{ color: "#64748b", fontSize: "13px" }}>
-              대원 등록·기본정보 수정은 대원 관리에서, 진급 준비와 활동 기록 관리는 이 화면에서 진행합니다.
-            </span>
-          </div>
-          <button
-            type="button"
+          <div
             style={{
-              border: "1px solid #93c5fd",
-              borderRadius: "8px",
-              backgroundColor: "#ffffff",
-              color: "#1d4ed8",
-              padding: "7px 10px",
-              fontWeight: 800,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "12px",
             }}
-            onClick={handleDismissUsageGuide}
           >
-            안내 닫기
-          </button>
+            <div>
+              <strong style={{ color: "#1e3a8a", fontSize: "14px" }}>
+                처음 사용하는 방법
+              </strong>
+              {!usageGuideExpanded && (
+                <span style={{ marginLeft: "8px", color: "#64748b", fontSize: "12px" }}>
+                  대원 선택부터 기록 관리까지의 순서를 확인합니다.
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                style={{
+                  border: "1px solid #93c5fd",
+                  borderRadius: "8px",
+                  backgroundColor: "#ffffff",
+                  color: "#1d4ed8",
+                  padding: "6px 10px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+                onClick={() => setUsageGuideExpanded((current) => !current)}
+                aria-expanded={usageGuideExpanded}
+              >
+                {usageGuideExpanded ? "접기" : "펼쳐보기"}
+              </button>
+              {usageGuideExpanded && (
+                <button
+                  type="button"
+                  style={{
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "8px",
+                    backgroundColor: "#ffffff",
+                    color: "#475569",
+                    padding: "6px 10px",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                  onClick={handleDismissUsageGuide}
+                >
+                  다시 표시하지 않기
+                </button>
+              )}
+            </div>
+          </div>
+
+          {usageGuideExpanded && (
+            <div style={{ display: "grid", gap: "8px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                  gap: "8px 16px",
+                  color: "#334155",
+                  fontSize: "14px",
+                  lineHeight: 1.55,
+                }}
+              >
+                <span><b>1.</b> 왼쪽에서 대원을 선택합니다.</span>
+                <span><b>2.</b> 상단에서 현재 진급 상태와 보완 건수를 확인합니다.</span>
+                <span><b>3.</b> 필요한 업무는 진급·기능장·프로그램·출석 탭에서 처리합니다.</span>
+              </div>
+              <span style={{ color: "#64748b", fontSize: "13px" }}>
+                대원 등록·기본정보 수정은 대원 관리에서, 진급 준비와 활동 기록 관리는 이 화면에서 진행합니다.
+              </span>
+            </div>
+          )}
         </section>
       )}
 
@@ -1990,17 +2039,37 @@ export default function ScoutIntegratedPage() {
           </p>
         </section>
       ) : (
-      <div style={workspaceStyle}>
-        <aside style={scoutPanelStyle}>
-          <div style={panelHeaderStyle}>
-            <div>
-              <h2 style={panelTitleStyle}>대원 목록</h2>
-              <p style={panelDescriptionStyle}>
-                현재 {filteredScouts.length}명
-              </p>
-            </div>
-            {canManageScouts && (
-              <div style={panelHeaderActionStyle}>
+      <div
+        style={{
+          ...workspaceStyle,
+          ...(scoutListCollapsed ? collapsedWorkspaceStyle : {}),
+        }}
+      >
+        <aside
+          style={{
+            ...scoutPanelStyle,
+            ...(scoutListCollapsed ? collapsedScoutPanelStyle : {}),
+          }}
+        >
+          <div
+            style={{
+              ...panelHeaderStyle,
+              ...(scoutListCollapsed ? collapsedScoutPanelHeaderStyle : {}),
+            }}
+          >
+            {scoutListCollapsed ? (
+              <span style={collapsedScoutPanelLabelStyle}>대원</span>
+            ) : (
+              <div>
+                <h2 style={panelTitleStyle}>대원 목록</h2>
+                <p style={panelDescriptionStyle}>
+                  현재 {filteredScouts.length}명
+                </p>
+              </div>
+            )}
+
+            <div style={panelHeaderActionStyle}>
+              {!scoutListCollapsed && canManageScouts && (
                 <div ref={registrationMenuRef} style={registrationMenuWrapStyle}>
                   <button
                     type="button"
@@ -2040,10 +2109,25 @@ export default function ScoutIntegratedPage() {
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
+
+              <button
+                type="button"
+                style={scoutPanelCollapseButtonStyle}
+                onClick={() => {
+                  setRegistrationMenuOpen(false);
+                  setScoutListCollapsed((current) => !current);
+                }}
+                aria-label={scoutListCollapsed ? "대원 목록 펼치기" : "대원 목록 접기"}
+                title={scoutListCollapsed ? "대원 목록 펼치기" : "대원 목록 접기"}
+              >
+                {scoutListCollapsed ? "≫" : "≪"}
+              </button>
+            </div>
           </div>
 
+          {!scoutListCollapsed && (
+          <>
           <div style={searchAreaStyle}>
             <input
               style={searchInputStyle}
@@ -2148,6 +2232,8 @@ export default function ScoutIntegratedPage() {
               })
             )}
           </div>
+          </>
+          )}
         </aside>
 
         <main style={detailPanelStyle}>
