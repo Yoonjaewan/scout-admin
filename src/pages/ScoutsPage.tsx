@@ -2743,39 +2743,6 @@ export default function ScoutsPage() {
     navigate(`/scout-integrated?${searchParams.toString()}`);
   };
 
-  const handleOpenIntegratedManagement = (scout: Scout) => {
-    setIsCreateFormOpen(false);
-    setIsEditFormOpen(false);
-    setFormErrorMessage("");
-    setEditErrorMessage("");
-    setIntegratedErrorMessage("");
-    setIntegratedSuccessMessage("");
-    setIntegratedReviewDate(getTodayText());
-    setIntegratedReviewErrorMessage("");
-    setIntegratedReviewSuccessMessage("");
-    setIntegratedApprovalDate(getTodayText());
-    setIntegratedApprovalNote("");
-    setIntegratedApprovalErrorMessage("");
-    setIntegratedSection("profile");
-    setIntegratedScoutId(scout.id);
-    const rankApprovalDates = buildRankApprovalDateMapForRankSelection({
-      currentRankId: scout.current_rank_id ?? "",
-      scout,
-    });
-
-    setRankQuickForm({
-      rank_id: scout.current_rank_id ?? "",
-      approved_at:
-        scout.current_rank_id && rankApprovalDates[scout.current_rank_id]
-          ? rankApprovalDates[scout.current_rank_id]
-          : getTodayText(),
-      rank_approval_dates: rankApprovalDates,
-      note: "",
-    });
-    setBadgeQuickForm(getEmptyBadgeQuickForm());
-    setProgramQuickForm(getEmptyProgramQuickForm());
-  };
-
   const handleCloseIntegratedManagement = () => {
     if (integratedSubmitting) return;
 
@@ -4924,7 +4891,7 @@ export default function ScoutsPage() {
           document.body,
         )}
 
-        {false && integratedScout &&
+        {integratedScout &&
           typeof document !== "undefined" &&
           createPortal(
             <div
