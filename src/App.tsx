@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Link,
@@ -85,6 +85,7 @@ type RankRow = {
 type PromotionReviewRow = {
   id: string;
   scout_id: string;
+  from_rank_id: string;
   to_rank_id: string;
   review_date: string;
   base_date: string | null;
@@ -95,6 +96,7 @@ type PromotionReviewRow = {
   required_badges_passed: boolean;
   general_badges_passed: boolean;
   program_passed: boolean;
+  attendance_passed: boolean;
   final_passed: boolean;
   missing_items: unknown;
   created_at: string;
@@ -305,7 +307,7 @@ const DASHBOARD_OVERVIEW_DESCRIPTIONS: Record<DashboardOverviewType, string> = {
   total: "현재 등록된 전체 대원입니다.",
   active: "현재 활동 상태로 관리되는 대원입니다.",
   promotionPossible: "최근 진급 판정에서 모든 조건을 충족한 대원입니다.",
-  notReviewed: "활동 대원 중 아직 진급 판정이 진행되지 않은 대원입니다.",
+  notReviewed: "현재 급위와 다음 급위가 있으나 아직 진급 판정이 없는 활동 대원입니다.",
 };
 
 const DASHBOARD_ISSUE_LABELS: Record<DashboardIssueType, string> = {
@@ -631,6 +633,81 @@ function buildDashboardIssueItem({
     reviewDate: review.review_date || review.created_at,
     message,
   };
+}
+
+function isDashboardCubScoutByGrade(grade: string | null | undefined) {
+  return Boolean(grade?.replace(/\s/g, "").includes("초등학교"));
+}
+
+function getDashboardNextRank(
+  scout: ScoutRow,
+  sortedRanks: RankRow[],
+  rankMap: Map<string, RankRow>,
+): RankRow | null {
+  if (isDashboardCubScoutByGrade(scout.grade)) {
+    return null;
+  }
+
+  if (!scout.current_rank_id) {
+    return null;
+  }
+
+  const currentRank = rankMap.get(scout.current_rank_id);
+
+  if (!currentRank) {
+    return null;
+  }
+
+  return (
+    sortedRanks.find((rank) => rank.sort_order === currentRank.sort_order + 1) ?? null
+  );
+}
+
+function isDashboardProgramRequiredForTargetRank(
+  toRankId: string,
+  rankMap: Map<string, RankRow>,
+) {
+  const targetRank = rankMap.get(toRankId);
+
+  if (!targetRank) {
+    return false;
+  }
+
+  const normalizedRankName = targetRank.rank_name.replace(/\s+/g, "");
+  return targetRank.rank_code === "beom" || normalizedRankName === "범";
+}
+
+function isDashboardReviewPassedForApproval(
+  review: PromotionReviewRow,
+  rankMap: Map<string, RankRow>,
+) {
+  const attendanceRequired = isDashboardProgramRequiredForTargetRank(
+    review.to_rank_id,
+    rankMap,
+  );
+
+  return review.final_passed && (!attendanceRequired || review.attendance_passed);
+}
+
+function getDashboardCurrentStepReview(
+  scout: ScoutRow,
+  nextRank: RankRow,
+  reviews: PromotionReviewRow[],
+): PromotionReviewRow | null {
+  return (
+    [...reviews]
+      .filter(
+        (review) =>
+          review.scout_id === scout.id &&
+          review.from_rank_id === scout.current_rank_id &&
+          review.to_rank_id === nextRank.id,
+      )
+      .sort((a, b) => {
+        const bKey = `${b.review_date} ${b.created_at ?? ""}`;
+        const aKey = `${a.review_date} ${a.created_at ?? ""}`;
+        return bKey.localeCompare(aKey);
+      })[0] ?? null
+  );
 }
 
 async function fetchScoutsForDashboard(): Promise<{
@@ -1073,17 +1150,17 @@ async function loadDashboardStats(): Promise<DashboardStats> {
       supabase
         .from("promotion_reviews")
         .select(
-          "id, scout_id, to_rank_id, review_date, base_date, available_at, required_months, days_remaining, period_passed, required_badges_passed, general_badges_passed, program_passed, final_passed, missing_items, created_at"
+          "id, scout_id, from_rank_id, to_rank_id, review_date, base_date, available_at, required_months, days_remaining, period_passed, required_badges_passed, general_badges_passed, program_passed, attendance_passed, final_passed, missing_items, created_at"
         )
         .is("deleted_at", null)
+        .order("review_date", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(1000),
       supabase
         .from("scout_rank_histories")
         .select("id, scout_id, rank_id, approved_at, approval_type, created_at")
         .is("deleted_at", null)
-        .order("approved_at", { ascending: false })
-        .limit(6),
+        .order("approved_at", { ascending: false }),
       supabase
         .from("scout_badges")
         .select("id, scout_id, badge_id, acquired_at, approved_at, created_at")
@@ -1114,7 +1191,6 @@ async function loadDashboardStats(): Promise<DashboardStats> {
   const rankMap: Map<string, RankRow> = new Map(ranks.map((rank) => [rank.id, rank]));
 
   const activeScouts = scouts.filter((scout) => !statusAvailable || !scout.status || scout.status === "active");
-  const activeScoutIds = new Set(activeScouts.map((scout) => scout.id));
 
   const inactiveScouts = statusAvailable
     ? scouts.filter((scout) => scout.status === "inactive").length
@@ -1148,29 +1224,81 @@ async function loadDashboardStats(): Promise<DashboardStats> {
     return a.rankName.localeCompare(b.rankName, "ko");
   });
 
-  const latestReviewByScout = new Map<string, PromotionReviewRow>();
+  const sortedRanks = [...ranks].sort((a, b) => a.sort_order - b.sort_order);
 
-  reviews.forEach((review) => {
-    if (!activeScoutIds.has(review.scout_id)) return;
-    if (!latestReviewByScout.has(review.scout_id)) {
-      latestReviewByScout.set(review.scout_id, review);
+  const historiesByScoutId = new Map<string, RankHistoryRow[]>();
+  rankHistories.forEach((history) => {
+    const list = historiesByScoutId.get(history.scout_id) ?? [];
+    list.push(history);
+    historiesByScoutId.set(history.scout_id, list);
+  });
+
+  const isNextRankAlreadyApproved = (scoutId: string, nextRankId: string) => {
+    return (
+      historiesByScoutId
+        .get(scoutId)
+        ?.some((history) => history.rank_id === nextRankId) ?? false
+    );
+  };
+
+  const promotionReadyScouts: ScoutRow[] = [];
+  const notReviewedScoutList: ScoutRow[] = [];
+  const periodShortageReviews: PromotionReviewRow[] = [];
+  const badgeShortageReviews: PromotionReviewRow[] = [];
+  const programShortageReviews: PromotionReviewRow[] = [];
+  let reviewedScoutsWithCurrentStep = 0;
+
+  activeScouts.forEach((scout) => {
+    if (!scout.current_rank_id) {
+      return;
+    }
+
+    const nextRank = getDashboardNextRank(scout, sortedRanks, rankMap);
+
+    if (!nextRank) {
+      return;
+    }
+
+    const currentStepReview = getDashboardCurrentStepReview(scout, nextRank, reviews);
+
+    if (!currentStepReview) {
+      notReviewedScoutList.push(scout);
+      return;
+    }
+
+    reviewedScoutsWithCurrentStep += 1;
+
+    if (
+      isDashboardReviewPassedForApproval(currentStepReview, rankMap) &&
+      !isNextRankAlreadyApproved(scout.id, nextRank.id)
+    ) {
+      promotionReadyScouts.push(scout);
+    }
+
+    if (!currentStepReview.period_passed) {
+      periodShortageReviews.push(currentStepReview);
+    }
+
+    if (
+      !currentStepReview.required_badges_passed ||
+      !currentStepReview.general_badges_passed
+    ) {
+      badgeShortageReviews.push(currentStepReview);
+    }
+
+    if (
+      isDashboardProgramRequiredForTargetRank(nextRank.id, rankMap) &&
+      !currentStepReview.program_passed
+    ) {
+      programShortageReviews.push(currentStepReview);
     }
   });
 
-  const latestReviews = Array.from(latestReviewByScout.values());
-
-  const promotionPossibleReviews = latestReviews.filter((review) => review.final_passed);
-  const promotionPossible = promotionPossibleReviews.length;
-  const periodShortageReviews = latestReviews.filter((review) => !review.period_passed);
-  const badgeShortageReviews = latestReviews.filter(
-    (review) => !review.required_badges_passed || !review.general_badges_passed
-  );
-  const programShortageReviews = latestReviews.filter((review) => !review.program_passed);
-
+  const promotionPossible = promotionReadyScouts.length;
   const periodShortage = periodShortageReviews.length;
   const badgeShortage = badgeShortageReviews.length;
   const programShortage = programShortageReviews.length;
-  const notReviewedScouts = activeScouts.length - latestReviews.length;
+  const notReviewedScouts = notReviewedScoutList.length;
 
   const sortOverviewItems = (items: DashboardOverviewItem[]) =>
     [...items].sort((a, b) => {
@@ -1202,32 +1330,29 @@ async function loadDashboardStats(): Promise<DashboardStats> {
   );
 
   const promotionPossibleItems = sortOverviewItems(
-    promotionPossibleReviews
-      .map((review) => {
-        const scout = scoutMap.get(review.scout_id);
-        if (!scout) return null;
+    promotionReadyScouts.map((scout) => {
+      const nextRank = getDashboardNextRank(scout, sortedRanks, rankMap);
 
-        return buildDashboardOverviewItem({
-          scout,
-          rankMap,
-          statusAvailable,
-          message: `${getRankDisplayName(rankMap.get(review.to_rank_id), review.to_rank_id)} 진급 조건을 충족했습니다.`,
-        });
-      })
-      .filter((item): item is DashboardOverviewItem => item !== null)
+      return buildDashboardOverviewItem({
+        scout,
+        rankMap,
+        statusAvailable,
+        message: nextRank
+          ? `${getRankDisplayName(nextRank, nextRank.id)} 진급 조건을 충족했습니다.`
+          : "진급 조건을 충족했습니다.",
+      });
+    }),
   );
 
   const notReviewedScoutItems = sortOverviewItems(
-    activeScouts
-      .filter((scout) => !latestReviewByScout.has(scout.id))
-      .map((scout) =>
-        buildDashboardOverviewItem({
-          scout,
-          rankMap,
-          statusAvailable,
-          message: "진급 판정이 필요합니다.",
-        })
-      )
+    notReviewedScoutList.map((scout) =>
+      buildDashboardOverviewItem({
+        scout,
+        rankMap,
+        statusAvailable,
+        message: "진급 판정이 필요합니다.",
+      }),
+    ),
   );
 
   const periodShortageItems = periodShortageReviews.map((review) =>
@@ -1240,7 +1365,7 @@ async function loadDashboardStats(): Promise<DashboardStats> {
     buildDashboardIssueItem({ review, issueType: "program", scoutMap, rankMap })
   );
 
-  const recentRankApprovals = rankHistories.map((history) => ({
+  const recentRankApprovals = rankHistories.slice(0, 6).map((history) => ({
     id: history.id,
     scoutName: getScoutDisplayName(scoutMap.get(history.scout_id), history.scout_id),
     rankName: getRankDisplayName(rankMap.get(history.rank_id), history.rank_id),
@@ -1314,7 +1439,7 @@ async function loadDashboardStats(): Promise<DashboardStats> {
     periodShortageItems,
     badgeShortageItems,
     programShortageItems,
-    reviewedScouts: latestReviews.length,
+    reviewedScouts: reviewedScoutsWithCurrentStep,
     notReviewedScouts,
     recentRankApprovals,
     recentBadgeApprovals,
@@ -1811,7 +1936,7 @@ function OrganizationDashboardHome({
         title: DASHBOARD_OVERVIEW_LABELS[selectedOverviewType],
         description: DASHBOARD_OVERVIEW_DESCRIPTIONS[selectedOverviewType],
         items: stats.promotionPossibleItems,
-        linkTo: "/advancements",
+        linkTo: "/advancements?filter=ready",
         linkLabel: "진급 관리에서 보기",
       };
     }
@@ -1821,7 +1946,7 @@ function OrganizationDashboardHome({
       title: DASHBOARD_OVERVIEW_LABELS[selectedOverviewType],
       description: DASHBOARD_OVERVIEW_DESCRIPTIONS[selectedOverviewType],
       items: stats.notReviewedScoutItems,
-      linkTo: "/advancements",
+      linkTo: "/advancements?filter=not_reviewed",
       linkLabel: "진급 관리에서 보기",
     };
   }, [selectedOverviewType, stats]);
@@ -2658,6 +2783,7 @@ function AppLayout() {
   const [errorMessage, setErrorMessage] = useState("");
   const [firstUseGuideOpen, setFirstUseGuideOpen] = useState(false);
   const [firstUseStepIndex, setFirstUseStepIndex] = useState(0);
+  const firstUseGuideOpenedManuallyRef = useRef(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const sidebarWidth = sidebarCollapsed ? 72 : 200;
@@ -2749,10 +2875,13 @@ function AppLayout() {
     if (loadingRole || !role || !currentUserId) return;
     if (role !== "org_admin") return;
 
-    const storageKey = `scout-first-use-guide-complete:${currentUserId}`;
-    const completed = window.localStorage.getItem(storageKey) === "true";
+    const completeKey = `scout-first-use-guide-complete:${currentUserId}`;
+    const dismissedKey = `scout-first-use-guide-dismissed:${currentUserId}`;
+    const completed = window.localStorage.getItem(completeKey) === "true";
+    const dismissed = window.localStorage.getItem(dismissedKey) === "true";
 
-    if (!completed) {
+    if (!completed && !dismissed) {
+      firstUseGuideOpenedManuallyRef.current = false;
       setFirstUseStepIndex(organizationSetupComplete ? 1 : 0);
       setFirstUseGuideOpen(true);
     }
@@ -2760,6 +2889,7 @@ function AppLayout() {
 
   useEffect(() => {
     const openGuide = () => {
+      firstUseGuideOpenedManuallyRef.current = true;
       setFirstUseStepIndex(organizationSetupComplete ? 1 : 0);
       setFirstUseGuideOpen(true);
     };
@@ -2807,6 +2937,18 @@ function AppLayout() {
     navigate("/settings", { replace: true });
   }, [loadingRole, location.pathname, navigate, organizationSetupComplete, role]);
 
+  const handleFirstUseClose = () => {
+    if (!firstUseGuideOpenedManuallyRef.current && currentUserId) {
+      window.localStorage.setItem(
+        `scout-first-use-guide-dismissed:${currentUserId}`,
+        "true",
+      );
+    }
+
+    firstUseGuideOpenedManuallyRef.current = false;
+    setFirstUseGuideOpen(false);
+  };
+
   const handleFirstUseMove = (path: string) => {
     setFirstUseGuideOpen(false);
     navigate(path);
@@ -2815,7 +2957,9 @@ function AppLayout() {
   const handleFirstUseComplete = () => {
     if (currentUserId) {
       window.localStorage.setItem(`scout-first-use-guide-complete:${currentUserId}`, "true");
+      window.localStorage.setItem(`scout-first-use-guide-dismissed:${currentUserId}`, "true");
     }
+    firstUseGuideOpenedManuallyRef.current = false;
     setFirstUseGuideOpen(false);
     navigate(organizationSetupComplete ? "/dashboard" : "/settings");
   };
@@ -2947,7 +3091,7 @@ function AppLayout() {
         stepIndex={firstUseStepIndex}
         onStepChange={setFirstUseStepIndex}
         onMove={handleFirstUseMove}
-        onClose={() => setFirstUseGuideOpen(false)}
+        onClose={handleFirstUseClose}
         onComplete={handleFirstUseComplete}
       />
 
@@ -3065,6 +3209,7 @@ function AppLayout() {
             type="button"
             style={firstUseSidebarButtonStyle}
             onClick={() => {
+              firstUseGuideOpenedManuallyRef.current = true;
               setFirstUseStepIndex(organizationSetupComplete ? 1 : 0);
               setFirstUseGuideOpen(true);
             }}
