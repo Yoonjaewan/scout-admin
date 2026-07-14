@@ -42,6 +42,10 @@ export default function UserManagementPage() {
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [createdCredentials, setCreatedCredentials] = useState<CreatedCredential[]>([]);
   const [credentialPanelTitle, setCredentialPanelTitle] = useState("이번에 발급한 계정");
+  const [isCredentialModalOpen, setIsCredentialModalOpen] = useState(false);
+  const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
+  const [resetPasswordFormError, setResetPasswordFormError] = useState("");
+  const [resetPasswordFormLoading, setResetPasswordFormLoading] = useState(false);
   const [loadingOrganizations, setLoadingOrganizations] = useState(true);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -140,53 +144,42 @@ export default function UserManagementPage() {
     void loadUsers();
   }, [loadUsers]);
 
-  const handleCreate = async () => {
-    if (!selectedOrganizationId) {
-      setErrorMessage("소속대를 선택하세요.");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `${selectedOrganization?.name ?? "선택한 소속대"}에 ${ROLE_LABELS[role]} 테스트 계정 ${count}개를 생성하시겠습니까?`,
-    );
-    if (!confirmed) return;
-
-    setProcessing(true);
-    setErrorMessage("");
-    setSuccessMessage("");
+  const closeCredentialModal = () => {
+    setIsCredentialModalOpen(false);
     setCreatedCredentials([]);
-    setCredentialPanelTitle("이번에 발급한 계정");
-
-    try {
-      const data = await invokeFunction({
-        action: "create",
-        organization_id: selectedOrganizationId,
-        role,
-        count,
-        expiry_days: expiryDays,
-      });
-      const credentials = data.credentials ?? [];
-      setCreatedCredentials(credentials);
-      setSuccessMessage(`${credentials.length}개의 테스트 계정을 생성했습니다.`);
-      await loadUsers();
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "테스트 계정을 생성하지 못했습니다.");
-    } finally {
-      setProcessing(false);
-    }
+    setResetPasswordFormError("");
+    setResetPasswordFormLoading(false);
   };
 
-  const handleResetPassword = async () => {
+  const openResetPasswordModal = () => {
     if (selectedUserIds.length === 0) {
       setErrorMessage("비밀번호를 초기화할 테스트 계정을 선택하세요.");
       return;
     }
 
-    const confirmed = window.confirm(
-      `선택한 테스트 계정 ${selectedUserIds.length}개의 비밀번호를 초기화하시겠습니까?\n초기화된 계정은 다음 로그인 시 비밀번호 변경이 필요합니다.`,
-    );
-    if (!confirmed) return;
+    setErrorMessage("");
+    setSuccessMessage("");
+    setResetPasswordFormError("");
+    setResetPasswordFormLoading(false);
+    setIsResetPasswordModalOpen(true);
+  };
 
+  const closeResetPasswordModal = () => {
+    if (resetPasswordFormLoading) return;
+
+    setIsResetPasswordModalOpen(false);
+    setResetPasswordFormError("");
+    setResetPasswordFormLoading(false);
+  };
+
+  const submitResetPasswordModal = async () => {
+    if (selectedUserIds.length === 0) {
+      setResetPasswordFormError("비밀번호를 초기화할 테스트 계정을 선택하세요.");
+      return;
+    }
+
+    setResetPasswordFormLoading(true);
+    setResetPasswordFormError("");
     setProcessing(true);
     setErrorMessage("");
     setSuccessMessage("");
@@ -216,10 +209,52 @@ export default function UserManagementPage() {
       }
 
       await loadUsers();
+
+      setIsResetPasswordModalOpen(false);
+      setResetPasswordFormError("");
+      setIsCredentialModalOpen(credentials.length > 0);
     } catch (error) {
-      setErrorMessage(
+      setResetPasswordFormError(
         error instanceof Error ? error.message : "테스트 계정 비밀번호를 초기화하지 못했습니다.",
       );
+    } finally {
+      setResetPasswordFormLoading(false);
+      setProcessing(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!selectedOrganizationId) {
+      setErrorMessage("소속대를 선택하세요.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `${selectedOrganization?.name ?? "선택한 소속대"}에 ${ROLE_LABELS[role]} 테스트 계정 ${count}개를 생성하시겠습니까?`,
+    );
+    if (!confirmed) return;
+
+    setProcessing(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+    setCreatedCredentials([]);
+    setCredentialPanelTitle("이번에 발급한 계정");
+
+    try {
+      const data = await invokeFunction({
+        action: "create",
+        organization_id: selectedOrganizationId,
+        role,
+        count,
+        expiry_days: expiryDays,
+      });
+      const credentials = data.credentials ?? [];
+      setCreatedCredentials(credentials);
+      setSuccessMessage(`${credentials.length}개의 테스트 계정을 생성했습니다.`);
+      setIsCredentialModalOpen(credentials.length > 0);
+      await loadUsers();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "테스트 계정을 생성하지 못했습니다.");
     } finally {
       setProcessing(false);
     }
@@ -240,6 +275,7 @@ export default function UserManagementPage() {
       await invokeFunction({ action: "delete", user_ids: selectedUserIds });
       setSuccessMessage(`${selectedUserIds.length}개의 테스트 계정을 삭제했습니다.`);
       setCreatedCredentials([]);
+      setIsCredentialModalOpen(false);
       await loadUsers();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "테스트 계정을 삭제하지 못했습니다.");
@@ -263,6 +299,7 @@ export default function UserManagementPage() {
     try {
       await navigator.clipboard.writeText(text);
       setSuccessMessage("계정 정보를 클립보드에 복사했습니다.");
+      closeCredentialModal();
     } catch {
       setErrorMessage("클립보드 복사에 실패했습니다. 계정 정보를 직접 복사하세요.");
     }
@@ -328,7 +365,7 @@ export default function UserManagementPage() {
               value={selectedOrganizationId}
               onChange={(event) => {
                 setSelectedOrganizationId(event.target.value);
-                setCreatedCredentials([]);
+                closeCredentialModal();
                 setCredentialPanelTitle("이번에 발급한 계정");
               }}
               disabled={loadingOrganizations || processing}
@@ -383,27 +420,86 @@ export default function UserManagementPage() {
         </div>
       </section>
 
-      {createdCredentials.length > 0 ? (
-        <section style={credentialPanelStyle}>
-          <div style={credentialHeaderStyle}>
-            <div>
-              <h2 style={sectionTitleStyle}>{credentialPanelTitle}</h2>
-              <p style={sectionDescriptionStyle}>임시 비밀번호는 이 화면을 벗어나면 다시 확인할 수 없습니다.</p>
+      {isCredentialModalOpen && createdCredentials.length > 0 ? (
+        <div style={modalOverlayStyle} role="presentation" onClick={closeCredentialModal}>
+          <section
+            style={modalPanelStyle}
+            role="dialog"
+            aria-modal="true"
+            aria-label={credentialPanelTitle}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={credentialHeaderStyle}>
+              <div>
+                <h2 style={sectionTitleStyle}>{credentialPanelTitle}</h2>
+                <p style={sectionDescriptionStyle}>임시 비밀번호는 이 화면을 벗어나면 다시 확인할 수 없습니다.</p>
+              </div>
+              <button type="button" onClick={closeCredentialModal} style={secondaryButtonStyle}>
+                닫기
+              </button>
             </div>
-            <button type="button" onClick={() => void copyCreatedCredentials()} style={copyButtonStyle}>계정 정보 복사</button>
-          </div>
-          <div style={credentialGridStyle}>
-            {createdCredentials.map((item) => (
-              <article key={item.userId} style={credentialCardStyle}>
-                <strong>{item.name}</strong>
-                <span>아이디: {item.email}</span>
-                <span>비밀번호: <b>{item.password}</b></span>
-                <span>권한: {ROLE_LABELS[item.role]}</span>
-                <span>사용기한: {formatDate(item.expiresAt)}</span>
-              </article>
-            ))}
-          </div>
-        </section>
+            <div style={credentialGridStyle}>
+              {createdCredentials.map((item) => (
+                <article key={item.userId} style={credentialCardStyle}>
+                  <strong>{item.name}</strong>
+                  <span>아이디: {item.email}</span>
+                  <span>비밀번호: <b>{item.password}</b></span>
+                  <span>권한: {ROLE_LABELS[item.role]}</span>
+                  <span>사용기한: {formatDate(item.expiresAt)}</span>
+                </article>
+              ))}
+            </div>
+            <div style={modalFooterStyle}>
+              <button type="button" onClick={() => void copyCreatedCredentials()} style={copyButtonStyle}>
+                계정 정보 복사
+              </button>
+              <button type="button" onClick={closeCredentialModal} style={primaryButtonStyle}>
+                확인
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isResetPasswordModalOpen ? (
+        <div style={modalOverlayStyle} role="presentation" onClick={closeResetPasswordModal}>
+          <section
+            style={modalPanelStyle}
+            role="dialog"
+            aria-modal="true"
+            aria-label="비밀번호 초기화"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>비밀번호 초기화</h2>
+              <p style={sectionDescriptionStyle}>
+                선택한 테스트 계정 {selectedUserIds.length}개의 비밀번호를 초기화합니다.
+                저장 후 임시 비밀번호가 발급되며, 다음 로그인 시 비밀번호 변경이 필요합니다.
+              </p>
+            </div>
+
+            {resetPasswordFormError ? <div style={errorBoxStyle}>{resetPasswordFormError}</div> : null}
+
+            <div style={modalFooterStyle}>
+              <button
+                type="button"
+                onClick={closeResetPasswordModal}
+                disabled={resetPasswordFormLoading}
+                style={secondaryButtonStyle}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitResetPasswordModal()}
+                disabled={resetPasswordFormLoading}
+                style={primaryButtonStyle}
+              >
+                {resetPasswordFormLoading ? "저장 중..." : "저장"}
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       <section style={panelStyle}>
@@ -415,7 +511,7 @@ export default function UserManagementPage() {
           <div style={listActionGroupStyle}>
             <button
               type="button"
-              onClick={() => void handleResetPassword()}
+              onClick={openResetPasswordModal}
               disabled={processing || selectedUserIds.length === 0}
               style={resetButtonStyle}
             >
@@ -482,7 +578,36 @@ const roleBadgeStyle: CSSProperties = { display: "inline-flex", padding: "6px 10
 const titleStyle: CSSProperties = { margin: 0, fontSize: 30, color: "#0f172a", fontWeight: 900 };
 const descriptionStyle: CSSProperties = { margin: "8px 0 0", color: "#64748b", lineHeight: 1.6 };
 const panelStyle: CSSProperties = { padding: 22, border: "1px solid #e5e7eb", borderRadius: 16, backgroundColor: "#fff", marginBottom: 20 };
-const credentialPanelStyle: CSSProperties = { ...panelStyle, borderColor: "#93c5fd", backgroundColor: "#eff6ff" };
+const modalOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 1000,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 24,
+  boxSizing: "border-box",
+  backgroundColor: "rgba(15, 23, 42, 0.55)",
+};
+const modalPanelStyle: CSSProperties = {
+  width: "100%",
+  maxWidth: 760,
+  maxHeight: "90vh",
+  overflowY: "auto",
+  padding: 24,
+  borderRadius: 18,
+  backgroundColor: "#ffffff",
+  border: "1px solid #e5e7eb",
+  boxShadow: "0 24px 80px rgba(15, 23, 42, 0.16)",
+  boxSizing: "border-box",
+};
+const modalFooterStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 10,
+  marginTop: 18,
+  flexWrap: "wrap",
+};
 const sectionHeaderStyle: CSSProperties = { marginBottom: 18 };
 const sectionTitleStyle: CSSProperties = { margin: 0, fontSize: 21, fontWeight: 900, color: "#0f172a" };
 const sectionDescriptionStyle: CSSProperties = { margin: "6px 0 0", color: "#64748b", lineHeight: 1.5 };
