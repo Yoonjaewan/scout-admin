@@ -49,6 +49,24 @@ export default function LoginPage() {
       localStorage.removeItem(SAVED_EMAIL_KEY);
     }
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("must_change_password")
+        .eq("user_id", user.id)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (profile?.must_change_password === true) {
+        navigate("/change-password", { replace: true });
+        return;
+      }
+    }
+
     navigate("/dashboard", { replace: true });
   };
 

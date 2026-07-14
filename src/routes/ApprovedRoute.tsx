@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 type RouteCheckState = {
   loading: boolean;
   allowed: boolean;
+  mustChangePassword: boolean;
   reason?:
     | "not_authenticated"
     | "profile_not_found"
@@ -25,6 +26,7 @@ export default function ApprovedRoute() {
   const [state, setState] = useState<RouteCheckState>({
     loading: true,
     allowed: false,
+    mustChangePassword: false,
   });
 
   useEffect(() => {
@@ -38,6 +40,7 @@ export default function ApprovedRoute() {
         setState({
           loading: false,
           allowed: false,
+          mustChangePassword: false,
           reason: "not_authenticated",
         });
         return;
@@ -45,7 +48,7 @@ export default function ApprovedRoute() {
 
       const { data: profile, error: profileError } = await supabase
         .from("user_profiles")
-        .select("id, user_id, role, organization_id, status, deleted_at")
+        .select("id, user_id, role, organization_id, status, deleted_at, must_change_password")
         .eq("user_id", user.id)
         .is("deleted_at", null)
         .maybeSingle();
@@ -56,6 +59,7 @@ export default function ApprovedRoute() {
         setState({
           loading: false,
           allowed: false,
+          mustChangePassword: false,
           reason: "profile_not_found",
         });
         return;
@@ -65,7 +69,19 @@ export default function ApprovedRoute() {
         setState({
           loading: false,
           allowed: false,
+          mustChangePassword: false,
           reason: "not_approved",
+        });
+        return;
+      }
+
+      const mustChangePassword = profile.must_change_password === true;
+
+      if (mustChangePassword && location.pathname !== "/change-password") {
+        setState({
+          loading: false,
+          allowed: false,
+          mustChangePassword: true,
         });
         return;
       }
@@ -74,6 +90,7 @@ export default function ApprovedRoute() {
         setState({
           loading: false,
           allowed: true,
+          mustChangePassword,
         });
         return;
       }
@@ -92,6 +109,7 @@ export default function ApprovedRoute() {
           setState({
             loading: false,
             allowed: false,
+            mustChangePassword: false,
             reason: "organization_unavailable",
             organizationName: "소속대",
           });
@@ -109,6 +127,7 @@ export default function ApprovedRoute() {
           setState({
             loading: false,
             allowed: false,
+            mustChangePassword: false,
             reason:
               organizationStatus === "closed"
                 ? "organization_closed"
@@ -122,11 +141,12 @@ export default function ApprovedRoute() {
       setState({
         loading: false,
         allowed: true,
+        mustChangePassword,
       });
     };
 
     checkPermission();
-  }, []);
+  }, [location.pathname]);
 
   if (state.loading) {
     return (
@@ -134,6 +154,10 @@ export default function ApprovedRoute() {
         로그인 및 승인 상태를 확인하는 중입니다...
       </div>
     );
+  }
+
+  if (state.mustChangePassword && location.pathname !== "/change-password") {
+    return <Navigate to="/change-password" replace />;
   }
 
   if (state.allowed) {

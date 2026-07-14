@@ -97,6 +97,7 @@ async function saveTestProfile(
     organization_id: string;
     is_test_user: boolean;
     test_expires_at: string;
+    must_change_password: boolean;
   },
 ) {
   // 현재 프로젝트의 user_profiles에는 email 컬럼은 없지만
@@ -436,6 +437,7 @@ Deno.serve(async (req) => {
             organization_id: organization.id,
             is_test_user: true,
             test_expires_at: expiresAt,
+            must_change_password: true,
           },
         );
 

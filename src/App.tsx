@@ -25,6 +25,7 @@ import ProgramCompletionsPage from "./pages/ProgramCompletionsPage";
 import MeetingsPage from "./pages/MeetingsPage";
 import ReportsPage from "./pages/ReportsPage";
 import SettingsPage from "./pages/SettingsPage";
+import ChangePasswordPage from "./pages/ChangePasswordPage";
 
 import ApprovedRoute from "./routes/ApprovedRoute";
 import SuperAdminRoute from "./routes/SuperAdminRoute";
@@ -3230,6 +3231,7 @@ function App() {
 
       {/* 승인된 사용자만 접근 가능 */}
       <Route element={<ApprovedRoute />}>
+        <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/*" element={<AppLayout />} />
       </Route>
     </Routes>
