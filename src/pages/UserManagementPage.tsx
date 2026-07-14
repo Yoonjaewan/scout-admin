@@ -12,14 +12,18 @@ type TestUser = {
   organizationId: string;
   expiresAt: string | null;
   createdAt: string | null;
+  mustChangePassword?: boolean;
+  status?: string;
 };
 type CreatedCredential = TestUser & { password: string };
+type ResetFailure = { userId: string; message: string };
 
 type FunctionResponse = {
   ok?: boolean;
   message?: string;
   users?: TestUser[];
   credentials?: CreatedCredential[];
+  failures?: ResetFailure[];
 };
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -37,6 +41,7 @@ export default function UserManagementPage() {
   const [users, setUsers] = useState<TestUser[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [createdCredentials, setCreatedCredentials] = useState<CreatedCredential[]>([]);
+  const [credentialPanelTitle, setCredentialPanelTitle] = useState("이번에 발급한 계정");
   const [loadingOrganizations, setLoadingOrganizations] = useState(true);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -150,6 +155,7 @@ export default function UserManagementPage() {
     setErrorMessage("");
     setSuccessMessage("");
     setCreatedCredentials([]);
+    setCredentialPanelTitle("이번에 발급한 계정");
 
     try {
       const data = await invokeFunction({
@@ -165,6 +171,55 @@ export default function UserManagementPage() {
       await loadUsers();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "테스트 계정을 생성하지 못했습니다.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (selectedUserIds.length === 0) {
+      setErrorMessage("비밀번호를 초기화할 테스트 계정을 선택하세요.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `선택한 테스트 계정 ${selectedUserIds.length}개의 비밀번호를 초기화하시겠습니까?\n초기화된 계정은 다음 로그인 시 비밀번호 변경이 필요합니다.`,
+    );
+    if (!confirmed) return;
+
+    setProcessing(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+    setCreatedCredentials([]);
+    setCredentialPanelTitle("이번에 초기화한 계정");
+
+    try {
+      const data = await invokeFunction({
+        action: "reset_password",
+        user_ids: selectedUserIds,
+      });
+      const credentials = data.credentials ?? [];
+      const failures = data.failures ?? [];
+
+      setCreatedCredentials(credentials);
+      setSuccessMessage(
+        data.message ||
+          `${credentials.length}개의 테스트 계정 비밀번호를 초기화했습니다.`,
+      );
+
+      if (failures.length > 0) {
+        setErrorMessage(
+          failures
+            .map((failure) => `${failure.userId}: ${failure.message}`)
+            .join("\n"),
+        );
+      }
+
+      await loadUsers();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "테스트 계정 비밀번호를 초기화하지 못했습니다.",
+      );
     } finally {
       setProcessing(false);
     }
@@ -205,8 +260,37 @@ export default function UserManagementPage() {
       ].join("\n"))
       .join("\n\n");
 
-    await navigator.clipboard.writeText(text);
-    setSuccessMessage("발급된 계정 정보를 클립보드에 복사했습니다.");
+    try {
+      await navigator.clipboard.writeText(text);
+      setSuccessMessage("계정 정보를 클립보드에 복사했습니다.");
+    } catch {
+      setErrorMessage("클립보드 복사에 실패했습니다. 계정 정보를 직접 복사하세요.");
+    }
+  };
+
+  const getAccountStatusLabel = (user: TestUser) => {
+    if (user.expiresAt) {
+      const expiresAt = new Date(user.expiresAt);
+      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
+        return "만료됨";
+      }
+    }
+
+    if (user.mustChangePassword === true) {
+      return "비밀번호 변경 필요";
+    }
+
+    return "사용중";
+  };
+
+  const getAccountStatusStyle = (label: string): CSSProperties => {
+    if (label === "만료됨") {
+      return { ...statusBadgeStyle, backgroundColor: "#fee2e2", color: "#b91c1c" };
+    }
+    if (label === "비밀번호 변경 필요") {
+      return { ...statusBadgeStyle, backgroundColor: "#fef3c7", color: "#92400e" };
+    }
+    return { ...statusBadgeStyle, backgroundColor: "#dcfce7", color: "#166534" };
   };
 
   const toggleUser = (userId: string) => {
@@ -245,6 +329,7 @@ export default function UserManagementPage() {
               onChange={(event) => {
                 setSelectedOrganizationId(event.target.value);
                 setCreatedCredentials([]);
+                setCredentialPanelTitle("이번에 발급한 계정");
               }}
               disabled={loadingOrganizations || processing}
               style={inputStyle}
@@ -302,7 +387,7 @@ export default function UserManagementPage() {
         <section style={credentialPanelStyle}>
           <div style={credentialHeaderStyle}>
             <div>
-              <h2 style={sectionTitleStyle}>이번에 발급한 계정</h2>
+              <h2 style={sectionTitleStyle}>{credentialPanelTitle}</h2>
               <p style={sectionDescriptionStyle}>임시 비밀번호는 이 화면을 벗어나면 다시 확인할 수 없습니다.</p>
             </div>
             <button type="button" onClick={() => void copyCreatedCredentials()} style={copyButtonStyle}>계정 정보 복사</button>
@@ -327,9 +412,19 @@ export default function UserManagementPage() {
             <h2 style={sectionTitleStyle}>발급된 테스트 계정</h2>
             <p style={sectionDescriptionStyle}>{selectedOrganization?.name ?? "소속대"} 기준 계정 목록입니다.</p>
           </div>
-          <button type="button" onClick={() => void handleDelete()} disabled={processing || selectedUserIds.length === 0} style={dangerButtonStyle}>
-            선택 계정 삭제
-          </button>
+          <div style={listActionGroupStyle}>
+            <button
+              type="button"
+              onClick={() => void handleResetPassword()}
+              disabled={processing || selectedUserIds.length === 0}
+              style={resetButtonStyle}
+            >
+              비밀번호 초기화
+            </button>
+            <button type="button" onClick={() => void handleDelete()} disabled={processing || selectedUserIds.length === 0} style={dangerButtonStyle}>
+              선택 계정 삭제
+            </button>
+          </div>
         </div>
 
         {loadingUsers ? (
@@ -345,21 +440,27 @@ export default function UserManagementPage() {
                   <th style={thStyle}>이름</th>
                   <th style={thStyle}>아이디</th>
                   <th style={thStyle}>권한</th>
+                  <th style={thStyle}>상태</th>
                   <th style={thStyle}>사용기한</th>
                   <th style={thStyle}>생성일</th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => (
+                {users.map((user) => {
+                  const statusLabel = getAccountStatusLabel(user);
+
+                  return (
                   <tr key={user.userId}>
                     <td style={tdStyle}><input type="checkbox" checked={selectedUserIds.includes(user.userId)} onChange={() => toggleUser(user.userId)} /></td>
                     <td style={tdStyle}>{user.name}</td>
                     <td style={tdStyle}>{user.email}</td>
                     <td style={tdStyle}>{ROLE_LABELS[user.role]}</td>
+                    <td style={tdStyle}><span style={getAccountStatusStyle(statusLabel)}>{statusLabel}</span></td>
                     <td style={tdStyle}>{formatDate(user.expiresAt)}</td>
                     <td style={tdStyle}>{formatDate(user.createdAt)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -400,6 +501,9 @@ const errorBoxStyle: CSSProperties = { padding: "13px 15px", borderRadius: 12, b
 const successBoxStyle: CSSProperties = { padding: "13px 15px", borderRadius: 12, border: "1px solid #a7f3d0", backgroundColor: "#ecfdf5", color: "#047857", marginBottom: 16 };
 const emptyStyle: CSSProperties = { padding: 34, border: "1px dashed #cbd5e1", borderRadius: 12, backgroundColor: "#f8fafc", color: "#64748b", textAlign: "center" };
 const tableWrapStyle: CSSProperties = { overflowX: "auto", border: "1px solid #e5e7eb", borderRadius: 12 };
-const tableStyle: CSSProperties = { width: "100%", minWidth: 760, borderCollapse: "collapse" };
+const tableStyle: CSSProperties = { width: "100%", minWidth: 860, borderCollapse: "collapse" };
 const thStyle: CSSProperties = { padding: "11px 13px", backgroundColor: "#f8fafc", borderBottom: "1px solid #e5e7eb", textAlign: "left", color: "#334155", fontSize: 14 };
 const tdStyle: CSSProperties = { padding: "11px 13px", borderBottom: "1px solid #f1f5f9", color: "#475569", fontSize: 14 };
+const listActionGroupStyle: CSSProperties = { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" };
+const resetButtonStyle: CSSProperties = { height: 40, padding: "0 14px", borderRadius: 10, border: "1px solid #fcd34d", backgroundColor: "#fffbeb", color: "#92400e", fontWeight: 900, cursor: "pointer" };
+const statusBadgeStyle: CSSProperties = { display: "inline-flex", padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 800, whiteSpace: "nowrap" };

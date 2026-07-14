@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 type TestUserRole = "org_admin" | "leader" | "viewer";
-type Action = "create" | "list" | "delete";
+type Action = "create" | "list" | "delete" | "reset_password";
 
 type RequestBody = {
   action?: Action;
@@ -74,6 +74,108 @@ function normalizeOrganizationCode(
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "")
     .replace(/^-+|-+$/g, "") || "org";
+}
+
+function buildTestUserEmail(
+  organizationCode: string,
+  sequence: number,
+  emailDomain: string,
+) {
+  return `t-${organizationCode}-${String(sequence).padStart(2, "0")}@${emailDomain}`;
+}
+
+function getTestUserEmailPattern(
+  organizationCode: string,
+  emailDomain: string,
+) {
+  const escapedCode = organizationCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedDomain = emailDomain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  return new RegExp(`^t-${escapedCode}-(\\d{2})@${escapedDomain}$`, "i");
+}
+
+function getMaxTestUserSequence(
+  emails: string[],
+  organizationCode: string,
+  emailDomain: string,
+) {
+  const pattern = getTestUserEmailPattern(organizationCode, emailDomain);
+  let maxSequence = 0;
+
+  for (const email of emails) {
+    const match = email.match(pattern);
+    if (!match) continue;
+
+    const sequence = Number.parseInt(match[1], 10);
+    if (Number.isFinite(sequence) && sequence > maxSequence) {
+      maxSequence = sequence;
+    }
+  }
+
+  return maxSequence;
+}
+
+function isDuplicateEmailError(error: { message?: string } | null | undefined) {
+  if (!error?.message) return false;
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("already been registered") ||
+    message.includes("already exists") ||
+    message.includes("duplicate")
+  );
+}
+
+async function listAuthUserEmails(
+  adminClient: ReturnType<typeof createClient>,
+) {
+  const emails: string[] = [];
+  let page = 1;
+  const perPage = 1000;
+
+  while (true) {
+    const { data, error } = await adminClient.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const users = data.users ?? [];
+
+    for (const authUser of users) {
+      if (typeof authUser.email === "string" && authUser.email.trim()) {
+        emails.push(authUser.email.trim().toLowerCase());
+      }
+    }
+
+    if (users.length < perPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return emails;
+}
+
+function getProfileStatus(row: UnknownRow) {
+  return getText(row, ["approval_status", "status"]) || "approved";
+}
+
+function normalizeUserIds(value: unknown) {
+  return Array.isArray(value)
+    ? Array.from(
+        new Set(
+          value.filter(
+            (item): item is string =>
+              typeof item === "string" && item.length > 0,
+          ),
+        ),
+      )
+    : [];
 }
 
 function randomPassword() {
@@ -331,6 +433,8 @@ Deno.serve(async (req) => {
             organizationId: getText(row, ["organization_id"]) || "",
             expiresAt: getText(row, ["test_expires_at"]),
             createdAt: authCreatedAt,
+            mustChangePassword: row.must_change_password === true,
+            status: getProfileStatus(row),
           };
         }),
       );
@@ -395,34 +499,81 @@ Deno.serve(async (req) => {
       ).toISOString();
       const credentials: Array<Record<string, unknown>> = [];
 
-      for (let index = 1; index <= count; index += 1) {
-        const sequence = String(index).padStart(2, "0");
-        const email =
-          `t-${organizationCode}-${sequence}@${emailDomain}`;
-        const password = randomPassword();
-        const displayName =
-          `${organization.name} 테스트 ${sequence}`;
+      let existingEmails: string[];
 
-        const { data: authData, error: authError } =
-          await adminClient.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-            user_metadata: {
-              name: displayName,
-              is_test_user: true,
-              organization_id: organization.id,
+      try {
+        existingEmails = await listAuthUserEmails(adminClient);
+      } catch (listUsersError) {
+        const message = listUsersError instanceof Error
+          ? listUsersError.message
+          : "기존 계정 조회 오류";
+
+        return jsonResponse(
+          {
+            ok: false,
+            message: `기존 테스트 계정 이메일 조회 실패: ${message}`,
+          },
+          500,
+        );
+      }
+
+      let nextSequence =
+        getMaxTestUserSequence(existingEmails, organizationCode, emailDomain) + 1;
+
+      for (let index = 0; index < count; index += 1) {
+        let sequence = nextSequence;
+        let authData: { user: { id: string; created_at: string } } | null = null;
+        let email = "";
+        let password = "";
+        let displayName = "";
+        let lastAuthErrorMessage = "사용자 생성 오류";
+
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          email = buildTestUserEmail(organizationCode, sequence, emailDomain);
+          password = randomPassword();
+          displayName =
+            `${organization.name} 테스트 ${String(sequence).padStart(2, "0")}`;
+
+          const { data: createdAuthData, error: authError } =
+            await adminClient.auth.admin.createUser({
+              email,
+              password,
+              email_confirm: true,
+              user_metadata: {
+                name: displayName,
+                is_test_user: true,
+                organization_id: organization.id,
+              },
+            });
+
+          if (!authError && createdAuthData.user) {
+            authData = createdAuthData;
+            break;
+          }
+
+          lastAuthErrorMessage = authError?.message || "사용자 생성 오류";
+
+          if (authError && isDuplicateEmailError(authError)) {
+            sequence += 1;
+            continue;
+          }
+
+          return jsonResponse(
+            {
+              ok: false,
+              message: `테스트 계정 생성 실패: ${lastAuthErrorMessage}`,
+              credentials,
             },
-          });
+            500,
+          );
+        }
 
-        if (authError || !authData.user) {
+        if (!authData?.user) {
           return jsonResponse(
             {
               ok: false,
               message:
-                `테스트 계정 생성 실패: ${
-                  authError?.message || "사용자 생성 오류"
-                }`,
+                `테스트 계정 생성 실패: 사용 가능한 이메일을 찾지 못했습니다. (${lastAuthErrorMessage})`,
               credentials,
             },
             500,
@@ -468,23 +619,155 @@ Deno.serve(async (req) => {
           expiresAt,
           createdAt: authData.user.created_at,
         });
+
+        existingEmails.push(email.toLowerCase());
+        nextSequence = sequence + 1;
       }
 
       return jsonResponse({ ok: true, credentials });
     }
 
+    if (action === "reset_password") {
+      const userIds = normalizeUserIds(body.user_ids);
+
+      if (userIds.length === 0) {
+        return jsonResponse(
+          {
+            ok: false,
+            message: "비밀번호를 초기화할 테스트 계정이 없습니다.",
+          },
+          400,
+        );
+      }
+
+      const { data: profiles, error: profileLookupError } =
+        await adminClient
+          .from("user_profiles")
+          .select("*")
+          .in("user_id", userIds)
+          .eq("is_test_user", true)
+          .is("deleted_at", null);
+
+      if (profileLookupError) {
+        return jsonResponse(
+          {
+            ok: false,
+            message:
+              `테스트 계정 확인 실패: ${profileLookupError.message}`,
+          },
+          500,
+        );
+      }
+
+      const profileMap = new Map(
+        ((profiles || []) as UnknownRow[]).map((profile) => [
+          getText(profile, ["user_id"]) || "",
+          profile,
+        ]),
+      );
+
+      const credentials: Array<Record<string, unknown>> = [];
+      const failures: Array<Record<string, unknown>> = [];
+
+      for (const userId of userIds) {
+        const profile = profileMap.get(userId);
+
+        if (!profile) {
+          failures.push({
+            userId,
+            message: "테스트 계정이 아니거나 찾을 수 없습니다.",
+          });
+          continue;
+        }
+
+        const password = randomPassword();
+        const role = getText(profile, ["role"]) || "viewer";
+        const organizationId = getText(profile, ["organization_id"]) || "";
+        const expiresAt = getText(profile, ["test_expires_at"]);
+        let email = "";
+        let name = getText(profile, ["name"]) || "테스트 사용자";
+        let createdAt = getText(profile, ["created_at"]);
+
+        const { error: authUpdateError } =
+          await adminClient.auth.admin.updateUserById(userId, {
+            password,
+          });
+
+        if (authUpdateError) {
+          failures.push({
+            userId,
+            message: `비밀번호 변경 실패: ${authUpdateError.message}`,
+          });
+          continue;
+        }
+
+        const { data: authUserData } =
+          await adminClient.auth.admin.getUserById(userId);
+        const authUser = authUserData?.user;
+
+        if (authUser) {
+          email = authUser.email || "";
+          name =
+            (typeof authUser.user_metadata?.name === "string" &&
+              authUser.user_metadata.name.trim()) ||
+            name;
+          createdAt = authUser.created_at || createdAt;
+        }
+
+        const { error: profileUpdateError } = await adminClient
+          .from("user_profiles")
+          .update({ must_change_password: true })
+          .eq("user_id", userId)
+          .eq("is_test_user", true);
+
+        if (profileUpdateError) {
+          failures.push({
+            userId,
+            message:
+              `비밀번호는 변경되었지만 프로필 갱신 실패: ${profileUpdateError.message}`,
+          });
+          continue;
+        }
+
+        credentials.push({
+          userId,
+          email,
+          password,
+          name,
+          role,
+          organizationId,
+          expiresAt,
+          createdAt,
+        });
+      }
+
+      if (credentials.length === 0) {
+        return jsonResponse(
+          {
+            ok: false,
+            message: "선택한 테스트 계정의 비밀번호를 초기화하지 못했습니다.",
+            credentials,
+            failures,
+          },
+          500,
+        );
+      }
+
+      const failureCount = failures.length;
+      const successMessage = failureCount > 0
+        ? `${credentials.length}개 계정 비밀번호를 초기화했습니다. ${failureCount}개 실패.`
+        : `${credentials.length}개 계정 비밀번호를 초기화했습니다.`;
+
+      return jsonResponse({
+        ok: true,
+        message: successMessage,
+        credentials,
+        failures,
+      });
+    }
+
     if (action === "delete") {
-      const userIds = Array.isArray(body.user_ids)
-        ? Array.from(
-            new Set(
-              body.user_ids.filter(
-                (value): value is string =>
-                  typeof value === "string" &&
-                  value.length > 0,
-              ),
-            ),
-          )
-        : [];
+      const userIds = normalizeUserIds(body.user_ids);
 
       if (userIds.length === 0) {
         return jsonResponse(
