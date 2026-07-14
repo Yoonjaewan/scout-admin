@@ -44,41 +44,48 @@ export default function ChangePasswordPage() {
 
     setLoading(true);
 
-    const { error: authError } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
+    try {
+      const { data: authData, error: authError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
 
-    if (authError) {
+      if (authError) {
+        console.error("[ChangePasswordPage] catch 오류 - updateUser:", authError.message);
+        setErrorMessage("비밀번호 변경에 실패했습니다. 다시 시도하세요.");
+        return;
+      }
+
+      console.info("[ChangePasswordPage] updateUser 성공");
+
+      const user = authData.user ?? (await supabase.auth.getUser()).data.user;
+
+      if (!user) {
+        setErrorMessage("로그인 정보를 확인하지 못했습니다.");
+        return;
+      }
+
+      const { data: updatedProfile, error: profileError } = await supabase
+        .from("user_profiles")
+        .update({ must_change_password: false })
+        .eq("user_id", user.id)
+        .is("deleted_at", null)
+        .select("must_change_password")
+        .maybeSingle();
+
+      if (profileError) {
+        console.error("[ChangePasswordPage] catch 오류 - profile update:", profileError.message);
+      } else {
+        console.info("[ChangePasswordPage] profile update 성공", updatedProfile);
+      }
+
+      console.info("[ChangePasswordPage] navigate 실행 직전:", "/dashboard");
+      navigate("/dashboard", { replace: true });
+    } catch (error) {
+      console.error("[ChangePasswordPage] catch 오류:", error);
+      setErrorMessage("비밀번호 변경 중 오류가 발생했습니다. 다시 시도하세요.");
+    } finally {
       setLoading(false);
-      setErrorMessage("비밀번호 변경에 실패했습니다. 다시 시도하세요.");
-      console.error("비밀번호 변경 오류:", authError.message);
-      return;
     }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      setLoading(false);
-      setErrorMessage("로그인 정보를 확인하지 못했습니다.");
-      return;
-    }
-
-    const { error: profileError } = await supabase
-      .from("user_profiles")
-      .update({ must_change_password: false })
-      .eq("user_id", user.id);
-
-    setLoading(false);
-
-    if (profileError) {
-      setErrorMessage("비밀번호는 변경되었지만 프로필 업데이트에 실패했습니다.");
-      console.error("must_change_password 업데이트 오류:", profileError.message);
-      return;
-    }
-
-    navigate("/dashboard", { replace: true });
   };
 
   return (
