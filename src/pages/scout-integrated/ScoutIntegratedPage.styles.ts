@@ -95,12 +95,12 @@ export function selectedReadinessBannerStyle(
         ? { border: "#fca5a5", background: "#fef2f2", color: "#991b1b" }
         : { border: "#fcd34d", background: "#fffbeb", color: "#92400e" };
   return {
-    marginTop: "11px",
-    padding: "12px 14px",
+    marginTop: "10px",
+    padding: "10px 12px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: "16px",
+    gap: "12px",
     border: `1px solid ${palette.border}`,
     borderRadius: "11px",
     backgroundColor: palette.background,
@@ -117,16 +117,17 @@ export const selectedReadinessEyebrowStyle: CSSProperties = {
 
 export const selectedReadinessTitleStyle: CSSProperties = {
   display: "block",
-  marginTop: "3px",
-  fontSize: "19px",
+  marginTop: "2px",
+  fontSize: "17px",
   fontWeight: 900,
+  lineHeight: 1.3,
 };
 
 export const selectedReadinessDetailStyle: CSSProperties = {
   display: "block",
-  marginTop: "4px",
+  marginTop: "2px",
   fontSize: "12px",
-  lineHeight: 1.45,
+  lineHeight: 1.35,
 };
 
 export const selectedReadinessActionStyle: CSSProperties = {
@@ -555,6 +556,8 @@ export const profileMetaStyle: CSSProperties = {
   margin: "8px 0 0",
   color: "#64748b",
   fontSize: "14px",
+  lineHeight: 1.55,
+  wordBreak: "keep-all",
 };
 
 export const profileQuickActionStyle: CSSProperties = {
@@ -579,9 +582,9 @@ export const profileQuickButtonStyle: CSSProperties = {
 };
 
 export const compactPriorityStyle: CSSProperties = {
-  marginTop: "10px",
-  padding: "12px 14px",
-  border: "1px solid #fed7aa",
+  marginTop: "8px",
+  padding: "10px 12px",
+  border: "1px solid #fdba74",
   borderRadius: "12px",
   backgroundColor: "#fffaf5",
 };
@@ -590,8 +593,8 @@ export const compactPriorityHeaderStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: "12px",
-  marginBottom: "8px",
+  gap: "10px",
+  marginBottom: "6px",
 };
 
 export const compactPriorityTitleStyle: CSSProperties = {
@@ -615,25 +618,27 @@ export const compactPriorityCountStyle: CSSProperties = {
 
 export const compactPriorityListStyle: CSSProperties = {
   display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
   gap: "6px",
 };
 
 export const compactPriorityItemStyle: CSSProperties = {
   width: "100%",
-  minHeight: "36px",
+  minHeight: "34px",
   padding: "0 10px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: "12px",
-  border: "1px solid #fed7aa",
+  gap: "10px",
+  border: "1px solid #fdba74",
   borderRadius: "8px",
-  backgroundColor: "#ffffff",
+  backgroundColor: "#fff7ed",
   color: "#7c2d12",
   fontFamily: "inherit",
   fontSize: "12px",
   fontWeight: 800,
   textAlign: "left",
+  cursor: "pointer",
 };
 
 export const compactPriorityMoveStyle: CSSProperties = {

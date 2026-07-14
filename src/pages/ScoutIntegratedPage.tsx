@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, FormEvent } from "react";
+import type {
+  ChangeEvent,
+  CompositionEvent,
+  CSSProperties,
+  FormEvent,
+} from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 import {
-  InfoItem,
   RankProgressOverview,
   ReadinessProgressItem,
   SummaryFilterCard
@@ -61,7 +65,6 @@ import {
   profileTitleRowStyle,
   profileNameStyle,
   profileMetaStyle,
-  profileInfoGridStyle,
   compactPriorityStyle,
   compactPriorityHeaderStyle,
   compactPriorityTitleStyle,
@@ -362,6 +365,8 @@ const TAB_OPTIONS: Array<{ value: DetailTab; label: string }> = [
   { value: "attendance", label: "출석" },
 ];
 
+const SEARCH_APPLY_DELAY_MS = 150;
+
 function isUserRole(value: unknown): value is UserRole {
   return (
     value === "super_admin" ||
@@ -629,6 +634,13 @@ export default function ScoutIntegratedPage() {
   const registrationMenuRef = useRef<HTMLDivElement | null>(null);
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [keyword, setKeyword] = useState("");
+  const [appliedKeyword, setAppliedKeyword] = useState("");
+  const isSearchComposingRef = useRef(false);
+  const ignoreNextSearchChangeRef = useRef(false);
+  const lastCompositionValueRef = useRef("");
+  const searchApplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedScoutIdRef = useRef(selectedScoutId);
+  const lastHandledRequestedScoutIdRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showUsageGuide, setShowUsageGuide] = useState(false);
   const [usageGuideExpanded, setUsageGuideExpanded] = useState(false);
@@ -929,6 +941,31 @@ export default function ScoutIntegratedPage() {
   };
 
   useEffect(() => {
+    selectedScoutIdRef.current = selectedScoutId;
+  }, [selectedScoutId]);
+
+  useEffect(() => {
+    return () => {
+      if (searchApplyTimerRef.current) {
+        clearTimeout(searchApplyTimerRef.current);
+      }
+    };
+  }, []);
+
+  const clearSearchApplyTimer = () => {
+    if (searchApplyTimerRef.current) {
+      clearTimeout(searchApplyTimerRef.current);
+      searchApplyTimerRef.current = null;
+    }
+  };
+
+  const resetSearchKeywords = () => {
+    clearSearchApplyTimer();
+    setKeyword("");
+    setAppliedKeyword("");
+  };
+
+  useEffect(() => {
     if (!requestedScoutId || data.scouts.length === 0) return;
 
     const requestedScout = data.scouts.find(
@@ -937,13 +974,26 @@ export default function ScoutIntegratedPage() {
 
     if (!requestedScout) return;
 
+    if (selectedScoutIdRef.current === requestedScoutId) {
+      lastHandledRequestedScoutIdRef.current = requestedScoutId;
+      return;
+    }
+
+    const isNewRequestedScoutId =
+      lastHandledRequestedScoutIdRef.current !== requestedScoutId;
+
     setSelectedOrganizationId(requestedScout.organization_id);
     setSelectedScoutId(requestedScout.id);
     setStatusFilter(requestedScout.status);
     setReadinessFilter("all");
     setRankFilter("");
-    setKeyword("");
     setActiveTab("overview");
+
+    if (isNewRequestedScoutId) {
+      resetSearchKeywords();
+    }
+
+    lastHandledRequestedScoutIdRef.current = requestedScoutId;
 
     window.requestAnimationFrame(() => {
       document
@@ -1057,17 +1107,8 @@ export default function ScoutIntegratedPage() {
     );
   }, [organizationScopedScouts, scoutReadinessMap]);
 
-  const selectedScout = useMemo(() => {
-    if (isSuperAdmin && !selectedOrganizationId) return null;
-
-    return (
-      organizationScopedScouts.find((scout) => scout.id === selectedScoutId) ??
-      null
-    );
-  }, [isSuperAdmin, organizationScopedScouts, selectedOrganizationId, selectedScoutId]);
-
   const filteredScouts = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
+    const normalizedKeyword = appliedKeyword.trim().toLowerCase();
 
     if (isSuperAdmin && !selectedOrganizationId) return [];
 
@@ -1119,7 +1160,7 @@ export default function ScoutIntegratedPage() {
     });
   }, [
     isSuperAdmin,
-    keyword,
+    appliedKeyword,
     organizationMap,
     organizationScopedScouts,
     rankFilter,
@@ -1128,6 +1169,20 @@ export default function ScoutIntegratedPage() {
     scoutReadinessMap,
     selectedOrganizationId,
     statusFilter,
+  ]);
+
+  const selectedScout = useMemo(() => {
+    if (isSuperAdmin && !selectedOrganizationId) return null;
+    if (!selectedScoutId) return null;
+
+    return (
+      filteredScouts.find((scout) => scout.id === selectedScoutId) ?? null
+    );
+  }, [
+    filteredScouts,
+    isSuperAdmin,
+    selectedOrganizationId,
+    selectedScoutId,
   ]);
 
   const selectedRankHistories = useMemo(() => {
@@ -1190,17 +1245,7 @@ export default function ScoutIntegratedPage() {
 
   const targetRankName = selectedReadiness?.targetRank?.rank_name ?? "-";
 
-  const handleSelectScout = (scoutId: string) => {
-    const scout = data.scouts.find((item) => item.id === scoutId);
-    if (isSuperAdmin && scout) {
-      setSelectedOrganizationId(scout.organization_id);
-    }
-    setSelectedScoutId(scoutId);
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-      next.set("scoutId", scoutId);
-      return next;
-    }, { replace: true });
+  const resetSelectedScoutDependentState = () => {
     setBadgeFormMode(null);
     setBadgeForm(getEmptyBadgeForm());
     setBadgeFormError("");
@@ -1212,6 +1257,107 @@ export default function ScoutIntegratedPage() {
     setProgramFormError("");
     setProgramActionMessage("");
   };
+
+  const handleSelectScout = (scoutId: string) => {
+    const scout = data.scouts.find((item) => item.id === scoutId);
+    if (isSuperAdmin && scout) {
+      setSelectedOrganizationId(scout.organization_id);
+    }
+    setSelectedScoutId(scoutId);
+    lastHandledRequestedScoutIdRef.current = scoutId;
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("scoutId", scoutId);
+      return next;
+    }, { replace: true });
+    resetSelectedScoutDependentState();
+  };
+
+  const handleSearchCompositionStart = () => {
+    isSearchComposingRef.current = true;
+  };
+
+  const handleSearchCompositionEnd = (
+    event: CompositionEvent<HTMLInputElement>,
+  ) => {
+    isSearchComposingRef.current = false;
+    const value = event.currentTarget.value;
+    lastCompositionValueRef.current = value;
+    ignoreNextSearchChangeRef.current = true;
+    clearSearchApplyTimer();
+    setKeyword(value);
+    setAppliedKeyword(value);
+  };
+
+  const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.currentTarget.value;
+
+    if (ignoreNextSearchChangeRef.current) {
+      if (value === lastCompositionValueRef.current) {
+        ignoreNextSearchChangeRef.current = false;
+        return;
+      }
+      ignoreNextSearchChangeRef.current = false;
+    }
+
+    setKeyword(value);
+    clearSearchApplyTimer();
+    searchApplyTimerRef.current = setTimeout(() => {
+      searchApplyTimerRef.current = null;
+      setAppliedKeyword(value);
+    }, SEARCH_APPLY_DELAY_MS);
+  };
+
+  useEffect(() => {
+    if (loading) return;
+    if (isSuperAdmin && !selectedOrganizationId) return;
+
+    const requestedScout = requestedScoutId
+      ? data.scouts.find((scout) => scout.id === requestedScoutId)
+      : null;
+    if (requestedScout && selectedScoutId !== requestedScoutId) return;
+
+    const isSelectedInFiltered = filteredScouts.some(
+      (scout) => scout.id === selectedScoutId,
+    );
+
+    if (isSelectedInFiltered) return;
+
+    if (filteredScouts.length > 0) {
+      const nextScoutId = filteredScouts[0].id;
+      const scout = data.scouts.find((item) => item.id === nextScoutId);
+      if (isSuperAdmin && scout) {
+        setSelectedOrganizationId(scout.organization_id);
+      }
+      setSelectedScoutId(nextScoutId);
+      lastHandledRequestedScoutIdRef.current = nextScoutId;
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.set("scoutId", nextScoutId);
+        return next;
+      }, { replace: true });
+      resetSelectedScoutDependentState();
+      return;
+    }
+
+    setSelectedScoutId("");
+    lastHandledRequestedScoutIdRef.current = "";
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("scoutId");
+      return next;
+    }, { replace: true });
+    resetSelectedScoutDependentState();
+  }, [
+    data.scouts,
+    filteredScouts,
+    isSuperAdmin,
+    loading,
+    requestedScoutId,
+    selectedOrganizationId,
+    selectedScoutId,
+    setSearchParams,
+  ]);
 
   const handleRunPromotionReview = async () => {
     if (!canManageAdvancements) {
@@ -1781,7 +1927,10 @@ export default function ScoutIntegratedPage() {
         if (rankError) throw new Error(rankError.message);
       }
       setScoutCreateOpen(false);
-      setKeyword(""); setStatusFilter("active"); setReadinessFilter("all"); setRankFilter("");
+      resetSearchKeywords();
+      setStatusFilter("active");
+      setReadinessFilter("all");
+      setRankFilter("");
       await loadData();
       setSelectedScoutId(createdScout.id); setActiveTab("overview");
     } catch (error) {
@@ -1935,7 +2084,7 @@ export default function ScoutIntegratedPage() {
               onChange={(event) => {
                 const organizationId = event.target.value;
                 setSelectedOrganizationId(organizationId);
-                setKeyword("");
+                resetSearchKeywords();
                 setStatusFilter("active");
                 setReadinessFilter("all");
                 setRankFilter("");
@@ -2133,7 +2282,9 @@ export default function ScoutIntegratedPage() {
               style={searchInputStyle}
               type="search"
               value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
+              onChange={handleSearchChange}
+              onCompositionStart={handleSearchCompositionStart}
+              onCompositionEnd={handleSearchCompositionEnd}
               placeholder="이름·대원번호·학교 검색"
             />
 
@@ -2239,9 +2390,15 @@ export default function ScoutIntegratedPage() {
         <main style={detailPanelStyle}>
           {!selectedScout ? (
             <section style={emptyDetailStyle}>
-              <h2 style={panelTitleStyle}>대원을 선택하세요</h2>
+              <h2 style={panelTitleStyle}>
+                {!loading && filteredScouts.length === 0
+                  ? "현재 조건에 해당하는 대원이 없습니다."
+                  : "대원을 선택하세요"}
+              </h2>
               <p style={panelDescriptionStyle}>
-                왼쪽 목록에서 대원을 선택하면 통합 현황이 표시됩니다.
+                {!loading && filteredScouts.length === 0
+                  ? "검색어나 필터 조건을 변경해 다시 확인하세요."
+                  : "왼쪽 목록에서 대원을 선택하면 통합 현황이 표시됩니다."}
               </p>
             </section>
           ) : (
@@ -2256,9 +2413,18 @@ export default function ScoutIntegratedPage() {
                       </span>
                     </div>
                     <p style={profileMetaStyle}>
-                      {selectedScout.member_no ?? "대원번호 미등록"} ·{" "}
-                      {organizationMap.get(selectedScout.organization_id) ??
-                        "소속대 확인 필요"}
+                      {[
+                        selectedScout.member_no
+                          ? `대원번호 ${selectedScout.member_no}`
+                          : "대원번호 미등록",
+                        [selectedScout.school_name, selectedScout.grade]
+                          .filter((value) => Boolean(value?.trim()))
+                          .join(" / ") || null,
+                        organizationMap.get(selectedScout.organization_id) ??
+                          "소속대 확인 필요",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
                   </div>
                 </div>
@@ -2282,11 +2448,6 @@ export default function ScoutIntegratedPage() {
                       </strong>
                       <span style={selectedReadinessDetailStyle}>
                         {currentRankName} → {targetRankName}
-                        {selectedReadiness.missingLabels.length > 0
-                          ? ` · 확인: ${selectedReadiness.missingLabels.join(", ")}`
-                          : selectedReadiness.latestReview?.available_at
-                            ? ` · 예상 진급일 ${formatDate(selectedReadiness.latestReview.available_at)}`
-                            : ""}
                       </span>
                     </div>
                     <button
@@ -2365,36 +2526,6 @@ export default function ScoutIntegratedPage() {
                   />
                   </div>
                 </div>
-
-                <div
-                  style={{
-                    ...profileInfoGridStyle,
-                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                    gap: "8px",
-                  }}
-                >
-                  <InfoItem
-                    label="학교/학년"
-                    value={
-                      [selectedScout.school_name, selectedScout.grade]
-                        .filter(Boolean)
-                        .join(" / ") || "-"
-                    }
-                  />
-                  <InfoItem label="현재 → 다음" value={`${currentRankName} → ${targetRankName}`} />
-                  <InfoItem
-                    label="예상 진급일"
-                    value={formatDate(latestReview?.available_at)}
-                  />
-                  <InfoItem
-                    label="출석률"
-                    value={
-                      attendanceSummary.rate === null
-                        ? "-"
-                        : `${attendanceSummary.rate}%`
-                    }
-                  />
-                </div>
               </section>
 
               {selectedReadiness && (
@@ -2433,7 +2564,14 @@ export default function ScoutIntegratedPage() {
                         );
                       })
                     ) : (
-                      <div style={compactPriorityItemStyle}>
+                      <div
+                        style={{
+                          ...compactPriorityItemStyle,
+                          gridColumn: "1 / -1",
+                          backgroundColor: "#ffffff",
+                          cursor: "default",
+                        }}
+                      >
                         <span>현재 우선 확인이 필요한 항목이 없습니다.</span>
                         <span style={compactPriorityMoveStyle}>정상</span>
                       </div>
@@ -2441,13 +2579,6 @@ export default function ScoutIntegratedPage() {
                   </div>
                 </section>
               )}
-
-              <RankProgressOverview
-                scout={selectedScout}
-                ranks={data.ranks}
-                histories={selectedRankHistories}
-                targetRank={selectedReadiness?.targetRank ?? null}
-              />
 
               <section
                 style={{
@@ -2490,27 +2621,35 @@ export default function ScoutIntegratedPage() {
               </section>
 
               {activeTab === "overview" && (
-                <OverviewPanel
-                  scout={selectedScout}
-                  ranks={data.ranks}
-                  rankRequirements={data.rankRequirements}
-                  rankRequiredBadges={data.rankRequiredBadges}
-                  latestReview={latestReview}
-                  histories={selectedRankHistories}
-                  scoutBadges={selectedScoutBadges}
-                  badgeMap={badgeMap}
-                  programs={selectedPrograms}
-                  attendanceRows={selectedAttendance}
-                  attendanceRate={attendanceSummary.rate}
-                  attendanceRequiredForBeom={Boolean(
-                    organizationAttendanceRequiredMap.get(selectedScout.organization_id),
-                  )}
-                  onMoveToAdvancement={() => setActiveTab("advancement")}
-                  onMoveToBadges={() => setActiveTab("badges")}
-                  onMoveToPrograms={() => setActiveTab("programs")}
-                  onMoveToAttendance={() => setActiveTab("attendance")}
-                  showPriority={false}
-                />
+                <>
+                  <OverviewPanel
+                    scout={selectedScout}
+                    ranks={data.ranks}
+                    rankRequirements={data.rankRequirements}
+                    rankRequiredBadges={data.rankRequiredBadges}
+                    latestReview={latestReview}
+                    histories={selectedRankHistories}
+                    scoutBadges={selectedScoutBadges}
+                    badgeMap={badgeMap}
+                    programs={selectedPrograms}
+                    attendanceRows={selectedAttendance}
+                    attendanceRate={attendanceSummary.rate}
+                    attendanceRequiredForBeom={Boolean(
+                      organizationAttendanceRequiredMap.get(selectedScout.organization_id),
+                    )}
+                    onMoveToAdvancement={() => setActiveTab("advancement")}
+                    onMoveToBadges={() => setActiveTab("badges")}
+                    onMoveToPrograms={() => setActiveTab("programs")}
+                    onMoveToAttendance={() => setActiveTab("attendance")}
+                    showPriority={false}
+                  />
+                  <RankProgressOverview
+                    scout={selectedScout}
+                    ranks={data.ranks}
+                    histories={selectedRankHistories}
+                    targetRank={selectedReadiness?.targetRank ?? null}
+                  />
+                </>
               )}
 
               {activeTab === "advancement" && (
@@ -2595,7 +2734,7 @@ export default function ScoutIntegratedPage() {
           onClose={() => setExcelImportOpen(false)}
           onCompleted={async (selectedId) => {
             setExcelImportOpen(false);
-            setKeyword("");
+            resetSearchKeywords();
             setStatusFilter("active");
             setReadinessFilter("all");
             setRankFilter("");
