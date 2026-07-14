@@ -40,12 +40,24 @@ export default function ApprovedRoute() {
     allowed: false,
     mustChangePassword: false,
   });
+  const [checkedPathname, setCheckedPathname] = useState("");
 
   useEffect(() => {
+    const currentPathname = location.pathname;
+
     setState((prev) => ({
       ...prev,
       loading: true,
     }));
+
+    let active = true;
+
+    const completeCheck = (nextState: RouteCheckState) => {
+      if (!active) return;
+
+      setCheckedPathname(currentPathname);
+      setState(nextState);
+    };
 
     const checkPermission = async () => {
       const {
@@ -54,7 +66,7 @@ export default function ApprovedRoute() {
       } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        setState({
+        completeCheck({
           loading: false,
           allowed: false,
           mustChangePassword: false,
@@ -76,7 +88,7 @@ export default function ApprovedRoute() {
         console.error("[ApprovedRoute] user_profiles 조회 실패:", profileError?.message ?? "프로필 없음");
         console.info("[ApprovedRoute] 최종 판단:", "profile_not_found");
 
-        setState({
+        completeCheck({
           loading: false,
           allowed: false,
           mustChangePassword: false,
@@ -99,7 +111,7 @@ export default function ApprovedRoute() {
         console.info("[ApprovedRoute] 최종 판단:", decision);
 
         if (location.pathname === "/change-password") {
-          setState({
+          completeCheck({
             loading: false,
             allowed: true,
             mustChangePassword: true,
@@ -107,7 +119,7 @@ export default function ApprovedRoute() {
           return;
         }
 
-        setState({
+        completeCheck({
           loading: false,
           allowed: false,
           mustChangePassword: true,
@@ -120,7 +132,7 @@ export default function ApprovedRoute() {
       if (!isApprovedProfileStatus(profileStatus)) {
         console.info("[ApprovedRoute] 최종 판단:", "not_approved");
 
-        setState({
+        completeCheck({
           loading: false,
           allowed: false,
           mustChangePassword: false,
@@ -132,7 +144,7 @@ export default function ApprovedRoute() {
       if (profile.role === "super_admin") {
         console.info("[ApprovedRoute] 최종 판단:", "allowed_super_admin");
 
-        setState({
+        completeCheck({
           loading: false,
           allowed: true,
           mustChangePassword,
@@ -151,7 +163,7 @@ export default function ApprovedRoute() {
         if (organizationError || !organization) {
           console.error("소속대 상태 조회 오류:", organizationError);
 
-          setState({
+          completeCheck({
             loading: false,
             allowed: false,
             mustChangePassword: false,
@@ -169,7 +181,7 @@ export default function ApprovedRoute() {
             : "소속대";
 
         if (isRestrictedOrganizationStatus(organizationStatus)) {
-          setState({
+          completeCheck({
             loading: false,
             allowed: false,
             mustChangePassword: false,
@@ -183,7 +195,7 @@ export default function ApprovedRoute() {
         }
       }
 
-      setState({
+      completeCheck({
         loading: false,
         allowed: true,
         mustChangePassword,
@@ -192,9 +204,16 @@ export default function ApprovedRoute() {
     };
 
     checkPermission();
+
+    return () => {
+      active = false;
+    };
   }, [location.pathname]);
 
-  if (state.loading) {
+  const isRouteCheckPending =
+    state.loading || checkedPathname !== location.pathname;
+
+  if (isRouteCheckPending) {
     return (
       <div style={{ padding: "40px" }}>
         로그인 및 승인 상태를 확인하는 중입니다...
