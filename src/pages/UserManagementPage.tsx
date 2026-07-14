@@ -151,6 +151,12 @@ export default function UserManagementPage() {
     setResetPasswordFormLoading(false);
   };
 
+  const openCredentialModal = (credentials: CreatedCredential[], title: string) => {
+    setCredentialPanelTitle(title);
+    setCreatedCredentials(credentials);
+    setIsCredentialModalOpen(credentials.length > 0);
+  };
+
   const openResetPasswordModal = () => {
     if (selectedUserIds.length === 0) {
       setErrorMessage("비밀번호를 초기화할 테스트 계정을 선택하세요.");
@@ -194,7 +200,6 @@ export default function UserManagementPage() {
       const credentials = data.credentials ?? [];
       const failures = data.failures ?? [];
 
-      setCreatedCredentials(credentials);
       setSuccessMessage(
         data.message ||
           `${credentials.length}개의 테스트 계정 비밀번호를 초기화했습니다.`,
@@ -208,11 +213,11 @@ export default function UserManagementPage() {
         );
       }
 
-      await loadUsers();
-
       setIsResetPasswordModalOpen(false);
       setResetPasswordFormError("");
-      setIsCredentialModalOpen(credentials.length > 0);
+      openCredentialModal(credentials, "이번에 초기화한 계정");
+
+      void loadUsers();
     } catch (error) {
       setResetPasswordFormError(
         error instanceof Error ? error.message : "테스트 계정 비밀번호를 초기화하지 못했습니다.",
@@ -249,10 +254,9 @@ export default function UserManagementPage() {
         expiry_days: expiryDays,
       });
       const credentials = data.credentials ?? [];
-      setCreatedCredentials(credentials);
+      openCredentialModal(credentials, "이번에 발급한 계정");
       setSuccessMessage(`${credentials.length}개의 테스트 계정을 생성했습니다.`);
-      setIsCredentialModalOpen(credentials.length > 0);
-      await loadUsers();
+      void loadUsers();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "테스트 계정을 생성하지 못했습니다.");
     } finally {
@@ -420,7 +424,7 @@ export default function UserManagementPage() {
         </div>
       </section>
 
-      {isCredentialModalOpen && createdCredentials.length > 0 ? (
+      {isCredentialModalOpen ? (
         <div style={modalOverlayStyle} role="presentation" onClick={closeCredentialModal}>
           <section
             style={modalPanelStyle}
