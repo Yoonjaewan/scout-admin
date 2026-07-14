@@ -14,12 +14,29 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
+  const [isWideLayout, setIsWideLayout] = useState(
+    () => typeof window !== "undefined" && window.innerWidth >= 1024,
+  );
+
   useEffect(() => {
     const savedEmail = localStorage.getItem(SAVED_EMAIL_KEY);
     if (savedEmail) {
       setEmail(savedEmail);
       setRememberEmail(true);
     }
+  }, []);
+
+  useEffect(() => {
+    const updateLayout = () => {
+      setIsWideLayout(window.innerWidth >= 1024);
+    };
+
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+
+    return () => {
+      window.removeEventListener("resize", updateLayout);
+    };
   }, []);
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
@@ -90,32 +107,48 @@ export default function LoginPage() {
   };
 
   return (
-    <main style={pageStyle}>
-      <div style={backgroundShapeStyle} />
-      <div style={backgroundGlowStyle} />
+    <main style={isWideLayout ? pageStyleWide : pageStyleCompact}>
+      {isWideLayout ? (
+        <>
+          <div style={backgroundShapeStyle} />
+          <div style={backgroundGlowStyle} />
+        </>
+      ) : (
+        <div style={backgroundCompactStyle} />
+      )}
 
-      <section style={leftPanelStyle}>
-        <div style={brandBoxStyle}>
-          <div style={brandLabelStyle}>Scout Advancement Manager</div>
-          <h1 style={brandTitleStyle}>스카우트 진급관리</h1>
-          <p style={brandTextStyle}>
-            대원 진급, 기능장 취득, 인가 기록을 체계적으로 관리하는
-            스카우트 진급관리 시스템입니다.
+      {isWideLayout ? (
+        <section style={leftPanelStyle}>
+          <div style={brandBoxStyle}>
+            <div style={brandLabelStyle}>Scout Advancement Manager</div>
+            <h1 style={brandTitleStyle}>스카우트 진급관리</h1>
+            <p style={brandTextStyle}>
+              대원 진급, 기능장 취득, 인가 기록을 체계적으로 관리하는
+              스카우트 진급관리 시스템입니다.
+            </p>
+          </div>
+
+          <div style={infoBoxStyle}>
+            <h2 style={infoTitleStyle}>이용 절차</h2>
+            <ol style={stepListStyle}>
+              <li>이용신청</li>
+              <li>최고관리자 승인</li>
+              <li>승인된 계정으로 로그인</li>
+              <li>권한에 따라 진급관리 기능 사용</li>
+            </ol>
+          </div>
+        </section>
+      ) : (
+        <section style={mobileSummaryStyle}>
+          <div style={mobileSummaryBadgeStyle}>Scout Advancement Manager</div>
+          <h1 style={mobileSummaryTitleStyle}>스카우트 진급관리</h1>
+          <p style={mobileSummaryTextStyle}>
+            대원 진급·기능장·인가 기록을 체계적으로 관리합니다.
           </p>
-        </div>
+        </section>
+      )}
 
-        <div style={infoBoxStyle}>
-          <h2 style={infoTitleStyle}>이용 절차</h2>
-          <ol style={stepListStyle}>
-            <li>이용신청</li>
-            <li>최고관리자 승인</li>
-            <li>승인된 계정으로 로그인</li>
-            <li>권한에 따라 진급관리 기능 사용</li>
-          </ol>
-        </div>
-      </section>
-
-      <section style={rightPanelStyle}>
+      <section style={isWideLayout ? rightPanelStyle : rightPanelCompactStyle}>
         <div style={loginCardStyle}>
           <div style={loginHeaderStyle}>
             <div style={badgeStyle}>계정 로그인</div>
@@ -203,15 +236,40 @@ export default function LoginPage() {
   );
 }
 
-const pageStyle: CSSProperties = {
+const pageStyleWide: CSSProperties = {
   minHeight: "100vh",
   display: "grid",
-  gridTemplateColumns: "minmax(520px, 1fr) minmax(420px, 560px)",
+  gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 480px)",
   position: "relative",
   overflow: "hidden",
   backgroundColor: "#f8fafc",
   fontFamily:
     'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+};
+
+const pageStyleCompact: CSSProperties = {
+  minHeight: "100vh",
+  width: "100%",
+  maxWidth: "100vw",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "16px",
+  position: "relative",
+  overflowX: "hidden",
+  padding: "20px 16px 24px 16px",
+  boxSizing: "border-box",
+  backgroundColor: "#f8fafc",
+  fontFamily:
+    'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+};
+
+const backgroundCompactStyle: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  background: "linear-gradient(180deg, #eff6ff 0%, #f8fafc 42%, #ffffff 100%)",
+  zIndex: 0,
 };
 
 const backgroundShapeStyle: CSSProperties = {
@@ -303,6 +361,58 @@ const stepListStyle: CSSProperties = {
   fontSize: "15px",
 };
 
+const rightPanelCompactStyle: CSSProperties = {
+  position: "relative",
+  zIndex: 1,
+  width: "100%",
+  maxWidth: "430px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  boxSizing: "border-box",
+};
+
+const mobileSummaryStyle: CSSProperties = {
+  position: "relative",
+  zIndex: 1,
+  width: "100%",
+  maxWidth: "430px",
+  textAlign: "center",
+  marginBottom: "2px",
+  boxSizing: "border-box",
+};
+
+const mobileSummaryBadgeStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "5px 10px",
+  borderRadius: "999px",
+  backgroundColor: "#dbeafe",
+  color: "#1d4ed8",
+  fontSize: "11px",
+  fontWeight: 800,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  marginBottom: "8px",
+};
+
+const mobileSummaryTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "28px",
+  lineHeight: 1.2,
+  fontWeight: 900,
+  color: "#0f172a",
+  letterSpacing: "-0.03em",
+};
+
+const mobileSummaryTextStyle: CSSProperties = {
+  margin: "8px 0 0",
+  fontSize: "14px",
+  lineHeight: 1.6,
+  color: "#64748b",
+  wordBreak: "keep-all",
+};
+
 const rightPanelStyle: CSSProperties = {
   position: "relative",
   zIndex: 1,
@@ -310,13 +420,14 @@ const rightPanelStyle: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   padding: "48px 56px 48px 24px",
+  transform: "translateX(-60px)",
   boxSizing: "border-box",
 };
 
 const loginCardStyle: CSSProperties = {
   width: "100%",
   maxWidth: "430px",
-  padding: "38px",
+  padding: "32px 24px",
   borderRadius: "24px",
   backgroundColor: "#ffffff",
   boxShadow: "0 24px 80px rgba(15, 23, 42, 0.16)",
@@ -371,6 +482,7 @@ const labelStyle: CSSProperties = {
 };
 
 const inputStyle: CSSProperties = {
+  width: "100%",
   height: "46px",
   borderRadius: "12px",
   border: "1px solid #cbd5e1",
@@ -410,6 +522,7 @@ const errorBoxStyle: CSSProperties = {
 };
 
 const loginButtonStyle: CSSProperties = {
+  width: "100%",
   height: "48px",
   border: "none",
   borderRadius: "12px",

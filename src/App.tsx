@@ -1427,12 +1427,7 @@ function SuperAdminDashboardHome({
             </p>
           </div>
 
-          <div style={summaryGridStyle}>
-            <DashboardSummaryCard
-              title="승인 대기 신청"
-              value={`${stats.pendingRequests.length}건`}
-              description="이용 가능 여부를 승인 또는 반려해야 합니다."
-            />
+          <div style={summaryGridThreeStyle}>
             <DashboardSummaryCard
               title="소속대 정보 보완"
               value={`${stats.setupIncompleteOrganizations.length}곳`}
@@ -1522,7 +1517,9 @@ function SuperAdminDashboardHome({
             <div style={rankGridStyle}>
               {stats.operations.rankCounts.map((item) => (
                 <section key={item.rankId || "none"} style={rankCardStyle}>
-                  <div style={rankNameStyle}>{item.rankName}</div>
+                  <div style={{ ...rankNameStyle, ...ellipsisTextStyle }} title={item.rankName}>
+                    {item.rankName}
+                  </div>
                   <div style={rankCountStyle}>{item.count}명</div>
                 </section>
               ))}
@@ -1601,8 +1598,8 @@ function SuperAdminRequestTable({ items }: { items: AdminProfileItem[] }) {
           {items.map((item) => (
             <tr key={item.id}>
               <td style={tableCellStyle}>{formatDate(item.createdAt)}</td>
-              <td style={tableCellStyle}>{item.displayName}</td>
-              <td style={tableCellStyle}>{item.organizationName}</td>
+              <td style={ellipsisTableCellStyle} title={item.displayName}>{item.displayName}</td>
+              <td style={ellipsisTableCellStyle} title={item.organizationName}>{item.organizationName}</td>
               <td style={tableCellStyle}>{getAdminRoleLabel(item.role)}</td>
               <td style={tableCellStyle}>{item.statusLabel}</td>
               <td style={tableCellStyle}>
@@ -1728,7 +1725,7 @@ function SuperAdminOrganizationTable({ items }: { items: AdminOrganizationItem[]
             <tbody>
               {filteredItems.map((item) => (
                 <tr key={item.id}>
-                  <td style={tableCellStyle}>{item.name}</td>
+                  <td style={ellipsisTableCellStyle} title={item.name}>{item.name}</td>
                   <td style={tableCellStyle}>{item.unitNumber || "-"}</td>
                   <td style={tableCellStyle}>{item.adminCount}명</td>
                   <td style={tableCellStyle}>{item.leaderCount}명</td>
@@ -1918,6 +1915,7 @@ function OrganizationDashboardHome({
               title="전체 대원"
               value={`${stats.totalScouts}명`}
               tone="neutral"
+              emphasis="low"
               description="현재 등록된 대원 기준입니다."
               selected={selectedOverviewType === "total"}
               onClick={() => {
@@ -1929,6 +1927,7 @@ function OrganizationDashboardHome({
               title="활동 대원"
               value={`${stats.activeScouts}명`}
               tone="info"
+              emphasis="medium"
               description={
                 stats.scoutStatusAvailable
                   ? `비활동 ${stats.inactiveScouts}명 / 졸업 ${stats.graduatedScouts}명`
@@ -1944,6 +1943,7 @@ function OrganizationDashboardHome({
               title="진급 가능"
               value={`${stats.promotionPossible}명`}
               tone="success"
+              emphasis="high"
               description="최근 진급 판정에서 모든 조건을 충족한 대원입니다."
               selected={selectedOverviewType === "promotionPossible"}
               onClick={() => {
@@ -1957,6 +1957,7 @@ function OrganizationDashboardHome({
               title="판정 필요"
               value={`${stats.notReviewedScouts}명`}
               tone="warning"
+              emphasis="priority"
               description={`활동 대원 중 아직 진급 판정이 진행되지 않은 대원입니다.`}
               selected={selectedOverviewType === "notReviewed"}
               onClick={() => {
@@ -1979,13 +1980,6 @@ function OrganizationDashboardHome({
             />
           ) : null}
 
-          <div style={noticeCardStyle}>
-            <strong>판정 기준 안내</strong>
-            <span>
-              진급 가능 여부는 활동기간·기능장·WSEP/MoP 조건을 기준으로 확인합니다. 출석률은 현재 참고 지표로 표시됩니다.
-            </span>
-          </div>
-
           <div style={sectionHeaderStyle}>
             <h2 style={sectionTitleStyle}>진급 확인 필요 항목</h2>
             <p style={sectionDescriptionStyle}>
@@ -1999,6 +1993,7 @@ function OrganizationDashboardHome({
               title="기간 부족"
               value={`${stats.periodShortage}명`}
               description="다음 급위까지 필요한 활동기간이 부족한 대원입니다."
+              sampleMembers={stats.periodShortageItems.slice(0, 3).map((item) => item.scoutName)}
               selected={selectedIssueType === "period"}
               onClick={() => {
                 setSelectedOverviewType(null);
@@ -2010,6 +2005,7 @@ function OrganizationDashboardHome({
               title="기능장 부족"
               value={`${stats.badgeShortage}명`}
               description="필수 또는 일반 기능장 조건 확인이 필요한 대원입니다."
+              sampleMembers={stats.badgeShortageItems.slice(0, 3).map((item) => item.scoutName)}
               selected={selectedIssueType === "badge"}
               onClick={() => {
                 setSelectedOverviewType(null);
@@ -2021,6 +2017,7 @@ function OrganizationDashboardHome({
               title="WSEP/MoP 미이수"
               value={`${stats.programShortage}명`}
               description="WSEP 또는 MoP 이수 확인이 필요한 대원입니다."
+              sampleMembers={stats.programShortageItems.slice(0, 3).map((item) => item.scoutName)}
               selected={selectedIssueType === "program"}
               onClick={() => {
                 setSelectedOverviewType(null);
@@ -2039,6 +2036,10 @@ function OrganizationDashboardHome({
             />
           ) : null}
 
+          <DashboardCriteriaNotice>
+            진급 가능 여부는 활동기간·기능장·WSEP/MoP 조건을 기준으로 확인합니다. 출석률은 현재 참고 지표로 표시됩니다.
+          </DashboardCriteriaNotice>
+
           <div style={{ ...sectionHeaderStyle, marginTop: "24px" }}>
             <h2 style={sectionTitleStyle}>급위별 활동 대원</h2>
             <p style={sectionDescriptionStyle}>
@@ -2052,7 +2053,9 @@ function OrganizationDashboardHome({
             <div style={rankGridStyle}>
               {stats.rankCounts.map((item) => (
                 <section key={item.rankId || "none"} style={rankCardStyle}>
-                  <div style={rankNameStyle}>{item.rankName}</div>
+                  <div style={{ ...rankNameStyle, ...ellipsisTextStyle }} title={item.rankName}>
+                    {item.rankName}
+                  </div>
                   <div style={rankCountStyle}>{item.count}명</div>
                 </section>
               ))}
@@ -2060,23 +2063,23 @@ function OrganizationDashboardHome({
           )}
 
           <div style={dashboardTwoColumnStyle}>
-            <section>
-              <div style={sectionHeaderStyle}>
+            <section style={dashboardCompactSectionStyle}>
+              <div style={dashboardCompactSectionHeaderStyle}>
                 <h2 style={sectionTitleStyle}>최근 진급 인가</h2>
                 <p style={sectionDescriptionStyle}>최근 등록된 진급 인가 내역입니다.</p>
               </div>
-              <RecentRankApprovalList items={stats.recentRankApprovals} />
+              <RecentRankApprovalList items={stats.recentRankApprovals} compact />
             </section>
 
-            <section>
-              <div style={sectionHeaderStyle}>
+            <section style={dashboardCompactSectionStyle}>
+              <div style={dashboardCompactSectionHeaderStyle}>
                 <h2 style={sectionTitleStyle}>최근 기능장 인가</h2>
                 <p style={sectionDescriptionStyle}>
                   최근 등록된 기능장 인가 내역입니다.
                   {!stats.badgeNameAvailable ? " 일부 기능장명이 확인되지 않아 식별번호로 표시됩니다." : ""}
                 </p>
               </div>
-              <RecentBadgeApprovalList items={stats.recentBadgeApprovals} />
+              <RecentBadgeApprovalList items={stats.recentBadgeApprovals} compact />
             </section>
           </div>
 
@@ -2117,6 +2120,25 @@ function OrganizationDashboardHome({
   );
 }
 
+function DashboardCriteriaNotice({ children }: { children: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={criteriaNoticeWrapStyle}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        style={criteriaNoticeToggleStyle}
+        aria-expanded={open}
+      >
+        <span style={criteriaNoticeLabelStyle}>ⓘ 판정 기준 안내</span>
+        <span style={criteriaNoticeToggleHintStyle}>{open ? "접기" : "펼치기"}</span>
+      </button>
+      {open ? <p style={criteriaNoticeBodyStyle}>{children}</p> : null}
+    </div>
+  );
+}
+
 function DashboardSummaryCard({
   title,
   value,
@@ -2124,6 +2146,7 @@ function DashboardSummaryCard({
   selected = false,
   onClick,
   tone = "neutral",
+  emphasis = "medium",
 }: {
   title: string;
   value: string;
@@ -2131,7 +2154,14 @@ function DashboardSummaryCard({
   selected?: boolean;
   onClick?: () => void;
   tone?: "neutral" | "info" | "success" | "warning";
+  emphasis?: "priority" | "high" | "medium" | "low";
 }) {
+  const cardStyle = {
+    ...summaryCardToneStyle(tone),
+    ...summaryCardEmphasisStyle(emphasis),
+    ...(selected ? summaryCardButtonSelectedStyle : {}),
+  };
+
   if (onClick) {
     return (
       <button
@@ -2139,24 +2169,23 @@ function DashboardSummaryCard({
         onClick={onClick}
         style={{
           ...summaryCardButtonStyle,
-          ...summaryCardToneStyle(tone),
-          ...(selected ? summaryCardButtonSelectedStyle : {}),
+          ...cardStyle,
         }}
         aria-pressed={selected}
       >
         <h2 style={summaryTitleStyle}>{title}</h2>
-        <p style={summaryValueStyle}>{value}</p>
-        <p style={summaryDescriptionStyle}>{description}</p>
+        <p style={{ ...summaryValueStyle, ...summaryValueEmphasisStyle(emphasis) }}>{value}</p>
+        <p style={{ ...summaryDescriptionStyle, ...ellipsisMultilineStyle }}>{description}</p>
         <div style={summaryActionTextStyle}>상세 보기</div>
       </button>
     );
   }
 
   return (
-    <section style={{ ...summaryCardStyle, ...summaryCardToneStyle(tone) }}>
+    <section style={{ ...summaryCardStyle, ...cardStyle }}>
       <h2 style={summaryTitleStyle}>{title}</h2>
-      <p style={summaryValueStyle}>{value}</p>
-      <p style={summaryDescriptionStyle}>{description}</p>
+      <p style={{ ...summaryValueStyle, ...summaryValueEmphasisStyle(emphasis) }}>{value}</p>
+      <p style={{ ...summaryDescriptionStyle, ...ellipsisMultilineStyle }}>{description}</p>
     </section>
   );
 }
@@ -2211,12 +2240,12 @@ function DashboardOverviewDetail({
             <tbody>
               {items.map((item) => (
                 <tr key={item.id}>
-                  <td style={tableCellStyle}>{item.scoutName}</td>
-                  <td style={tableCellStyle}>{item.memberNo}</td>
-                  <td style={tableCellStyle}>{item.schoolGrade}</td>
-                  <td style={tableCellStyle}>{item.currentRankName}</td>
-                  <td style={tableCellStyle}>{item.statusLabel}</td>
-                  <td style={tableCellStyle}>{item.message}</td>
+                  <td style={ellipsisTableCellStyle} title={item.scoutName}>{item.scoutName}</td>
+                  <td style={ellipsisTableCellStyle} title={item.memberNo}>{item.memberNo}</td>
+                  <td style={ellipsisTableCellStyle} title={item.schoolGrade}>{item.schoolGrade}</td>
+                  <td style={ellipsisTableCellStyle} title={item.currentRankName}>{item.currentRankName}</td>
+                  <td style={ellipsisTableCellStyle} title={item.statusLabel}>{item.statusLabel}</td>
+                  <td style={ellipsisTableCellStyle} title={item.message}>{item.message}</td>
                 </tr>
               ))}
             </tbody>
@@ -2232,6 +2261,7 @@ function DashboardIssueCard({
   title,
   value,
   description,
+  sampleMembers = [],
   selected,
   onClick,
 }: {
@@ -2239,6 +2269,7 @@ function DashboardIssueCard({
   title: string;
   value: string;
   description: string;
+  sampleMembers?: string[];
   selected: boolean;
   onClick: () => void;
 }) {
@@ -2255,8 +2286,17 @@ function DashboardIssueCard({
     >
       <h2 style={summaryTitleStyle}>{title}</h2>
       <p style={summaryValueStyle}>{value}</p>
-      <p style={summaryDescriptionStyle}>{description}</p>
-      <div style={summaryActionTextStyle}>상세 보기</div>
+      <p style={{ ...summaryDescriptionStyle, ...ellipsisMultilineStyle }}>{description}</p>
+      {sampleMembers.length > 0 ? (
+        <ul style={issueSampleListStyle}>
+          {sampleMembers.map((memberName, index) => (
+            <li key={`${memberName}-${index}`} style={issueSampleItemStyle} title={memberName}>
+              {memberName}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div style={issueDetailButtonStyle}>{selected ? "상세 접기" : "상세 보기"}</div>
     </button>
   );
 }
@@ -2308,11 +2348,11 @@ function DashboardIssueDetail({
             <tbody>
               {items.map((item) => (
                 <tr key={item.id}>
-                  <td style={tableCellStyle}>{item.scoutName}</td>
-                  <td style={tableCellStyle}>{item.currentRankName}</td>
-                  <td style={tableCellStyle}>{item.targetRankName}</td>
+                  <td style={ellipsisTableCellStyle} title={item.scoutName}>{item.scoutName}</td>
+                  <td style={ellipsisTableCellStyle} title={item.currentRankName}>{item.currentRankName}</td>
+                  <td style={ellipsisTableCellStyle} title={item.targetRankName}>{item.targetRankName}</td>
                   <td style={tableCellStyle}>{formatDate(item.reviewDate)}</td>
-                  <td style={tableCellStyle}>{item.message}</td>
+                  <td style={ellipsisTableCellStyle} title={item.message}>{item.message}</td>
                 </tr>
               ))}
             </tbody>
@@ -2331,7 +2371,13 @@ function EmptyCard({ message }: { message: string }) {
   );
 }
 
-function RecentRankApprovalList({ items }: { items: RecentRankApprovalItem[] }) {
+function RecentRankApprovalList({
+  items,
+  compact = false,
+}: {
+  items: RecentRankApprovalItem[];
+  compact?: boolean;
+}) {
   if (items.length === 0) {
     return <EmptyCard message="최근 진급 인가 내역이 없습니다." />;
   }
@@ -2339,10 +2385,15 @@ function RecentRankApprovalList({ items }: { items: RecentRankApprovalItem[] }) 
   return (
     <div style={listCardStyle}>
       {items.map((item) => (
-        <div key={item.id} style={listItemStyle}>
-          <div>
-            <div style={listTitleStyle}>{item.scoutName}</div>
-            <div style={listDescriptionStyle}>
+        <div
+          key={item.id}
+          style={compact ? compactListItemStyle : listItemStyle}
+        >
+          <div style={listItemTextWrapStyle}>
+            <div style={{ ...listTitleStyle, ...ellipsisTextStyle }} title={item.scoutName}>
+              {item.scoutName}
+            </div>
+            <div style={{ ...listDescriptionStyle, ...ellipsisTextStyle }} title={`${item.rankName} / ${item.approvalType}`}>
               {item.rankName} / {item.approvalType}
             </div>
           </div>
@@ -2353,7 +2404,13 @@ function RecentRankApprovalList({ items }: { items: RecentRankApprovalItem[] }) 
   );
 }
 
-function RecentBadgeApprovalList({ items }: { items: RecentBadgeApprovalItem[] }) {
+function RecentBadgeApprovalList({
+  items,
+  compact = false,
+}: {
+  items: RecentBadgeApprovalItem[];
+  compact?: boolean;
+}) {
   if (items.length === 0) {
     return <EmptyCard message="최근 기능장 인가 내역이 없습니다." />;
   }
@@ -2361,10 +2418,17 @@ function RecentBadgeApprovalList({ items }: { items: RecentBadgeApprovalItem[] }
   return (
     <div style={listCardStyle}>
       {items.map((item) => (
-        <div key={item.id} style={listItemStyle}>
-          <div>
-            <div style={listTitleStyle}>{item.scoutName}</div>
-            <div style={listDescriptionStyle}>{item.badgeName}</div>
+        <div
+          key={item.id}
+          style={compact ? compactListItemStyle : listItemStyle}
+        >
+          <div style={listItemTextWrapStyle}>
+            <div style={{ ...listTitleStyle, ...ellipsisTextStyle }} title={item.scoutName}>
+              {item.scoutName}
+            </div>
+            <div style={{ ...listDescriptionStyle, ...ellipsisTextStyle }} title={item.badgeName}>
+              {item.badgeName}
+            </div>
           </div>
           <div style={listDateStyle}>{formatDate(item.approvedAt || item.acquiredAt)}</div>
         </div>
@@ -2395,8 +2459,8 @@ function RecentMeetingList({ items }: { items: RecentMeetingItem[] }) {
           {items.map((item) => (
             <tr key={item.id}>
               <td style={tableCellStyle}>{formatDate(item.meetingDate)}</td>
-              <td style={tableCellStyle}>{item.title}</td>
-              <td style={tableCellStyle}>{item.meetingType}</td>
+              <td style={ellipsisTableCellStyle} title={item.title}>{item.title}</td>
+              <td style={ellipsisTableCellStyle} title={item.meetingType}>{item.meetingType}</td>
               <td style={tableCellStyle}>{item.isAttendanceTarget ? "대상" : "제외"}</td>
               <td style={tableCellStyle}>
                 {item.attendanceEntered}/{item.attendanceTotal}
@@ -3724,7 +3788,14 @@ const secondaryButtonStyle: CSSProperties = {
 
 const summaryGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "12px",
+  marginBottom: "16px",
+};
+
+const summaryGridThreeStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: "12px",
   marginBottom: "16px",
 };
@@ -3773,7 +3844,7 @@ function dashboardIssueCardStyle(
 
 const dashboardIssueGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: "12px",
   marginBottom: "16px",
 };
@@ -4033,7 +4104,7 @@ const rankCountStyle: CSSProperties = {
 
 const dashboardTwoColumnStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
   gap: "14px",
   alignItems: "start",
 };
@@ -4139,6 +4210,178 @@ const tableCellStyle: CSSProperties = {
   color: "#475569",
   fontSize: "14px",
   verticalAlign: "top",
+};
+
+const ellipsisTextStyle: CSSProperties = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  minWidth: 0,
+};
+
+const ellipsisMultilineStyle: CSSProperties = {
+  overflow: "hidden",
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+};
+
+const ellipsisTableCellStyle: CSSProperties = {
+  ...tableCellStyle,
+  maxWidth: "220px",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+function summaryCardEmphasisStyle(
+  emphasis: "priority" | "high" | "medium" | "low",
+): CSSProperties {
+  if (emphasis === "priority") {
+    return {
+      borderWidth: "2px",
+      borderColor: "#f59e0b",
+      boxShadow: "0 0 0 3px rgba(245, 158, 11, 0.16), 0 10px 22px rgba(245, 158, 11, 0.1)",
+    };
+  }
+
+  if (emphasis === "high") {
+    return {
+      borderWidth: "2px",
+      borderColor: "#4ade80",
+    };
+  }
+
+  if (emphasis === "medium") {
+    return {
+      borderWidth: "1px",
+    };
+  }
+
+  return {
+    borderWidth: "1px",
+    opacity: 0.96,
+  };
+}
+
+function summaryValueEmphasisStyle(
+  emphasis: "priority" | "high" | "medium" | "low",
+): CSSProperties {
+  if (emphasis === "priority") {
+    return { fontSize: "32px", color: "#b45309" };
+  }
+
+  if (emphasis === "high") {
+    return { fontSize: "28px" };
+  }
+
+  if (emphasis === "medium") {
+    return { fontSize: "26px" };
+  }
+
+  return { fontSize: "23px", color: "#334155" };
+}
+
+const criteriaNoticeWrapStyle: CSSProperties = {
+  marginBottom: "16px",
+};
+
+const criteriaNoticeToggleStyle: CSSProperties = {
+  width: "100%",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  minHeight: "36px",
+  padding: "8px 12px",
+  border: "1px solid #dbeafe",
+  borderRadius: "10px",
+  backgroundColor: "#f8fbff",
+  color: "#1e3a8a",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  boxSizing: "border-box",
+};
+
+const criteriaNoticeLabelStyle: CSSProperties = {
+  fontWeight: 800,
+};
+
+const criteriaNoticeToggleHintStyle: CSSProperties = {
+  color: "#2563eb",
+  fontSize: "12px",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
+};
+
+const criteriaNoticeBodyStyle: CSSProperties = {
+  margin: "8px 0 0",
+  padding: "10px 12px",
+  border: "1px solid #dbeafe",
+  borderRadius: "10px",
+  backgroundColor: "#eff6ff",
+  color: "#1e3a8a",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const issueSampleListStyle: CSSProperties = {
+  margin: "8px 0 0",
+  padding: 0,
+  listStyle: "none",
+  display: "grid",
+  gap: "4px",
+};
+
+const issueSampleItemStyle: CSSProperties = {
+  ...ellipsisTextStyle,
+  color: "#334155",
+  fontSize: "12px",
+  fontWeight: 700,
+  padding: "4px 8px",
+  borderRadius: "8px",
+  backgroundColor: "rgba(255, 255, 255, 0.72)",
+};
+
+const issueDetailButtonStyle: CSSProperties = {
+  marginTop: "auto",
+  paddingTop: "10px",
+  minHeight: "34px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  alignSelf: "flex-start",
+  padding: "6px 12px",
+  borderRadius: "8px",
+  border: "1px solid #2563eb",
+  backgroundColor: "#2563eb",
+  color: "#ffffff",
+  fontSize: "12px",
+  fontWeight: 800,
+};
+
+const dashboardCompactSectionStyle: CSSProperties = {
+  minWidth: 0,
+};
+
+const dashboardCompactSectionHeaderStyle: CSSProperties = {
+  marginBottom: "8px",
+};
+
+const listItemTextWrapStyle: CSSProperties = {
+  minWidth: 0,
+  flex: 1,
+};
+
+const compactListItemStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "10px",
+  padding: "6px 10px",
+  borderBottom: "1px solid #f1f5f9",
 };
 
 const logoutButtonStyle: CSSProperties = {
