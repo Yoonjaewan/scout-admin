@@ -49,6 +49,7 @@ export default function LoginPage() {
     }
 
     const user = signInData.user ?? signInData.session?.user ?? null;
+    console.info("[LoginPage] 로그인 사용자 id:", user?.id ?? "(없음)");
 
     if (user) {
       const { data: profile, error: profileError } = await supabase
@@ -59,12 +60,25 @@ export default function LoginPage() {
         .maybeSingle();
 
       if (profileError) {
-        console.error("must_change_password 조회 오류:", profileError.message);
-      } else if (profile?.must_change_password === true) {
-        setLoading(false);
-        navigate("/change-password", { replace: true });
-        return;
+        console.error("[LoginPage] user_profiles 조회 실패:", profileError.message);
+        console.info("[LoginPage] must_change_password 값:", "(조회 실패)");
+        console.info("[LoginPage] 최종 navigate 대상:", "/dashboard");
+      } else {
+        console.info("[LoginPage] user_profiles 조회 성공");
+        console.info("[LoginPage] must_change_password 값:", profile?.must_change_password ?? "(없음)");
+
+        if (profile?.must_change_password === true) {
+          console.info("[LoginPage] 최종 navigate 대상:", "/change-password");
+          setLoading(false);
+          navigate("/change-password", { replace: true });
+          return;
+        }
+
+        console.info("[LoginPage] 최종 navigate 대상:", "/dashboard");
       }
+    } else {
+      console.info("[LoginPage] must_change_password 값:", "(사용자 없음)");
+      console.info("[LoginPage] 최종 navigate 대상:", "/dashboard");
     }
 
     setLoading(false);

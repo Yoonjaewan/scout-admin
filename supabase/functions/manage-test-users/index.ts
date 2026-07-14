@@ -104,6 +104,7 @@ async function saveTestProfile(
   // name 컬럼은 NOT NULL이므로 표시 이름은 프로필에도 저장합니다.
   // 승인 상태 컬럼명은 approval_status 또는 status일 수 있어 순서대로 시도합니다.
   const attempts: UnknownRow[] = [
+    { ...payload, approval_status: "approved", status: "approved" },
     { ...payload, approval_status: "approved" },
     { ...payload, status: "approved" },
     payload,

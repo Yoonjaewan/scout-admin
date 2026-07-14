@@ -2655,9 +2655,13 @@ function AppLayout() {
       }
 
       if (profile.must_change_password === true) {
+        console.info("[AppLayout] must_change_password 값: true");
+        console.info("[AppLayout] 최종 navigate 대상:", "/change-password");
         navigate("/change-password", { replace: true });
         return;
       }
+
+      console.info("[AppLayout] must_change_password 값:", profile.must_change_password ?? "(없음)");
 
       setRole(profile.role);
 

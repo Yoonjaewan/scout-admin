@@ -20,6 +20,18 @@ function isRestrictedOrganizationStatus(status: string | null | undefined) {
   return status === "suspended" || status === "inactive" || status === "closed";
 }
 
+function getProfileStatus(profile: Record<string, unknown>) {
+  const approvalStatus =
+    typeof profile.approval_status === "string" ? profile.approval_status.trim() : "";
+  const status = typeof profile.status === "string" ? profile.status.trim() : "";
+
+  return approvalStatus || status || "";
+}
+
+function isApprovedProfileStatus(status: string) {
+  return status === "approved" || status === "active";
+}
+
 export default function ApprovedRoute() {
   const location = useLocation();
 
@@ -53,13 +65,16 @@ export default function ApprovedRoute() {
 
       const { data: profile, error: profileError } = await supabase
         .from("user_profiles")
-        .select("id, user_id, role, organization_id, status, deleted_at, must_change_password")
+        .select("*")
         .eq("user_id", user.id)
         .is("deleted_at", null)
         .maybeSingle();
 
+      console.info("[ApprovedRoute] 로그인 사용자 id:", user.id);
+
       if (profileError || !profile) {
-        console.error("user_profiles 조회 오류:", profileError);
+        console.error("[ApprovedRoute] user_profiles 조회 실패:", profileError?.message ?? "프로필 없음");
+        console.info("[ApprovedRoute] 최종 판단:", "profile_not_found");
 
         setState({
           loading: false,
@@ -70,19 +85,19 @@ export default function ApprovedRoute() {
         return;
       }
 
-      if (profile.status !== "approved") {
-        setState({
-          loading: false,
-          allowed: false,
-          mustChangePassword: false,
-          reason: "not_approved",
-        });
-        return;
-      }
+      console.info("[ApprovedRoute] user_profiles 조회 성공");
+      console.info("[ApprovedRoute] must_change_password 값:", profile.must_change_password ?? "(없음)");
 
       const mustChangePassword = profile.must_change_password === true;
 
       if (mustChangePassword) {
+        const decision =
+          location.pathname === "/change-password"
+            ? "change_password_page_allowed"
+            : "redirect_change_password";
+
+        console.info("[ApprovedRoute] 최종 판단:", decision);
+
         if (location.pathname === "/change-password") {
           setState({
             loading: false,
@@ -100,7 +115,23 @@ export default function ApprovedRoute() {
         return;
       }
 
+      const profileStatus = getProfileStatus(profile);
+
+      if (!isApprovedProfileStatus(profileStatus)) {
+        console.info("[ApprovedRoute] 최종 판단:", "not_approved");
+
+        setState({
+          loading: false,
+          allowed: false,
+          mustChangePassword: false,
+          reason: "not_approved",
+        });
+        return;
+      }
+
       if (profile.role === "super_admin") {
+        console.info("[ApprovedRoute] 최종 판단:", "allowed_super_admin");
+
         setState({
           loading: false,
           allowed: true,
@@ -157,6 +188,7 @@ export default function ApprovedRoute() {
         allowed: true,
         mustChangePassword,
       });
+      console.info("[ApprovedRoute] 최종 판단:", "allowed");
     };
 
     checkPermission();
