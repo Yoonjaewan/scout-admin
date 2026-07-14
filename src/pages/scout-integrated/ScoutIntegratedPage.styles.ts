@@ -1550,15 +1550,69 @@ export const badgeHeaderActionsStyle: CSSProperties = {
 
 export const badgeSummaryGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
   gap: "10px",
   marginBottom: "14px",
 };
 
 export const badgeTableStyle: CSSProperties = {
   width: "100%",
-  minWidth: "1050px",
+  minWidth: "760px",
   borderCollapse: "collapse",
+  tableLayout: "fixed",
+};
+
+export const badgeTableNameCellStyle: CSSProperties = {
+  ...tdStyle,
+  minWidth: "200px",
+  maxWidth: "320px",
+  verticalAlign: "top",
+};
+
+export const badgeTableNameStyle: CSSProperties = {
+  display: "block",
+  color: "#0f172a",
+  fontSize: "14px",
+  fontWeight: 900,
+  lineHeight: 1.35,
+  wordBreak: "keep-all",
+};
+
+export const badgeTableMetaStyle: CSSProperties = {
+  marginTop: "4px",
+  color: "#64748b",
+  fontSize: "11px",
+  lineHeight: 1.45,
+  wordBreak: "keep-all",
+};
+
+export const badgeTableNoteMetaStyle: CSSProperties = {
+  ...badgeTableMetaStyle,
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+  wordBreak: "break-word",
+};
+
+export const badgeTableCompactCellStyle: CSSProperties = {
+  ...tdStyle,
+  whiteSpace: "nowrap",
+  verticalAlign: "top",
+};
+
+export const badgeTableApprovalCellStyle: CSSProperties = {
+  ...tdStyle,
+  minWidth: "96px",
+  verticalAlign: "top",
+};
+
+export const badgeTableApprovalDateStyle: CSSProperties = {
+  marginTop: "4px",
+  color: "#475569",
+  fontSize: "12px",
+  lineHeight: 1.35,
+  whiteSpace: "nowrap",
 };
 
 export const primaryButtonStyle: CSSProperties = {
@@ -2014,6 +2068,12 @@ export function managementAlertStyle(ready: boolean): CSSProperties {
 export const stageCardGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+  gap: "12px",
+};
+
+export const currentStageCardGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr",
   gap: "12px",
 };
 

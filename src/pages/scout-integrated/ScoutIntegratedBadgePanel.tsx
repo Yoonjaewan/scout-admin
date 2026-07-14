@@ -1,5 +1,4 @@
-import type { CSSProperties } from "react";
-import { InfoItem } from "./ScoutIntegratedDisplayComponents";
+import { useState, type CSSProperties } from "react";
 import {
   conditionBadgeBaseStyle,
   acquiredTextStyle,
@@ -8,6 +7,13 @@ import {
   badgeRequirementItemStyle,
   badgeRequirementListStyle,
   badgeSummaryGridStyle,
+  badgeTableApprovalCellStyle,
+  badgeTableApprovalDateStyle,
+  badgeTableCompactCellStyle,
+  badgeTableMetaStyle,
+  badgeTableNameCellStyle,
+  badgeTableNameStyle,
+  badgeTableNoteMetaStyle,
   badgeTableStyle,
   completedStageBadgeStyle,
   confirmedBadgeStyle,
@@ -32,11 +38,16 @@ import {
   historyConditionBadgeStyle,
   generalRequirementRowStyle,
   generalRequirementTitleStyle,
+  infoItemStyle,
+  infoLabelStyle,
+  infoValueStyle,
   managementAlertStyle,
   managementSummaryHeaderStyle,
   missingTextStyle,
   primaryButtonStyle,
   readyStageBadgeStyle,
+  recordCheckGoodStyle,
+  recordCheckWarningStyle,
   requirementCheckStyle,
   requirementMissingStyle,
   requirementNameDoneStyle,
@@ -46,13 +57,12 @@ import {
   smallDangerButtonStyle,
   stackStyle,
   stageCardGridStyle,
+  currentStageCardGridStyle,
   stageCardHeaderStyle,
   stageCardStyle,
   stageSubTextStyle,
   stageTitleStyle,
-  strongTdStyle,
   tableWrapStyle,
-  tdStyle,
   thStyle,
   unconfirmedBadgeStyle,
   unusedBadgeStyle,
@@ -89,6 +99,20 @@ function normalizeRankOrBadgeName(value: string) { return value.replace(/\s+/g, 
 function formatDate(value: string | null | undefined) { if (!value) return "-"; return value.slice(0, 10).replaceAll("-", "."); }
 function getBadgeTypeLabel(badge: Badge | undefined) { if (!badge) return "-"; if (badge.is_required_badge && badge.is_general_badge) return "필수/일반"; if (badge.is_required_badge) return "필수"; if (badge.is_general_badge) return "일반"; return "기타"; }
 function getSpecialRuleLabel(value: string) { if (value === "none") return "일반 기준"; if (value === "after_swimming_badge") return "수영장 이후 취득"; if (value === "after_mugunghwa_rank") return "무궁화 이후 취득"; return value || "-"; }
+function buildBadgeDetailLine(
+  badge: Badge | undefined,
+  categoryMap: Map<string, BadgeCategory>,
+) {
+  const categoryName = badge
+    ? (categoryMap.get(badge.category_id)?.name ?? null)
+    : null;
+  const specialRuleLabel =
+    badge && badge.special_rule !== "none"
+      ? getSpecialRuleLabel(badge.special_rule)
+      : null;
+  const parts = [categoryName, specialRuleLabel].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
 function getConditionStyle(passed: boolean | null): CSSProperties { if (passed === null) return { ...conditionBadgeBaseStyle, backgroundColor: "#f1f5f9", color: "#475569" }; return { ...conditionBadgeBaseStyle, backgroundColor: passed ? "#dcfce7" : "#fee2e2", color: passed ? "#166534" : "#b91c1c" }; }
 function buildRequiredBadgeStageRules(ranks: Rank[], rankRequirements: RankRequirement[], rankRequiredBadges: RankRequiredBadge[], badgeMap: Map<string, Badge>) {
   const rankMap = new Map(ranks.map((rank) => [rank.id, rank]));
@@ -133,15 +157,14 @@ export function BadgePanel({
   onEdit: (scoutBadge: ScoutBadge) => void;
   onDelete: (scoutBadge: ScoutBadge) => void;
 }) {
-  const requiredCount = scoutBadges.filter(
-    (row) => badgeMap.get(row.badge_id)?.is_required_badge,
+  const approvalPendingCount = scoutBadges.filter(
+    (row) => !row.approved_at,
+  ).length;
+  const promotionPendingCount = scoutBadges.filter(
+    (row) => !usedScoutBadgeIdSet.has(row.id),
   ).length;
   const generalCount = scoutBadges.filter(
     (row) => badgeMap.get(row.badge_id)?.is_general_badge,
-  ).length;
-  const approvedCount = scoutBadges.filter((row) => row.approved_at).length;
-  const usedCount = scoutBadges.filter((row) =>
-    usedScoutBadgeIdSet.has(row.id),
   ).length;
 
   const currentRank = scout.current_rank_id
@@ -227,11 +250,178 @@ export function BadgePanel({
   });
 
   const currentStageRow = stageRows.find((stage) => stage.currentStage) ?? null;
+  const otherStageRows = currentStageRow
+    ? stageRows.filter((stage) => stage.label !== currentStageRow.label)
+    : stageRows;
+  const [showOtherStages, setShowOtherStages] = useState(false);
+
   const managementMessage = currentStageRow
     ? currentStageRow.allPassed
       ? `${currentStageRow.label} 기능장 조건을 충족했습니다. 진급 가능 시기와 다른 조건을 함께 확인하세요.`
       : `${currentStageRow.label} 준비 중입니다. 필수 기능장 ${currentStageRow.requiredMissingCount}개, 일반 기능장 ${currentStageRow.generalMissingCount}개가 부족합니다.`
     : "현재급위에 해당하는 기능장 준비 단계를 확인하지 못했습니다. 급위 정보를 확인하세요.";
+
+  const requiredSummaryValue = !currentStageRow
+    ? "현재 단계 확인 필요"
+    : currentStageRow.requiredMissingCount === 0
+      ? "모두 충족"
+      : `${currentStageRow.requiredMissingCount}개 부족`;
+  const generalSummaryValue = !currentStageRow
+    ? "현재 단계 확인 필요"
+    : currentStageRow.generalMissingCount === 0
+      ? "충족"
+      : `${currentStageRow.generalMissingCount}개 부족`;
+  const approvalSummaryValue =
+    approvalPendingCount === 0
+      ? "이상 없음"
+      : `${approvalPendingCount}건 승인 필요`;
+  const promotionSummaryValue =
+    scoutBadges.length === 0
+      ? "이상 없음"
+      : promotionPendingCount === 0
+        ? "반영 완료"
+        : `${promotionPendingCount}건 반영 필요`;
+
+  const summaryItems = [
+    {
+      label: "필수 기능장",
+      value: requiredSummaryValue,
+      tone: !currentStageRow
+        ? "neutral"
+        : currentStageRow.requiredMissingCount > 0
+          ? "warning"
+          : "good",
+    },
+    {
+      label: "일반 기능장",
+      value: generalSummaryValue,
+      tone: !currentStageRow
+        ? "neutral"
+        : currentStageRow.generalMissingCount > 0
+          ? "warning"
+          : "good",
+    },
+    {
+      label: "승인 대기",
+      value: approvalSummaryValue,
+      tone: approvalPendingCount > 0 ? "warning" : "good",
+    },
+    {
+      label: "진급 반영",
+      value: promotionSummaryValue,
+      tone: promotionPendingCount > 0 ? "warning" : "good",
+    },
+  ] as const;
+
+  const renderStageCard = (stage: (typeof stageRows)[number]) => (
+    <article
+      key={stage.label}
+      style={{
+        ...stageCardStyle,
+        ...(stage.currentStage ? currentStageCardStyle : {}),
+      }}
+    >
+      <div style={stageCardHeaderStyle}>
+        <div>
+          <h4 style={stageTitleStyle}>{stage.label}</h4>
+          <p style={stageSubTextStyle}>
+            필수 {stage.requiredBadgeNames.length}개 · 일반{" "}
+            {stage.requiredGeneralCount}개
+          </p>
+        </div>
+        <span style={stage.stateStyle}>{stage.stateLabel}</span>
+      </div>
+
+      <div style={badgeRequirementListStyle}>
+        {stage.requiredItems.map((item) => (
+          <div
+            key={`${stage.label}-${item.name}`}
+            style={badgeRequirementItemStyle}
+          >
+            <span
+              style={
+                item.acquired
+                  ? requirementCheckStyle
+                  : stage.stageFuture
+                    ? futureRequirementIconStyle
+                    : stage.stageCompleted
+                      ? historyRequirementIconStyle
+                      : requirementMissingStyle
+              }
+            >
+              {item.acquired
+                ? "✓"
+                : stage.stageFuture
+                  ? "·"
+                  : stage.stageCompleted
+                    ? "?"
+                    : "!"}
+            </span>
+            <span
+              style={
+                item.acquired
+                  ? requirementNameDoneStyle
+                  : stage.stageFuture
+                    ? futureRequirementNameStyle
+                    : stage.stageCompleted
+                      ? historyRequirementNameStyle
+                      : requirementNameMissingStyle
+              }
+            >
+              {item.name}
+            </span>
+            <span
+              style={
+                item.acquired
+                  ? acquiredTextStyle
+                  : stage.stageFuture
+                    ? futureRequirementTextStyle
+                    : stage.stageCompleted
+                      ? historyRequirementTextStyle
+                      : missingTextStyle
+              }
+            >
+              {item.acquired
+                ? "취득"
+                : stage.stageFuture
+                  ? "향후 준비"
+                  : stage.stageCompleted
+                    ? "이력 확인"
+                    : "미취득"}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div style={generalRequirementRowStyle}>
+        <div>
+          <strong style={generalRequirementTitleStyle}>일반 기능장</strong>
+          <p style={stageSubTextStyle}>
+            필요 {stage.requiredGeneralCount}개 · 보유 {generalCount}개
+          </p>
+        </div>
+        <span
+          style={
+            stage.generalMissingCount === 0
+              ? getConditionStyle(true)
+              : stage.stageFuture
+                ? futureConditionBadgeStyle
+                : stage.stageCompleted
+                  ? historyConditionBadgeStyle
+                  : getConditionStyle(false)
+          }
+        >
+          {stage.generalMissingCount === 0
+            ? "충족"
+            : stage.stageFuture
+              ? `${stage.generalMissingCount}개 예정`
+              : stage.stageCompleted
+                ? "이력 확인"
+                : `${stage.generalMissingCount}개 부족`}
+        </span>
+      </div>
+    </article>
+  );
 
   return (
     <div style={stackStyle}>
@@ -255,134 +445,89 @@ export function BadgePanel({
         </div>
 
         <div style={badgeSummaryGridStyle}>
-          <InfoItem label="전체 취득" value={`${scoutBadges.length}건`} />
-          <InfoItem label="필수 기능장" value={`${requiredCount}건`} />
-          <InfoItem label="일반 기능장" value={`${generalCount}건`} />
-          <InfoItem label="인가 완료" value={`${approvedCount}건`} />
-          <InfoItem label="진급 반영" value={`${usedCount}건`} />
-        </div>
-      </section>
-
-      <section style={contentCardStyle}>
-        <div style={contentHeaderStyle}>
-          <div>
-            <h3 style={contentTitleStyle}>급위별 기능장 준비도</h3>
-            <p style={contentDescriptionStyle}>
-              각 단계의 필수 기능장과 일반 기능장 부족 수를 한눈에 확인합니다.
-            </p>
-          </div>
-        </div>
-
-        <div style={stageCardGridStyle}>
-          {stageRows.map((stage) => (
-            <article
-              key={stage.label}
-              style={{
-                ...stageCardStyle,
-                ...(stage.currentStage ? currentStageCardStyle : {}),
-              }}
-            >
-              <div style={stageCardHeaderStyle}>
-                <div>
-                  <h4 style={stageTitleStyle}>{stage.label}</h4>
-                  <p style={stageSubTextStyle}>
-                    필수 {stage.requiredBadgeNames.length}개 · 일반{" "}
-                    {stage.requiredGeneralCount}개
-                  </p>
-                </div>
-                <span style={stage.stateStyle}>{stage.stateLabel}</span>
-              </div>
-
-              <div style={badgeRequirementListStyle}>
-                {stage.requiredItems.map((item) => (
-                  <div
-                    key={`${stage.label}-${item.name}`}
-                    style={badgeRequirementItemStyle}
-                  >
-                    <span
-                      style={
-                        item.acquired
-                          ? requirementCheckStyle
-                          : stage.stageFuture
-                            ? futureRequirementIconStyle
-                            : stage.stageCompleted
-                              ? historyRequirementIconStyle
-                              : requirementMissingStyle
-                      }
-                    >
-                      {item.acquired ? "✓" : stage.stageFuture ? "·" : stage.stageCompleted ? "?" : "!"}
-                    </span>
-                    <span
-                      style={
-                        item.acquired
-                          ? requirementNameDoneStyle
-                          : stage.stageFuture
-                            ? futureRequirementNameStyle
-                            : stage.stageCompleted
-                              ? historyRequirementNameStyle
-                              : requirementNameMissingStyle
-                      }
-                    >
-                      {item.name}
-                    </span>
-                    <span
-                      style={
-                        item.acquired
-                          ? acquiredTextStyle
-                          : stage.stageFuture
-                            ? futureRequirementTextStyle
-                            : stage.stageCompleted
-                              ? historyRequirementTextStyle
-                              : missingTextStyle
-                      }
-                    >
-                      {item.acquired
-                        ? "취득"
-                        : stage.stageFuture
-                          ? "향후 준비"
-                          : stage.stageCompleted
-                            ? "이력 확인"
-                            : "미취득"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <div style={generalRequirementRowStyle}>
-                <div>
-                  <strong style={generalRequirementTitleStyle}>
-                    일반 기능장
-                  </strong>
-                  <p style={stageSubTextStyle}>
-                    필요 {stage.requiredGeneralCount}개 · 보유 {generalCount}개
-                  </p>
-                </div>
-                <span
-                  style={
-                    stage.generalMissingCount === 0
-                      ? getConditionStyle(true)
-                      : stage.stageFuture
-                        ? futureConditionBadgeStyle
-                        : stage.stageCompleted
-                          ? historyConditionBadgeStyle
-                          : getConditionStyle(false)
-                  }
-                >
-                  {stage.generalMissingCount === 0
-                    ? "충족"
-                    : stage.stageFuture
-                      ? `${stage.generalMissingCount}개 예정`
-                      : stage.stageCompleted
-                        ? "이력 확인"
-                        : `${stage.generalMissingCount}개 부족`}
-                </span>
-              </div>
-            </article>
+          {summaryItems.map((item) => (
+            <div key={item.label} style={infoItemStyle}>
+              <span style={infoLabelStyle}>{item.label}</span>
+              <strong
+                style={{
+                  ...infoValueStyle,
+                  ...(item.tone === "warning"
+                    ? recordCheckWarningStyle
+                    : item.tone === "good"
+                      ? recordCheckGoodStyle
+                      : {}),
+                }}
+              >
+                {item.value}
+              </strong>
+            </div>
           ))}
         </div>
       </section>
 
-      <section style={contentCardStyle}>
+      {currentStageRow ? (
+        <>
+          <section style={contentCardStyle}>
+            <div style={contentHeaderStyle}>
+              <div>
+                <h3 style={contentTitleStyle}>현재 진급 단계 기능장</h3>
+                <p style={contentDescriptionStyle}>
+                  현재 준비 중인 급위의 필수·일반 기능장 요건을 확인합니다.
+                </p>
+              </div>
+            </div>
+
+            <div style={currentStageCardGridStyle}>
+              {renderStageCard(currentStageRow)}
+            </div>
+          </section>
+
+          {otherStageRows.length > 0 && (
+            <section style={contentCardStyle}>
+              <div style={contentHeaderStyle}>
+                <div>
+                  <h3 style={contentTitleStyle}>다른 급위 단계 준비도</h3>
+                  <p style={contentDescriptionStyle}>
+                    완료·예정 단계의 기능장 준비 이력을 확인합니다.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  style={smallButtonStyle}
+                  onClick={() => setShowOtherStages((current) => !current)}
+                >
+                  {showOtherStages
+                    ? "접기"
+                    : `다른 급위 단계 보기 (${otherStageRows.length})`}
+                </button>
+              </div>
+
+              {showOtherStages && (
+                <div style={stageCardGridStyle}>
+                  {otherStageRows.map((stage) => renderStageCard(stage))}
+                </div>
+              )}
+            </section>
+          )}
+        </>
+      ) : (
+        <section style={contentCardStyle}>
+          <div style={contentHeaderStyle}>
+            <div>
+              <h3 style={contentTitleStyle}>급위별 기능장 준비도</h3>
+              <p style={contentDescriptionStyle}>
+                각 단계의 필수 기능장과 일반 기능장 부족 수를 한눈에 확인합니다.
+              </p>
+            </div>
+          </div>
+
+          <div style={stageCardGridStyle}>
+            {stageRows.map((stage) => renderStageCard(stage))}
+          </div>
+        </section>
+      )}
+
+      <section style={{ ...contentCardStyle, minWidth: 0 }}>
         <div style={contentHeaderStyle}>
           <div>
             <h3 style={contentTitleStyle}>기능장 취득 기록</h3>
@@ -413,15 +558,11 @@ export function BadgePanel({
             <table style={badgeTableStyle}>
               <thead>
                 <tr>
-                  <th style={thStyle}>분류</th>
-                  <th style={thStyle}>기능장명</th>
+                  <th style={thStyle}>기능장</th>
                   <th style={thStyle}>구분</th>
-                  <th style={thStyle}>인정 기준</th>
                   <th style={thStyle}>취득일</th>
-                  <th style={thStyle}>인가일</th>
-                  <th style={thStyle}>지도자 확인</th>
+                  <th style={thStyle}>승인</th>
                   <th style={thStyle}>진급 반영</th>
-                  <th style={thStyle}>비고</th>
                   {canManage && <th style={thStyle}>관리</th>}
                 </tr>
               </thead>
@@ -429,46 +570,57 @@ export function BadgePanel({
                 {scoutBadges.map((scoutBadge) => {
                   const badge = badgeMap.get(scoutBadge.badge_id);
                   const isUsed = usedScoutBadgeIdSet.has(scoutBadge.id);
+                  const badgeDetailLine = buildBadgeDetailLine(
+                    badge,
+                    categoryMap,
+                  );
+                  const noteText = scoutBadge.note?.trim() ?? "";
 
                   return (
                     <tr key={scoutBadge.id}>
-                      <td style={tdStyle}>
-                        {badge
-                          ? (categoryMap.get(badge.category_id)?.name ?? "-")
-                          : "-"}
+                      <td style={badgeTableNameCellStyle}>
+                        <strong style={badgeTableNameStyle}>
+                          {badge?.name ?? "-"}
+                        </strong>
+                        {badgeDetailLine ? (
+                          <div style={badgeTableMetaStyle}>
+                            {badgeDetailLine}
+                          </div>
+                        ) : null}
+                        {noteText ? (
+                          <div style={badgeTableNoteMetaStyle}>{noteText}</div>
+                        ) : null}
                       </td>
-                      <td style={strongTdStyle}>{badge?.name ?? "-"}</td>
-                      <td style={tdStyle}>{getBadgeTypeLabel(badge)}</td>
-                      <td style={tdStyle}>
-                        {badge ? getSpecialRuleLabel(badge.special_rule) : "-"}
+                      <td style={badgeTableCompactCellStyle}>
+                        {getBadgeTypeLabel(badge)}
                       </td>
-                      <td style={tdStyle}>
+                      <td style={badgeTableCompactCellStyle}>
                         {formatDate(scoutBadge.acquired_at)}
                       </td>
-                      <td style={tdStyle}>
-                        {formatDate(scoutBadge.approved_at)}
+                      <td style={badgeTableApprovalCellStyle}>
+                        {scoutBadge.approved_at ? (
+                          <>
+                            <span style={confirmedBadgeStyle}>승인 완료</span>
+                            <div style={badgeTableApprovalDateStyle}>
+                              {formatDate(scoutBadge.approved_at)}
+                            </div>
+                          </>
+                        ) : (
+                          <span style={unconfirmedBadgeStyle}>승인 필요</span>
+                        )}
+                        {!scoutBadge.leader_confirmed ? (
+                          <div style={badgeTableMetaStyle}>지도자 미확인</div>
+                        ) : null}
                       </td>
-                      <td style={tdStyle}>
-                        <span
-                          style={
-                            scoutBadge.leader_confirmed
-                              ? confirmedBadgeStyle
-                              : unconfirmedBadgeStyle
-                          }
-                        >
-                          {scoutBadge.leader_confirmed ? "확인" : "미확인"}
-                        </span>
-                      </td>
-                      <td style={tdStyle}>
+                      <td style={badgeTableCompactCellStyle}>
                         <span
                           style={isUsed ? usedBadgeStyle : unusedBadgeStyle}
                         >
-                          {isUsed ? "진급 반영" : "미사용"}
+                          {isUsed ? "반영" : "미반영"}
                         </span>
                       </td>
-                      <td style={tdStyle}>{scoutBadge.note ?? "-"}</td>
                       {canManage && (
-                        <td style={tdStyle}>
+                        <td style={badgeTableCompactCellStyle}>
                           <div style={rowActionStyle}>
                             <button
                               type="button"

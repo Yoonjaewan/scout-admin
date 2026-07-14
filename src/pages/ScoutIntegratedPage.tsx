@@ -2628,6 +2628,7 @@ export default function ScoutIntegratedPage() {
                     rankRequirements={data.rankRequirements}
                     rankRequiredBadges={data.rankRequiredBadges}
                     latestReview={latestReview}
+                    promotionReviews={selectedReviews}
                     histories={selectedRankHistories}
                     scoutBadges={selectedScoutBadges}
                     badgeMap={badgeMap}
