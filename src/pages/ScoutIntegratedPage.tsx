@@ -258,7 +258,15 @@ type ScoutCreateForm = {
 type Attendance = {
   id: string;
   scout_id: string;
+  meeting_id: string;
   status: string;
+  note: string | null;
+};
+
+type Meeting = {
+  id: string;
+  meeting_date: string;
+  title: string;
 };
 
 type IntegratedData = {
@@ -276,6 +284,7 @@ type IntegratedData = {
   promotionBadgeUsages: PromotionBadgeUsage[];
   programCompletions: ProgramCompletion[];
   attendance: Attendance[];
+  meetings: Meeting[];
 };
 
 const EMPTY_DATA: IntegratedData = {
@@ -293,6 +302,7 @@ const EMPTY_DATA: IntegratedData = {
   promotionBadgeUsages: [],
   programCompletions: [],
   attendance: [],
+  meetings: [],
 };
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -486,7 +496,9 @@ function getAttendanceSummary(rows: Attendance[]) {
   const recognizedRows = enteredRows.filter(
     (row) =>
       row.status === "present" ||
+      row.status === "recognized" ||
       row.status === "late" ||
+      row.status === "early_leave" ||
       row.status === "excused",
   );
 
@@ -764,7 +776,12 @@ export default function ScoutIntegratedPage() {
 
       let attendanceQuery = supabase
         .from("attendance")
-        .select("id, scout_id, status")
+        .select("id, scout_id, meeting_id, status, note")
+        .is("deleted_at", null);
+
+      let meetingQuery = supabase
+        .from("meetings")
+        .select("id, meeting_date, title")
         .is("deleted_at", null);
 
       if (profile.role !== "super_admin") {
@@ -797,6 +814,10 @@ export default function ScoutIntegratedPage() {
           "organization_id",
           profile.organization_id,
         );
+        meetingQuery = meetingQuery.eq(
+          "organization_id",
+          profile.organization_id,
+        );
       }
 
       const [
@@ -813,6 +834,7 @@ export default function ScoutIntegratedPage() {
         promotionBadgeUsageResult,
         programResult,
         attendanceResult,
+        meetingResult,
       ] = await Promise.all([
         scoutQuery,
         supabase
@@ -848,6 +870,7 @@ export default function ScoutIntegratedPage() {
         promotionBadgeUsageQuery,
         programQuery,
         attendanceQuery,
+        meetingQuery,
       ]);
 
       const firstError =
@@ -862,7 +885,8 @@ export default function ScoutIntegratedPage() {
         badgeCategoryResult.error ||
         promotionBadgeUsageResult.error ||
         programResult.error ||
-        attendanceResult.error;
+        attendanceResult.error ||
+        meetingResult.error;
 
       if (firstError) {
         throw new Error(firstError.message);
@@ -890,6 +914,7 @@ export default function ScoutIntegratedPage() {
         programCompletions: (programResult.data ??
           []) as unknown as ProgramCompletion[],
         attendance: (attendanceResult.data ?? []) as unknown as Attendance[],
+        meetings: (meetingResult.data ?? []) as unknown as Meeting[],
       });
 
       setSelectedScoutId((current) => {
@@ -1233,6 +1258,42 @@ export default function ScoutIntegratedPage() {
     () => getAttendanceSummary(selectedAttendance),
     [selectedAttendance],
   );
+
+  const selectedRecentAttendanceHistory = useMemo(() => {
+    if (!selectedScout) return [];
+
+    const meetingMap = new Map(
+      data.meetings.map((meeting) => [meeting.id, meeting]),
+    );
+
+    return data.attendance
+      .filter((attendance) => attendance.scout_id === selectedScout.id)
+      .map((attendance) => {
+        const meeting = meetingMap.get(attendance.meeting_id);
+        if (!meeting) return null;
+
+        return {
+          id: attendance.id,
+          meetingDate: meeting.meeting_date,
+          title: meeting.title,
+          status: attendance.status,
+          note: attendance.note,
+        };
+      })
+      .filter(
+        (
+          item,
+        ): item is {
+          id: string;
+          meetingDate: string;
+          title: string;
+          status: string;
+          note: string | null;
+        } => item !== null,
+      )
+      .sort((a, b) => b.meetingDate.localeCompare(a.meetingDate))
+      .slice(0, 5);
+  }, [data.attendance, data.meetings, selectedScout]);
 
   const currentRankName = selectedScout?.current_rank_id
     ? (rankMap.get(selectedScout.current_rank_id)?.rank_name ??
@@ -2707,6 +2768,8 @@ export default function ScoutIntegratedPage() {
               {activeTab === "programs" && (
                 <ProgramPanel
                   completions={selectedPrograms}
+                  isBeomTarget={selectedReadiness?.isBeomTarget ?? false}
+                  targetRankName={targetRankName}
                   canManage={canManagePrograms}
                   actionMessage={programActionMessage}
                   errorMessage={programFormError}
@@ -2718,7 +2781,17 @@ export default function ScoutIntegratedPage() {
               )}
 
               {activeTab === "attendance" && (
-                <AttendancePanel rows={selectedAttendance} />
+                <AttendancePanel
+                  rows={selectedAttendance}
+                  recentHistoryItems={selectedRecentAttendanceHistory}
+                  isBeomTarget={selectedReadiness?.isBeomTarget ?? false}
+                  attendanceRequiredForBeom={
+                    selectedReadiness?.attendanceRequiredForBeom ?? false
+                  }
+                  attendancePassed={selectedReadiness?.attendancePassed ?? false}
+                  attendanceRate={selectedReadiness?.attendanceSummary.rate ?? null}
+                  targetRankName={targetRankName}
+                />
               )}
             </>
           )}

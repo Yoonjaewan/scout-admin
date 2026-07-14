@@ -103,11 +103,12 @@ const SCOUT_STATUS_LABELS: Record<ScoutStatus, string> = {
   graduated: "졸업",
 };
 
-const ATTENDANCE_STATUS_LABELS: Record<AttendanceStatus, string> = {
+const ATTENDANCE_STATUS_LABELS: Record<AttendanceStatus | "excused", string> = {
   present: "출석",
   recognized: "인정출석",
   late: "지각",
   early_leave: "조퇴",
+  excused: "인정결석",
   absent: "결석",
   not_entered: "미입력",
 };
@@ -129,19 +130,21 @@ const MEETING_TYPE_OPTIONS: Array<{ value: MeetingType; label: string }> = [
   { value: "regular", label: "정기집회" },
 ];
 
-const ATTENDANCE_PASS_STATUSES: AttendanceStatus[] = [
+const ATTENDANCE_PASS_STATUSES: Array<AttendanceStatus | "excused"> = [
   "present",
   "recognized",
   "late",
   "early_leave",
+  "excused",
 ];
 
-const ATTENDANCE_STATUS_SORT_ORDER: Record<AttendanceStatus, number> = {
+const ATTENDANCE_STATUS_SORT_ORDER: Record<AttendanceStatus | "excused", number> = {
   not_entered: 0,
   absent: 1,
   late: 2,
   early_leave: 3,
   recognized: 4,
+  excused: 4,
   present: 5,
 };
 

@@ -1418,6 +1418,23 @@ export const programSummaryCardStyle: CSSProperties = {
   backgroundColor: "#f8fbff",
 };
 
+export const programSummaryGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: "10px",
+  marginBottom: "14px",
+};
+
+export const programCompactNoticeStyle: CSSProperties = {
+  padding: "10px 12px",
+  border: "1px solid #bfdbfe",
+  borderRadius: "9px",
+  backgroundColor: "#eff6ff",
+  color: "#1e3a8a",
+  fontSize: "12px",
+  lineHeight: 1.5,
+};
+
 export const programStatusGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
@@ -1430,6 +1447,14 @@ export const programStatusCardStyle: CSSProperties = {
   border: "1px solid #fecaca",
   borderRadius: "12px",
   backgroundColor: "#fff8f8",
+};
+
+export const programStatusReferenceCardStyle: CSSProperties = {
+  minWidth: 0,
+  padding: "15px",
+  border: "1px solid #e2e8f0",
+  borderRadius: "12px",
+  backgroundColor: "#ffffff",
 };
 
 export const programStatusCompletedStyle: CSSProperties = {

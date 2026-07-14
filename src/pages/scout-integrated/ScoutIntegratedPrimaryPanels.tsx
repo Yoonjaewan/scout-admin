@@ -224,7 +224,9 @@ function getAttendanceSummary(rows: Attendance[]) {
   const recognizedRows = enteredRows.filter(
     (row) =>
       row.status === "present" ||
+      row.status === "recognized" ||
       row.status === "late" ||
+      row.status === "early_leave" ||
       row.status === "excused",
   );
 
