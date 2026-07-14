@@ -53,26 +53,39 @@ function normalizeExpiryDays(value: unknown) {
   return days === 7 || days === 14 || days === 30 ? days : 14;
 }
 
-function slugify(value: string) {
-  return (
-    value
-      .normalize("NFKD")
-      .replace(/[^a-zA-Z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .toLowerCase()
-      .slice(0, 24) || "unit"
-  );
+function normalizeOrganizationCode(
+  unitNumber: string | null | undefined,
+  organizationId: string,
+): string {
+  const rawSource =
+    typeof unitNumber === "string" && unitNumber.trim()
+      ? unitNumber.trim()
+      : organizationId.slice(0, 6);
+
+  const normalized = rawSource
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/^-+|-+$/g, "");
+
+  if (normalized) return normalized;
+
+  return organizationId
+    .slice(0, 6)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/^-+|-+$/g, "") || "org";
 }
 
-function randomPassword(length = 14) {
+function randomPassword() {
   const alphabet =
-    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  const bytes = new Uint8Array(length);
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = new Uint8Array(7);
   crypto.getRandomValues(bytes);
-  return Array.from(
+  const suffix = Array.from(
     bytes,
     (byte) => alphabet[byte % alphabet.length],
   ).join("");
+  return `Sc!${suffix}`;
 }
 
 async function saveTestProfile(
@@ -371,12 +384,10 @@ Deno.serve(async (req) => {
         );
       }
 
-      const prefixSource =
-        organization.unit_number ||
-        organization.name ||
-        organization.id.slice(0, 8);
-      const prefix = slugify(String(prefixSource));
-      const timestamp = Date.now().toString(36);
+      const organizationCode = normalizeOrganizationCode(
+        organization.unit_number,
+        organization.id,
+      );
       const expiresAt = new Date(
         Date.now() + expiryDays * 24 * 60 * 60 * 1000,
       ).toISOString();
@@ -385,7 +396,7 @@ Deno.serve(async (req) => {
       for (let index = 1; index <= count; index += 1) {
         const sequence = String(index).padStart(2, "0");
         const email =
-          `test-${prefix}-${timestamp}-${sequence}@${emailDomain}`;
+          `t-${organizationCode}-${sequence}@${emailDomain}`;
         const password = randomPassword();
         const displayName =
           `${organization.name} 테스트 ${sequence}`;

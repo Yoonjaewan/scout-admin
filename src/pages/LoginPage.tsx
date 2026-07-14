@@ -3,27 +3,23 @@ import type { CSSProperties, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
+const SAVED_EMAIL_KEY = "scout_admin_saved_email";
+
 export default function LoginPage() {
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberEmail, setRememberEmail] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [inputLocked, setInputLocked] = useState(true);
 
   useEffect(() => {
-    const resetLoginFields = () => {
-      setEmail("");
-      setPassword("");
-    };
-
-    resetLoginFields();
-    const timeoutId = window.setTimeout(resetLoginFields, 200);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
+    const savedEmail = localStorage.getItem(SAVED_EMAIL_KEY);
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberEmail(true);
+    }
   }, []);
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
@@ -32,8 +28,10 @@ export default function LoginPage() {
     setLoading(true);
     setErrorMessage("");
 
+    const trimmedEmail = email.trim();
+
     const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
+      email: trimmedEmail,
       password,
     });
 
@@ -43,6 +41,12 @@ export default function LoginPage() {
       setErrorMessage("로그인에 실패했습니다. 이메일과 비밀번호를 확인하세요.");
       console.error("로그인 오류:", error.message);
       return;
+    }
+
+    if (rememberEmail) {
+      localStorage.setItem(SAVED_EMAIL_KEY, trimmedEmail);
+    } else {
+      localStorage.removeItem(SAVED_EMAIL_KEY);
     }
 
     navigate("/dashboard", { replace: true });
@@ -88,33 +92,14 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form onSubmit={handleLogin} autoComplete="off" style={formStyle}>
-            <input
-              type="text"
-              name="username"
-              autoComplete="username"
-              tabIndex={-1}
-              aria-hidden="true"
-              style={hiddenInputStyle}
-            />
-            <input
-              type="password"
-              name="password"
-              autoComplete="current-password"
-              tabIndex={-1}
-              aria-hidden="true"
-              style={hiddenInputStyle}
-            />
-
+          <form onSubmit={handleLogin} style={formStyle}>
             <label style={labelStyle}>
               이메일
               <input
                 type="email"
-                name="scout-email-no-autofill"
+                name="email"
                 value={email}
-                readOnly={inputLocked}
-                autoComplete="new-password"
-                onFocus={() => setInputLocked(false)}
+                autoComplete="username"
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="이메일 입력"
                 required
@@ -126,16 +111,24 @@ export default function LoginPage() {
               비밀번호
               <input
                 type="password"
-                name="scout-password-no-autofill"
+                name="password"
                 value={password}
-                readOnly={inputLocked}
-                autoComplete="new-password"
-                onFocus={() => setInputLocked(false)}
+                autoComplete="current-password"
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="비밀번호 입력"
                 required
                 style={inputStyle}
               />
+            </label>
+
+            <label style={rememberEmailLabelStyle}>
+              <input
+                type="checkbox"
+                checked={rememberEmail}
+                onChange={(event) => setRememberEmail(event.target.checked)}
+                style={checkboxStyle}
+              />
+              이메일 저장
             </label>
 
             {errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
@@ -335,14 +328,6 @@ const formStyle: CSSProperties = {
   gap: "18px",
 };
 
-const hiddenInputStyle: CSSProperties = {
-  position: "absolute",
-  width: 0,
-  height: 0,
-  opacity: 0,
-  pointerEvents: "none",
-};
-
 const labelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -360,6 +345,25 @@ const inputStyle: CSSProperties = {
   fontSize: "15px",
   outline: "none",
   boxSizing: "border-box",
+};
+
+const rememberEmailLabelStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  fontSize: "14px",
+  fontWeight: 600,
+  color: "#475569",
+  cursor: "pointer",
+  userSelect: "none",
+};
+
+const checkboxStyle: CSSProperties = {
+  width: "16px",
+  height: "16px",
+  margin: 0,
+  cursor: "pointer",
+  accentColor: "#2563eb",
 };
 
 const errorBoxStyle: CSSProperties = {
