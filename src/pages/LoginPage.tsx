@@ -30,14 +30,13 @@ export default function LoginPage() {
 
     const trimmedEmail = email.trim();
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({
       email: trimmedEmail,
       password,
     });
 
-    setLoading(false);
-
     if (error) {
+      setLoading(false);
       setErrorMessage("로그인에 실패했습니다. 이메일과 비밀번호를 확인하세요.");
       console.error("로그인 오류:", error.message);
       return;
@@ -49,24 +48,26 @@ export default function LoginPage() {
       localStorage.removeItem(SAVED_EMAIL_KEY);
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = signInData.user ?? signInData.session?.user ?? null;
 
     if (user) {
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from("user_profiles")
         .select("must_change_password")
         .eq("user_id", user.id)
         .is("deleted_at", null)
         .maybeSingle();
 
-      if (profile?.must_change_password === true) {
+      if (profileError) {
+        console.error("must_change_password 조회 오류:", profileError.message);
+      } else if (profile?.must_change_password === true) {
+        setLoading(false);
         navigate("/change-password", { replace: true });
         return;
       }
     }
 
+    setLoading(false);
     navigate("/dashboard", { replace: true });
   };
 

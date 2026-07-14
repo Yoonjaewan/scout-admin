@@ -30,6 +30,11 @@ export default function ApprovedRoute() {
   });
 
   useEffect(() => {
+    setState((prev) => ({
+      ...prev,
+      loading: true,
+    }));
+
     const checkPermission = async () => {
       const {
         data: { user },
@@ -77,7 +82,16 @@ export default function ApprovedRoute() {
 
       const mustChangePassword = profile.must_change_password === true;
 
-      if (mustChangePassword && location.pathname !== "/change-password") {
+      if (mustChangePassword) {
+        if (location.pathname === "/change-password") {
+          setState({
+            loading: false,
+            allowed: true,
+            mustChangePassword: true,
+          });
+          return;
+        }
+
         setState({
           loading: false,
           allowed: false,

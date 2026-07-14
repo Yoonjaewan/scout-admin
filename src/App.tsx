@@ -2636,7 +2636,7 @@ function AppLayout() {
 
       const { data: profile, error: profileError } = await supabase
         .from("user_profiles")
-        .select("role, organization_id")
+        .select("role, organization_id, must_change_password")
         .eq("user_id", user.id)
         .is("deleted_at", null)
         .maybeSingle();
@@ -2651,6 +2651,11 @@ function AppLayout() {
       if (!profile || !isUserRole(profile.role)) {
         setErrorMessage("사용자 정보가 올바르지 않습니다.");
         setLoadingRole(false);
+        return;
+      }
+
+      if (profile.must_change_password === true) {
+        navigate("/change-password", { replace: true });
         return;
       }
 
@@ -3232,7 +3237,7 @@ function App() {
       {/* 승인된 사용자만 접근 가능 */}
       <Route element={<ApprovedRoute />}>
         <Route path="/change-password" element={<ChangePasswordPage />} />
-        <Route path="/*" element={<AppLayout />} />
+        <Route path="*" element={<AppLayout />} />
       </Route>
     </Routes>
   );
