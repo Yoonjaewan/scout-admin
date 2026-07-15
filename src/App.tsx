@@ -3065,6 +3065,17 @@ function AppLayout() {
             outline-offset: 2px;
           }
 
+          .app-sidebar-collapse-button {
+            transition:
+              background-color 140ms ease,
+              color 140ms ease;
+          }
+
+          .app-sidebar-collapse-button:hover {
+            background-color: rgba(148, 163, 184, 0.18) !important;
+            color: #ffffff !important;
+          }
+
           .app-fixed-sidebar {
             position: fixed !important;
             left: 0 !important;
@@ -3101,88 +3112,90 @@ function AppLayout() {
         style={{
           ...sidebarStyle,
           width: `${sidebarWidth}px`,
-          padding: sidebarCollapsed ? "14px 8px" : "16px 12px",
+          padding: sidebarCollapsed ? "12px 6px" : "14px 10px",
         }}
       >
-        <button
-          type="button"
-          onClick={() => setSidebarCollapsed((current) => !current)}
-          style={sidebarCollapseButtonStyle}
-          aria-label={sidebarCollapsed ? "사이드 메뉴 펼치기" : "사이드 메뉴 접기"}
-          title={sidebarCollapsed ? "사이드 메뉴 펼치기" : "사이드 메뉴 접기"}
-        >
-          {sidebarCollapsed ? "≫" : "≪"}
-        </button>
-        <div style={{ ...logoAreaStyle, marginTop: "46px" }}>
-          <div
-            style={{
-              ...sidebarLogoBoxStyle,
-              height: sidebarCollapsed ? "48px" : "76px",
-              marginBottom: sidebarCollapsed ? "8px" : "10px",
-            }}
-          >
-            {organizationInfo?.logoUrl ? (
-              <img
-                src={organizationInfo.logoUrl}
-                alt={`${organizationInfo.name} 로고`}
-                style={sidebarLogoImageStyle}
-              />
-            ) : (
-              <div style={{ ...logoTitleStyle, fontSize: sidebarCollapsed ? "18px" : "24px" }}>
-                {sidebarCollapsed ? "S" : "Scout"}
-              </div>
-            )}
+        {sidebarCollapsed ? (
+          <div style={sidebarCollapsedTopStyle}>
+            <button
+              type="button"
+              className="app-sidebar-collapse-button"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              style={sidebarCollapseButtonCollapsedStyle}
+              aria-label="사이드 메뉴 펼치기"
+              title="사이드 메뉴 펼치기"
+            >
+              ≫
+            </button>
           </div>
-          {!sidebarCollapsed ? (
-          <div style={logoInfoLineStyle}>
-            {role === "super_admin" ? (
-              <>
-                <span>최고관리자</span>
-                <span style={logoInfoDividerStyle}>|</span>
-                <span>전체 소속대 관리</span>
-              </>
-            ) : (
-              <>
-                <span>{organizationInfo?.name || "소속대 정보 등록 필요"}</span>
-                {organizationInfo?.unitNumber ? (
-                  <>
-                    <span style={logoInfoDividerStyle}>|</span>
-                    <span>대번호 {organizationInfo.unitNumber}</span>
-                  </>
-                ) : isOrganizationSetupRequired(role) ? (
-                  <>
-                    <span style={logoInfoDividerStyle}>|</span>
-                    <span>대번호 미등록</span>
-                  </>
+        ) : (
+          <div style={sidebarTopAreaStyle}>
+            <div style={sidebarOrgHeaderRowStyle}>
+              <div style={sidebarOrgInfoWrapStyle}>
+                {organizationInfo?.logoUrl ? (
+                  <img
+                    src={organizationInfo.logoUrl}
+                    alt={`${organizationInfo.name} 로고`}
+                    style={sidebarInlineLogoStyle}
+                  />
                 ) : null}
-              </>
-            )}
+                <div style={logoInfoLineStyle}>
+                  {role === "super_admin" ? (
+                    <>
+                      <span>최고관리자</span>
+                      <span style={logoInfoDividerStyle}>|</span>
+                      <span>전체 소속대 관리</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{organizationInfo?.name || "소속대 정보 등록 필요"}</span>
+                      {organizationInfo?.unitNumber ? (
+                        <>
+                          <span style={logoInfoDividerStyle}>|</span>
+                          <span>대번호 {organizationInfo.unitNumber}</span>
+                        </>
+                      ) : isOrganizationSetupRequired(role) ? (
+                        <>
+                          <span style={logoInfoDividerStyle}>|</span>
+                          <span>대번호 미등록</span>
+                        </>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="app-sidebar-collapse-button"
+                onClick={() => setSidebarCollapsed((current) => !current)}
+                style={sidebarCollapseButtonExpandedStyle}
+                aria-label="사이드 메뉴 접기"
+                title="사이드 메뉴 접기"
+              >
+                ≪
+              </button>
+            </div>
+            <div style={loginInfoStyle}>
+              {role === "super_admin" ? "운영 관리" : "로그인 정보"}
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              style={logoutButtonStyle}
+              title="로그아웃"
+            >
+              로그아웃
+            </button>
           </div>
-          ) : null}
-          {!sidebarCollapsed ? (
-            <div style={loginInfoStyle}>{role === "super_admin" ? "운영 관리" : "로그인 정보"}</div>
-          ) : null}
-          <button
-            type="button"
-            onClick={handleLogout}
-            style={{
-              ...logoutButtonStyle,
-              padding: sidebarCollapsed ? "0" : "0 12px",
-              fontSize: sidebarCollapsed ? "11px" : undefined,
-            }}
-            title="로그아웃"
-          >
-            {sidebarCollapsed ? "종료" : "로그아웃"}
-          </button>
-        </div>
+        )}
 
         {!sidebarCollapsed && isOrganizationSetupRequired(role) && !organizationSetupComplete ? (
-          <div style={setupRequiredSidebarStyle}>
+          <div style={{ ...setupRequiredSidebarStyle, flexShrink: 0 }}>
             소속대 정보 등록 후 이용할 수 있습니다.
           </div>
         ) : null}
 
-        <div style={sidebarSeparatorStyle} />
+        <div style={{ ...sidebarSeparatorStyle, flexShrink: 0 }} />
 
         <nav style={navStyle}>
           {visibleMenus.map((menu) => {
@@ -3207,7 +3220,7 @@ function AppLayout() {
         {role === "org_admin" && !sidebarCollapsed ? (
           <button
             type="button"
-            style={firstUseSidebarButtonStyle}
+            style={{ ...firstUseSidebarButtonStyle, flexShrink: 0 }}
             onClick={() => {
               firstUseGuideOpenedManuallyRef.current = true;
               setFirstUseStepIndex(organizationSetupComplete ? 1 : 0);
@@ -3374,25 +3387,23 @@ function SideMenuLink({
         display: "flex",
         alignItems: "center",
         justifyContent: collapsed ? "center" : "flex-start",
-        gap: collapsed ? "0" : "10px",
+        gap: collapsed ? "0" : "7px",
         position: "relative",
         zIndex: 2147483647,
         pointerEvents: "auto",
         userSelect: "none",
-        minHeight: collapsed ? "46px" : "42px",
-        padding: collapsed ? "10px 4px" : "10px 12px 10px 14px",
-        borderRadius: collapsed ? "12px" : "9px",
-        border: isActive ? "1px solid #60a5fa" : "1px solid transparent",
+        minHeight: "46px",
+        padding: collapsed ? "8px 4px" : "8px 8px 8px 10px",
+        borderRadius: collapsed ? "10px" : "8px",
+        border: "1px solid transparent",
         color: isActive ? "#ffffff" : "#cbd5e1",
         backgroundColor: isActive ? "#2563eb" : "transparent",
-        boxShadow: isActive
-          ? "inset 4px 0 0 #bfdbfe, 0 6px 14px rgba(15, 23, 42, 0.18)"
-          : "none",
+        boxShadow: isActive ? "inset 3px 0 0 #bfdbfe" : "none",
         textAlign: collapsed ? "center" : "left",
         textDecoration: "none",
         fontFamily: "inherit",
-        fontSize: "14px",
-        lineHeight: 1.35,
+        fontSize: "13px",
+        lineHeight: 1.3,
         fontWeight: isActive ? 800 : 600,
         cursor: "pointer",
       }}
@@ -3403,19 +3414,19 @@ function SideMenuLink({
       <span
         aria-hidden="true"
         style={{
-          width: collapsed ? "34px" : "28px",
-          height: collapsed ? "34px" : "28px",
-          minWidth: collapsed ? "34px" : "28px",
+          width: collapsed ? "30px" : "26px",
+          height: collapsed ? "30px" : "26px",
+          minWidth: collapsed ? "30px" : "26px",
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          borderRadius: collapsed ? "10px" : "8px",
+          borderRadius: collapsed ? "8px" : "7px",
           backgroundColor: icon.src ? "#ffffff" : "rgba(255,255,255,0.12)",
           color: "#ffffff",
-          fontSize: collapsed ? "16px" : "13px",
+          fontSize: collapsed ? "14px" : "12px",
           fontWeight: 900,
-          boxShadow: icon.src ? "0 2px 8px rgba(15, 23, 42, 0.18)" : "none",
+          boxShadow: icon.src ? "0 2px 6px rgba(15, 23, 42, 0.16)" : "none",
         }}
       >
         {icon.src ? (
@@ -3433,7 +3444,7 @@ function SideMenuLink({
           icon.fallback
         )}
       </span>
-      {!collapsed ? <span>{label}</span> : null}
+      {!collapsed ? <span style={{ whiteSpace: "nowrap" }}>{label}</span> : null}
     </button>
   );
 }
@@ -3671,14 +3682,14 @@ const firstUseFooterRightStyle: CSSProperties = {
 
 const firstUseSidebarButtonStyle: CSSProperties = {
   width: "100%",
-  minHeight: "38px",
-  marginTop: "auto",
-  padding: "0 12px",
-  borderRadius: "9px",
+  minHeight: "34px",
+  marginTop: "8px",
+  padding: "0 10px",
+  borderRadius: "8px",
   border: "1px solid rgba(147, 197, 253, 0.42)",
   backgroundColor: "rgba(37, 99, 235, 0.16)",
   color: "#bfdbfe",
-  fontSize: "12px",
+  fontSize: "11px",
   fontWeight: 800,
   cursor: "pointer",
 };
@@ -3707,85 +3718,99 @@ const sidebarStyle: CSSProperties = {
   zIndex: 2147483647,
   backgroundColor: "#0f172a",
   color: "#ffffff",
-  padding: "16px 12px",
+  padding: "14px 10px",
   boxSizing: "border-box",
   display: "flex",
   flexDirection: "column",
-  overflowY: "auto",
+  overflow: "hidden",
   overflowX: "hidden",
   pointerEvents: "auto",
   isolation: "isolate",
   transform: "translateZ(0)",
 };
 
-const sidebarCollapseButtonStyle: CSSProperties = {
-  position: "absolute",
-  top: "12px",
-  right: "14px",
-  zIndex: 2147483647,
-  width: "36px",
-  height: "36px",
+const sidebarCollapseButtonBaseStyle: CSSProperties = {
+  width: "28px",
+  height: "28px",
+  minWidth: "28px",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  border: "1px solid #60a5fa",
-  borderRadius: "10px",
-  backgroundColor: "#2563eb",
-  color: "#ffffff",
-  boxShadow: "0 4px 12px rgba(15, 23, 42, 0.28)",
+  border: "1px solid transparent",
+  borderRadius: "6px",
+  backgroundColor: "transparent",
+  color: "#cbd5e1",
   fontFamily: "inherit",
-  fontSize: "19px",
+  fontSize: "14px",
   lineHeight: 1,
-  fontWeight: 900,
+  fontWeight: 800,
   cursor: "pointer",
+  flexShrink: 0,
 };
 
-const logoAreaStyle: CSSProperties = {
-  marginBottom: "12px",
+const sidebarCollapseButtonExpandedStyle: CSSProperties = {
+  ...sidebarCollapseButtonBaseStyle,
+};
+
+const sidebarCollapseButtonCollapsedStyle: CSSProperties = {
+  ...sidebarCollapseButtonBaseStyle,
+};
+
+const sidebarCollapsedTopStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
+  marginBottom: "4px",
+  flexShrink: 0,
+};
+
+const sidebarTopAreaStyle: CSSProperties = {
+  marginBottom: "6px",
   padding: 0,
+  flexShrink: 0,
 };
 
-const sidebarLogoBoxStyle: CSSProperties = {
-  width: "100%",
-  height: "82px",
+const sidebarOrgHeaderRowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  justifyContent: "center",
-  marginBottom: "10px",
-  borderRadius: "12px",
-  backgroundColor: "#ffffff",
-  overflow: "hidden",
-  padding: "6px",
-  boxSizing: "border-box",
+  justifyContent: "space-between",
+  gap: "8px",
+  width: "100%",
 };
 
-const sidebarLogoImageStyle: CSSProperties = {
-  width: "100%",
-  height: "100%",
+const sidebarOrgInfoWrapStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "6px",
+  minWidth: 0,
+  flex: 1,
+};
+
+const sidebarInlineLogoStyle: CSSProperties = {
+  width: "24px",
+  height: "24px",
+  minWidth: "24px",
   objectFit: "contain",
   objectPosition: "center",
   display: "block",
-};
-
-const logoTitleStyle: CSSProperties = {
-  fontSize: "24px",
-  fontWeight: 800,
-  lineHeight: "1.2",
-  color: "#0f172a",
+  borderRadius: "4px",
+  backgroundColor: "#ffffff",
+  flexShrink: 0,
 };
 
 const logoInfoLineStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  justifyContent: "center",
-  gap: "6px",
-  minHeight: "20px",
+  justifyContent: "flex-start",
+  gap: "5px",
+  minWidth: 0,
+  minHeight: "18px",
   color: "#e2e8f0",
-  fontSize: "13px",
-  fontWeight: 800,
-  lineHeight: 1.35,
-  textAlign: "center",
+  fontSize: "12px",
+  fontWeight: 700,
+  lineHeight: 1.3,
+  textAlign: "left",
   wordBreak: "keep-all",
+  flexWrap: "nowrap",
 };
 
 const logoInfoDividerStyle: CSSProperties = {
@@ -3794,28 +3819,28 @@ const logoInfoDividerStyle: CSSProperties = {
 };
 
 const loginInfoStyle: CSSProperties = {
-  marginTop: "6px",
+  marginTop: "4px",
   color: "#93c5fd",
-  fontSize: "11px",
-  fontWeight: 800,
-  textAlign: "center",
+  fontSize: "10px",
+  fontWeight: 700,
+  textAlign: "left",
 };
 
 const sidebarSeparatorStyle: CSSProperties = {
   height: "1px",
   backgroundColor: "rgba(148, 163, 184, 0.22)",
-  margin: "0 0 12px",
+  margin: "4px 0 8px",
 };
 
 const setupRequiredSidebarStyle: CSSProperties = {
-  marginBottom: "14px",
-  padding: "10px 12px",
-  borderRadius: "10px",
+  marginBottom: "8px",
+  padding: "8px 10px",
+  borderRadius: "8px",
   backgroundColor: "rgba(37, 99, 235, 0.16)",
   color: "#bfdbfe",
-  fontSize: "12px",
-  fontWeight: 800,
-  lineHeight: 1.5,
+  fontSize: "11px",
+  fontWeight: 700,
+  lineHeight: 1.45,
   textAlign: "center",
 };
 
@@ -3823,8 +3848,12 @@ const navStyle: CSSProperties = {
   display: "flex",
   position: "relative",
   zIndex: 2147483647,
+  flex: 1,
+  minHeight: 0,
   flexDirection: "column",
-  gap: "5px",
+  gap: "3px",
+  overflowY: "auto",
+  overflowX: "hidden",
   pointerEvents: "auto",
 };
 
@@ -3836,11 +3865,11 @@ const sideMenuItemWrapStyle: CSSProperties = {
 };
 
 const menuGroupLabelStyle: CSSProperties = {
-  margin: "12px 8px 5px",
+  margin: "6px 6px 3px",
   color: "#64748b",
-  fontSize: "11px",
-  fontWeight: 900,
-  letterSpacing: "0.04em",
+  fontSize: "10px",
+  fontWeight: 700,
+  letterSpacing: "0.03em",
 };
 
 const mainStyle: CSSProperties = {
@@ -4531,17 +4560,18 @@ const compactListItemStyle: CSSProperties = {
 
 const logoutButtonStyle: CSSProperties = {
   width: "100%",
-  marginTop: "10px",
+  marginTop: "6px",
   position: "relative",
   zIndex: 2147483647,
   pointerEvents: "auto",
-  minHeight: "36px",
-  padding: "0 12px",
-  borderRadius: "8px",
-  border: "1px solid rgba(248, 113, 113, 0.72)",
-  backgroundColor: "rgba(127, 29, 29, 0.34)",
-  color: "#fecaca",
-  fontWeight: 800,
+  minHeight: "32px",
+  padding: "0 10px",
+  borderRadius: "7px",
+  border: "1px solid rgba(248, 113, 113, 0.42)",
+  backgroundColor: "rgba(127, 29, 29, 0.22)",
+  color: "#fca5a5",
+  fontSize: "12px",
+  fontWeight: 700,
   cursor: "pointer",
 };
 
