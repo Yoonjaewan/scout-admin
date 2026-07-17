@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -47,16 +47,7 @@ export default function PendingApprovalPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  const applyRequestToForm = (request: SignupRequest) => {
-    setName(request.name ?? '');
-    setPhone(request.phone ?? '');
-    setOrganizationType(request.organization_type ?? 'school');
-    setOrganizationName(request.organization_name ?? '');
-    setRequestedRole(request.requested_role ?? 'org_admin');
-    setNote(request.note ?? '');
-  };
-
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
     setLoading(true);
     setMessage('');
     setErrorMessage('');
@@ -140,7 +131,12 @@ export default function PendingApprovalPage() {
     setRequestInfo(request);
 
     if (request) {
-      applyRequestToForm(request);
+      setName(request.name ?? '');
+      setPhone(request.phone ?? '');
+      setOrganizationType(request.organization_type ?? 'school');
+      setOrganizationName(request.organization_name ?? '');
+      setRequestedRole(request.requested_role ?? 'org_admin');
+      setNote(request.note ?? '');
     }
 
     if (!request) {
@@ -162,7 +158,7 @@ export default function PendingApprovalPage() {
     }
 
     setLoading(false);
-  };
+  }, [navigate]);
 
   const handleCheckAgain = async () => {
     setChecking(true);
@@ -240,7 +236,7 @@ export default function PendingApprovalPage() {
 
   useEffect(() => {
     loadStatus();
-  }, []);
+  }, [loadStatus]);
 
   const isRejected = requestInfo?.status === 'rejected';
 
