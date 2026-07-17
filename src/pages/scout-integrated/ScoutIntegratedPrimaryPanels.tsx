@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { getSeoulTodayText } from "../../lib/businessDate";
 import {
   DetailedConditionCard,
   RecordCheckRow,
@@ -65,7 +66,6 @@ import {
   recentTimelineTitleStyle,
   recentTimelineDetailStyle
 } from "./ScoutIntegratedPage.styles";
-
 
 type Scout = {
   id: string;
@@ -1021,6 +1021,7 @@ export function AdvancementPanel({
                 판정일
                 <input
                   type="date"
+                  max={getSeoulTodayText()}
                   style={compactInputStyle}
                   value={reviewDate}
                   onChange={(event) => onReviewDateChange(event.target.value)}
@@ -1049,6 +1050,7 @@ export function AdvancementPanel({
                 인가일
                 <input
                   type="date"
+                  max={getSeoulTodayText()}
                   style={compactInputStyle}
                   value={approvalDate}
                   onChange={(event) => onApprovalDateChange(event.target.value)}

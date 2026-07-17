@@ -3,6 +3,7 @@ import type { CSSProperties, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { EmptyState, PageHelpButton } from "../components/common/CommonFeedback";
+import { getSeoulTodayText } from "../lib/businessDate";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -228,12 +229,7 @@ function formatDate(value: string | null) {
 }
 
 function getTodayText() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+  return getSeoulTodayText();
 }
 
 function getEmptyInitialBeginnerApprovalForm(): InitialBeginnerApprovalForm {
@@ -900,6 +896,11 @@ export default function AdvancementsPage() {
       return;
     }
 
+    if (promotionReviewForm.review_date > getSeoulTodayText()) {
+      setPromotionReviewErrorMessage("판정 기준일은 오늘 이후 날짜로 입력할 수 없습니다.");
+      return;
+    }
+
     const reviewTargetScout = scouts.find((scout) => scout.id === selectedScoutId) ?? null;
 
     if (!reviewTargetScout) {
@@ -1006,6 +1007,11 @@ export default function AdvancementsPage() {
 
     if (!promotionApprovalForm.approved_at) {
       setPromotionApprovalErrorMessage("진급 인가일을 입력해야 합니다.");
+      return;
+    }
+
+    if (promotionApprovalForm.approved_at > getSeoulTodayText()) {
+      setPromotionApprovalErrorMessage("진급 인가일은 오늘 이후 날짜로 입력할 수 없습니다.");
       return;
     }
 
@@ -1961,6 +1967,11 @@ export default function AdvancementsPage() {
       return;
     }
 
+    if (bulkReviewDate > getSeoulTodayText()) {
+      setBulkReviewErrorMessage("판정일은 오늘 이후 날짜로 입력할 수 없습니다.");
+      return;
+    }
+
     if (bulkSelectedScouts.length === 0) {
       setBulkReviewErrorMessage("진급 판정할 대원을 선택해야 합니다.");
       return;
@@ -2048,6 +2059,11 @@ export default function AdvancementsPage() {
 
     if (!bulkApprovalDate) {
       setBulkApprovalErrorMessage("인가일을 입력해야 합니다.");
+      return;
+    }
+
+    if (bulkApprovalDate > getSeoulTodayText()) {
+      setBulkApprovalErrorMessage("인가일은 오늘 이후 날짜로 입력할 수 없습니다.");
       return;
     }
 
@@ -2433,6 +2449,7 @@ export default function AdvancementsPage() {
                         <input
                           style={bulkFixedInputStyle}
                           type="date"
+                          max={getSeoulTodayText()}
                           value={bulkReviewDate}
                           onChange={(event) => setBulkReviewDate(event.target.value)}
                           disabled={bulkReviewSubmitting}
@@ -2466,6 +2483,7 @@ export default function AdvancementsPage() {
                         <input
                           style={bulkFixedInputStyle}
                           type="date"
+                          max={getSeoulTodayText()}
                           value={bulkApprovalDate}
                           onChange={(event) => setBulkApprovalDate(event.target.value)}
                           disabled={bulkApprovalSubmitting}
@@ -3022,6 +3040,7 @@ export default function AdvancementsPage() {
                     <input
                       style={compactDateInputStyle}
                       type="date"
+                      max={getSeoulTodayText()}
                       value={promotionReviewForm.review_date}
                       onChange={(event) =>
                         updatePromotionReviewForm("review_date", event.target.value)
@@ -3291,6 +3310,7 @@ export default function AdvancementsPage() {
                                   <input
                                     style={inputStyle}
                                     type="date"
+                                    max={getSeoulTodayText()}
                                     value={promotionApprovalForm.approved_at}
                                     onChange={(event) =>
                                       updatePromotionApprovalForm("approved_at", event.target.value)

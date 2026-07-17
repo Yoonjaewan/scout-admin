@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { EmptyState, FeedbackToast, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
 
@@ -12,7 +13,7 @@ type AttendanceStatus =
   | "early_leave"
   | "absent"
   | "not_entered";
-type MeetingType = "regular";
+type MeetingType = "regular" | "event" | "camp" | "training" | "service" | "other";
 
 type UserProfile = {
   role: UserRole;
@@ -24,6 +25,11 @@ type Organization = {
   name: string;
 };
 
+type Rank = {
+  id: string;
+  rank_name: string;
+};
+
 type Scout = {
   id: string;
   organization_id: string;
@@ -31,6 +37,7 @@ type Scout = {
   member_no: string | null;
   school_name: string | null;
   grade: string | null;
+  current_rank_id: string | null;
   status: ScoutStatus;
 };
 
@@ -124,10 +131,20 @@ const ATTENDANCE_STATUS_OPTIONS: Array<{ value: AttendanceStatus; label: string 
 
 const MEETING_TYPE_LABELS: Record<string, string> = {
   regular: "정기집회",
+  event: "행사",
+  camp: "캠프",
+  training: "훈련",
+  service: "봉사",
+  other: "기타",
 };
 
 const MEETING_TYPE_OPTIONS: Array<{ value: MeetingType; label: string }> = [
   { value: "regular", label: "정기집회" },
+  { value: "event", label: "행사" },
+  { value: "camp", label: "캠프" },
+  { value: "training", label: "훈련" },
+  { value: "service", label: "봉사" },
+  { value: "other", label: "기타" },
 ];
 
 const ATTENDANCE_PASS_STATUSES: Array<AttendanceStatus | "excused"> = [
@@ -208,6 +225,7 @@ export default function MeetingsPage() {
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [ranks, setRanks] = useState<Rank[]>([]);
   const [scouts, setScouts] = useState<Scout[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -313,9 +331,20 @@ export default function MeetingsPage() {
       console.error("조직 목록 조회 오류:", organizationError.message);
     }
 
+    const { data: rankData, error: rankError } = await supabase
+      .from("ranks")
+      .select("id, rank_name")
+      .order("sort_order", { ascending: true });
+
+    if (rankError) {
+      console.error("급위 목록 조회 오류:", rankError.message);
+    }
+
     let scoutQuery = supabase
       .from("scouts")
-      .select("id, organization_id, name, member_no, school_name, grade, status")
+      .select(
+        "id, organization_id, name, member_no, school_name, grade, current_rank_id, status",
+      )
       .is("deleted_at", null)
       .order("name", { ascending: true });
 
@@ -373,6 +402,7 @@ export default function MeetingsPage() {
     const loadedMeetings = (meetingData ?? []) as Meeting[];
 
     setOrganizations((organizationData ?? []) as Organization[]);
+    setRanks((rankData ?? []) as Rank[]);
     setScouts((scoutData ?? []) as unknown as Scout[]);
     setMeetings(loadedMeetings);
     setAttendanceRecords((attendanceData ?? []) as unknown as AttendanceRecord[]);
@@ -398,6 +428,10 @@ export default function MeetingsPage() {
   const organizationNameMap = useMemo(() => {
     return new Map(organizations.map((organization) => [organization.id, organization.name]));
   }, [organizations]);
+
+  const rankNameMap = useMemo(() => {
+    return new Map(ranks.map((rank) => [rank.id, rank.rank_name]));
+  }, [ranks]);
 
   const selectedMeeting = useMemo(() => {
     if (!selectedMeetingId) return null;
@@ -1300,6 +1334,17 @@ export default function MeetingsPage() {
 
   const isPanelOpen = isCreateFormOpen || Boolean(editingMeetingId && editForm);
 
+  useEffect(() => {
+    if (!isPanelOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isPanelOpen]);
+
   return (
     <div>
       <div style={pageHeaderStyle}>
@@ -1746,7 +1791,15 @@ export default function MeetingsPage() {
                           />
                         </td>
                         <td style={tdStyle}>{scout.member_no ?? "-"}</td>
-                        <td style={strongTdStyle}>{scout.name}</td>
+                        <td style={strongTdStyle}>
+                          {scout.name}
+                          {scout.current_rank_id && rankNameMap.get(scout.current_rank_id) ? (
+                            <span style={scoutRankTextStyle}>
+                              {" "}
+                              / {rankNameMap.get(scout.current_rank_id)}
+                            </span>
+                          ) : null}
+                        </td>
                         <td style={tdStyle}>
                           {[scout.school_name, scout.grade].filter(Boolean).join(" / ") || "-"}
                         </td>
@@ -1812,7 +1865,8 @@ export default function MeetingsPage() {
         )}
       </section>
 
-      {isPanelOpen && (
+      {isPanelOpen &&
+        createPortal(
         <div style={panelBackdropStyle}>
           <aside style={slidePanelStyle}>
             {isCreateFormOpen && canManageMeetings && (
@@ -2026,8 +2080,9 @@ export default function MeetingsPage() {
               </form>
             )}
           </aside>
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -2587,11 +2642,13 @@ const slidePanelStyle: CSSProperties = {
 
 const panelFormStyle: CSSProperties = {
   height: "100%",
+  minHeight: 0,
   display: "flex",
   flexDirection: "column",
 };
 
 const panelHeaderStyle: CSSProperties = {
+  flexShrink: 0,
   display: "grid",
   gridTemplateColumns: "1fr auto",
   gap: "12px",
@@ -2616,19 +2673,32 @@ const panelDescriptionStyle: CSSProperties = {
 
 const panelBodyStyle: CSSProperties = {
   flex: 1,
+  minHeight: 0,
   overflowY: "auto",
   overflowX: "hidden",
-  padding: "20px",
+  padding: "20px 20px 32px",
   boxSizing: "border-box",
+  overscrollBehavior: "contain",
 };
 
 const panelFooterStyle: CSSProperties = {
+  position: "sticky",
+  bottom: 0,
+  flexShrink: 0,
   display: "flex",
   justifyContent: "flex-end",
   gap: "8px",
-  padding: "16px 20px",
+  padding: "16px 20px max(16px, env(safe-area-inset-bottom))",
   borderTop: "1px solid #e5e7eb",
   backgroundColor: "#ffffff",
+  boxShadow: "0 -8px 20px rgba(15, 23, 42, 0.06)",
+};
+
+const scoutRankTextStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
 };
 
 

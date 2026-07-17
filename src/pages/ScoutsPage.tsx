@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { EmptyState, FeedbackToast, PageHelpButton } from "../components/common/CommonFeedback";
+import { getSeoulTodayText } from "../lib/businessDate";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -636,12 +637,7 @@ function isUserRole(value: unknown): value is UserRole {
 }
 
 function getTodayText() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+  return getSeoulTodayText();
 }
 
 function normalizeDateInputValue(value: string) {
@@ -3062,6 +3058,13 @@ export default function ScoutsPage() {
       return;
     }
 
+    if (integratedReviewDate > getSeoulTodayText()) {
+      setIntegratedReviewErrorMessage(
+        "판정 기준일은 오늘 이후 날짜로 입력할 수 없습니다.",
+      );
+      return;
+    }
+
     setIntegratedReviewSubmitting(true);
     setIntegratedReviewErrorMessage("");
     setIntegratedReviewSuccessMessage("");
@@ -3118,6 +3121,13 @@ export default function ScoutsPage() {
     if (!isManagedDateValueValid(integratedApprovalDate)) {
       setIntegratedApprovalErrorMessage(
         `인가일은 ${DATE_INPUT_MIN}부터 ${DATE_INPUT_MAX}까지의 날짜로 입력해야 합니다.`,
+      );
+      return;
+    }
+
+    if (integratedApprovalDate > getSeoulTodayText()) {
+      setIntegratedApprovalErrorMessage(
+        "인가일은 오늘 이후 날짜로 입력할 수 없습니다.",
       );
       return;
     }
@@ -5818,7 +5828,7 @@ export default function ScoutsPage() {
                                 style={inputStyle}
                                 type="date"
                                 min={DATE_INPUT_MIN}
-                                max={DATE_INPUT_MAX}
+                                max={getSeoulTodayText()}
                                 value={integratedReviewDate}
                                 onInput={limitDateInputYear}
                                 onChange={(event) =>
@@ -5968,7 +5978,7 @@ export default function ScoutsPage() {
                                     style={inputStyle}
                                     type="date"
                                     min={DATE_INPUT_MIN}
-                                    max={DATE_INPUT_MAX}
+                                    max={getSeoulTodayText()}
                                     value={integratedApprovalDate}
                                     onInput={limitDateInputYear}
                                     onChange={(event) =>

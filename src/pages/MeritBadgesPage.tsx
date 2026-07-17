@@ -3,6 +3,11 @@ import type { CSSProperties, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { EmptyState, PageHelpButton } from "../components/common/CommonFeedback";
+import { getSeoulTodayText } from "../lib/businessDate";
+import {
+  buildPromotionBadgeReflectionMap,
+  getBadgePromotionDisplay,
+} from "../lib/promotionBadgeReflection";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -83,6 +88,16 @@ type ScoutBadge = {
 type PromotionBadgeUsage = {
   id: string;
   scout_badge_id: string;
+  to_rank_id: string | null;
+  used_at: string | null;
+};
+
+type RankHistory = {
+  id: string;
+  organization_id: string;
+  scout_id: string;
+  rank_id: string;
+  approved_at: string;
 };
 
 type BadgeForm = {
@@ -170,12 +185,7 @@ function isUserRole(value: unknown): value is UserRole {
 }
 
 function getTodayText() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+  return getSeoulTodayText();
 }
 
 function getEmptyBadgeForm(): BadgeForm {
@@ -257,6 +267,7 @@ export default function MeritBadgesPage() {
   const [rankRequiredBadges, setRankRequiredBadges] = useState<RankRequiredBadge[]>([]);
   const [scoutBadges, setScoutBadges] = useState<ScoutBadge[]>([]);
   const [promotionBadgeUsages, setPromotionBadgeUsages] = useState<PromotionBadgeUsage[]>([]);
+  const [rankHistories, setRankHistories] = useState<RankHistory[]>([]);
 
   const [keyword, setKeyword] = useState("");
   const [selectedScoutId, setSelectedScoutId] = useState("");
@@ -423,7 +434,12 @@ export default function MeritBadgesPage() {
 
     let promotionBadgeUsageQuery = supabase
       .from("promotion_badge_usages")
-      .select("id, organization_id, scout_badge_id")
+      .select("id, organization_id, scout_badge_id, to_rank_id, used_at")
+      .is("deleted_at", null);
+
+    let rankHistoryQuery = supabase
+      .from("scout_rank_histories")
+      .select("id, organization_id, scout_id, rank_id, approved_at")
       .is("deleted_at", null);
 
     if (currentProfile.role !== "super_admin") {
@@ -439,6 +455,10 @@ export default function MeritBadgesPage() {
         currentProfile.organization_id,
       );
       promotionBadgeUsageQuery = promotionBadgeUsageQuery.eq(
+        "organization_id",
+        currentProfile.organization_id,
+      );
+      rankHistoryQuery = rankHistoryQuery.eq(
         "organization_id",
         currentProfile.organization_id,
       );
@@ -472,6 +492,16 @@ export default function MeritBadgesPage() {
       return;
     }
 
+    const { data: rankHistoryData, error: rankHistoryError } =
+      await rankHistoryQuery;
+
+    if (rankHistoryError) {
+      console.error("급위 인가 이력 조회 오류:", rankHistoryError.message);
+      setErrorMessage("기능장 진급 반영 이력을 불러오지 못했습니다.");
+      setLoading(false);
+      return;
+    }
+
     setBadgeCategories((categoryData ?? []) as BadgeCategory[]);
     setBadges((badgeData ?? []) as Badge[]);
     setRanks((rankData ?? []) as Rank[]);
@@ -483,6 +513,7 @@ export default function MeritBadgesPage() {
     setPromotionBadgeUsages(
       (promotionBadgeUsageData ?? []) as unknown as PromotionBadgeUsage[],
     );
+    setRankHistories((rankHistoryData ?? []) as unknown as RankHistory[]);
     setLoading(false);
   };
 
@@ -542,6 +573,27 @@ export default function MeritBadgesPage() {
   const rankMap = useMemo(
     () => new Map(ranks.map((rank) => [rank.id, rank])),
     [ranks],
+  );
+
+  const promotionReflectionMap = useMemo(
+    () =>
+      buildPromotionBadgeReflectionMap({
+        scoutBadges,
+        promotionBadgeUsages,
+        rankHistories,
+        ranks,
+        rankRequirements,
+        rankRequiredBadges,
+        today: getSeoulTodayText(),
+      }),
+    [
+      promotionBadgeUsages,
+      rankHistories,
+      rankRequiredBadges,
+      rankRequirements,
+      ranks,
+      scoutBadges,
+    ],
   );
 
   const requiredBadgeGroups = useMemo(() => {
@@ -628,12 +680,25 @@ export default function MeritBadgesPage() {
           required: stats.required + (badge?.is_required_badge ? 1 : 0),
           general: stats.general + (badge?.is_general_badge ? 1 : 0),
           approved: stats.approved + (scoutBadge.approved_at ? 1 : 0),
-          used: stats.used + (usedScoutBadgeIdSet.has(scoutBadge.id) ? 1 : 0),
+          used:
+            stats.used +
+            (getBadgePromotionDisplay(
+              scoutBadge.id,
+              promotionReflectionMap,
+              usedScoutBadgeIdSet,
+            )
+              ? 1
+              : 0),
         };
       },
       { total: 0, required: 0, general: 0, approved: 0, used: 0 },
     );
-  }, [badgeMap, selectedSummaryScoutBadges, usedScoutBadgeIdSet]);
+  }, [
+    badgeMap,
+    promotionReflectionMap,
+    selectedSummaryScoutBadges,
+    usedScoutBadgeIdSet,
+  ]);
 
   const selectedScoutBadge = useMemo(() => {
     return (
@@ -651,9 +716,20 @@ export default function MeritBadgesPage() {
   const selectedBadgeIsUsed = selectedScoutBadge
     ? usedScoutBadgeIdSet.has(selectedScoutBadge.id)
     : false;
+  const selectedBadgeReflection = selectedScoutBadge
+    ? getBadgePromotionDisplay(
+        selectedScoutBadge.id,
+        promotionReflectionMap,
+        usedScoutBadgeIdSet,
+      )
+    : null;
 
   const usedBadgeCount = scoutBadges.filter((scoutBadge) =>
-    usedScoutBadgeIdSet.has(scoutBadge.id),
+    getBadgePromotionDisplay(
+      scoutBadge.id,
+      promotionReflectionMap,
+      usedScoutBadgeIdSet,
+    ),
   ).length;
 
   const sortedRanks = useMemo(
@@ -753,7 +829,11 @@ export default function MeritBadgesPage() {
       const scout = scoutMap.get(scoutBadge.scout_id) ?? null;
       const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
       const category = badge ? categoryMap.get(badge.category_id) ?? null : null;
-      const isUsed = usedScoutBadgeIdSet.has(scoutBadge.id);
+      const reflection = getBadgePromotionDisplay(
+        scoutBadge.id,
+        promotionReflectionMap,
+        usedScoutBadgeIdSet,
+      );
 
       if (selectedScoutId && scoutBadge.scout_id !== selectedScoutId) {
         return false;
@@ -786,7 +866,7 @@ export default function MeritBadgesPage() {
         scout ? organizationNameMap.get(scout.organization_id) : "",
         scoutBadge.instructor_name,
         scoutBadge.note,
-        isUsed ? "진급반영 반영됨" : "미사용",
+        reflection ? `${reflection.label} 진급반영` : "미반영",
       ]
         .filter(Boolean)
         .join(" ")
@@ -803,6 +883,7 @@ export default function MeritBadgesPage() {
     badgeMap,
     categoryMap,
     organizationNameMap,
+    promotionReflectionMap,
     usedScoutBadgeIdSet,
     badgeWorkFilter,
     scoutProgressMap,
@@ -1115,7 +1196,13 @@ export default function MeritBadgesPage() {
       if (key === "approved_at") return scoutBadge.approved_at ?? "";
       if (key === "leader_confirmed") return scoutBadge.leader_confirmed ? 1 : 0;
       if (key === "usage") {
-        return usedScoutBadgeIdSet.has(scoutBadge.id) ? 1 : 0;
+        return getBadgePromotionDisplay(
+          scoutBadge.id,
+          promotionReflectionMap,
+          usedScoutBadgeIdSet,
+        )
+          ? 1
+          : 0;
       }
       if (key === "note") return scoutBadge.note ?? "";
 
@@ -1126,6 +1213,7 @@ export default function MeritBadgesPage() {
       categoryMap,
       getOrganizationName,
       scoutMap,
+      promotionReflectionMap,
       usedScoutBadgeIdSet,
     ],
   );
@@ -1601,7 +1689,12 @@ export default function MeritBadgesPage() {
                   <tbody>
                     {sortedSelectedSummaryScoutBadges.map((scoutBadge) => {
                       const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
-                      const isUsed = usedScoutBadgeIdSet.has(scoutBadge.id);
+                      const reflection =
+                        getBadgePromotionDisplay(
+                          scoutBadge.id,
+                          promotionReflectionMap,
+                          usedScoutBadgeIdSet,
+                        );
 
                       return (
                         <tr
@@ -1631,10 +1724,18 @@ export default function MeritBadgesPage() {
                             )}
                           </td>
                           <td style={tdStyle}>
-                            {isUsed ? (
-                              <span style={usedBadgeStyle}>진급 반영</span>
+                            {reflection ? (
+                              <span
+                                style={
+                                  reflection.source === "usage_record"
+                                    ? unusedBadgeStyle
+                                    : usedBadgeStyle
+                                }
+                              >
+                                {reflection.label}
+                              </span>
                             ) : (
-                              <span style={unusedBadgeStyle}>미사용</span>
+                              <span style={unusedBadgeStyle}>미반영</span>
                             )}
                           </td>
                           <td style={tdStyle}>{scoutBadge.note ?? "-"}</td>
@@ -1743,8 +1844,16 @@ export default function MeritBadgesPage() {
               </div>
 
               <div style={toolbarRightStyle}>
-                {selectedBadgeIsUsed && (
-                  <span style={usedBadgeStyle}>진급 반영</span>
+                {selectedBadgeReflection && (
+                  <span
+                    style={
+                      selectedBadgeReflection.source === "usage_record"
+                        ? unusedBadgeStyle
+                        : usedBadgeStyle
+                    }
+                  >
+                    {selectedBadgeReflection.label}
+                  </span>
                 )}
                 {canManageBadges && (
                   <>
@@ -1869,6 +1978,11 @@ export default function MeritBadgesPage() {
                   const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
                   const isSelected = selectedScoutBadgeId === scoutBadge.id;
                   const isUsed = usedScoutBadgeIdSet.has(scoutBadge.id);
+                  const reflection = getBadgePromotionDisplay(
+                    scoutBadge.id,
+                    promotionReflectionMap,
+                    usedScoutBadgeIdSet,
+                  );
 
                   return (
                     <tr
@@ -1906,10 +2020,18 @@ export default function MeritBadgesPage() {
                         )}
                       </td>
                       <td style={tdStyle}>
-                        {isUsed ? (
-                          <span style={usedBadgeStyle}>진급 반영</span>
+                        {reflection ? (
+                          <span
+                            style={
+                              reflection.source === "usage_record"
+                                ? unusedBadgeStyle
+                                : usedBadgeStyle
+                            }
+                          >
+                            {reflection.label}
+                          </span>
                         ) : (
-                          <span style={unusedBadgeStyle}>미사용</span>
+                          <span style={unusedBadgeStyle}>미반영</span>
                         )}
                       </td>
                       <td style={tdStyle}>{scoutBadge.note ?? "-"}</td>

@@ -7,6 +7,8 @@ import type {
 } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHelpButton } from "../components/common/CommonFeedback";
+import { getSeoulTodayText } from "../lib/businessDate";
+import { buildPromotionBadgeReflectionMap } from "../lib/promotionBadgeReflection";
 import { supabase } from "../lib/supabase";
 import {
   RankProgressOverview,
@@ -196,6 +198,8 @@ type BadgeCategory = {
 type PromotionBadgeUsage = {
   id: string;
   scout_badge_id: string;
+  to_rank_id: string | null;
+  used_at: string | null;
 };
 
 type BadgeForm = {
@@ -390,11 +394,7 @@ function formatDate(value: string | null | undefined) {
 }
 
 function getTodayText() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getSeoulTodayText();
 }
 
 const GRADE_OPTIONS = [
@@ -759,7 +759,7 @@ export default function ScoutIntegratedPage() {
 
       let promotionBadgeUsageQuery = supabase
         .from("promotion_badge_usages")
-        .select("id, scout_badge_id")
+        .select("id, scout_badge_id, to_rank_id, used_at")
         .is("deleted_at", null);
 
       let programQuery = supabase
@@ -1067,6 +1067,27 @@ export default function ScoutIntegratedPage() {
     () =>
       new Set(data.promotionBadgeUsages.map((usage) => usage.scout_badge_id)),
     [data.promotionBadgeUsages],
+  );
+
+  const promotionReflectionMap = useMemo(
+    () =>
+      buildPromotionBadgeReflectionMap({
+        scoutBadges: data.scoutBadges,
+        promotionBadgeUsages: data.promotionBadgeUsages,
+        rankHistories: data.rankHistories,
+        ranks: data.ranks,
+        rankRequirements: data.rankRequirements,
+        rankRequiredBadges: data.rankRequiredBadges,
+        today: getSeoulTodayText(),
+      }),
+    [
+      data.promotionBadgeUsages,
+      data.rankHistories,
+      data.rankRequiredBadges,
+      data.rankRequirements,
+      data.ranks,
+      data.scoutBadges,
+    ],
   );
 
   const canManageBadges =
@@ -1439,6 +1460,11 @@ export default function ScoutIntegratedPage() {
       return;
     }
 
+    if (promotionReviewDate > getSeoulTodayText()) {
+      setPromotionReviewError("판정 기준일은 오늘 이후 날짜로 입력할 수 없습니다.");
+      return;
+    }
+
     setPromotionReviewSubmitting(true);
     setPromotionReviewError("");
     setPromotionApprovalError("");
@@ -1533,6 +1559,11 @@ export default function ScoutIntegratedPage() {
 
     if (!promotionApprovalDate) {
       setPromotionApprovalError("인가일을 입력해야 합니다.");
+      return;
+    }
+
+    if (promotionApprovalDate > getSeoulTodayText()) {
+      setPromotionApprovalError("인가일은 오늘 이후 날짜로 입력할 수 없습니다.");
       return;
     }
 
@@ -2708,6 +2739,7 @@ export default function ScoutIntegratedPage() {
                   badgeMap={badgeMap}
                   categoryMap={categoryMap}
                   usedScoutBadgeIdSet={usedScoutBadgeIdSet}
+                  promotionReflectionMap={promotionReflectionMap}
                   canManage={canManageBadges}
                   formError={badgeFormError}
                   deletingId={badgeDeletingId}

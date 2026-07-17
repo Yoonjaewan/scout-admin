@@ -1,5 +1,9 @@
 import { useState, type CSSProperties } from "react";
 import {
+  getBadgePromotionDisplay,
+  type BadgePromotionReflection,
+} from "../../lib/promotionBadgeReflection";
+import {
   conditionBadgeBaseStyle,
   acquiredTextStyle,
   badgeHeaderActionsStyle,
@@ -135,6 +139,7 @@ export function BadgePanel({
   badgeMap,
   categoryMap,
   usedScoutBadgeIdSet,
+  promotionReflectionMap,
   canManage,
   formError,
   deletingId,
@@ -150,6 +155,7 @@ export function BadgePanel({
   badgeMap: Map<string, Badge>;
   categoryMap: Map<string, BadgeCategory>;
   usedScoutBadgeIdSet: Set<string>;
+  promotionReflectionMap: Map<string, BadgePromotionReflection>;
   canManage: boolean;
   formError: string;
   deletingId: string;
@@ -161,7 +167,13 @@ export function BadgePanel({
     (row) => !row.approved_at,
   ).length;
   const promotionPendingCount = scoutBadges.filter(
-    (row) => !usedScoutBadgeIdSet.has(row.id),
+    (row) =>
+      Boolean(row.approved_at) &&
+      !getBadgePromotionDisplay(
+        row.id,
+        promotionReflectionMap,
+        usedScoutBadgeIdSet,
+      ),
   ).length;
   const generalCount = scoutBadges.filter(
     (row) => badgeMap.get(row.badge_id)?.is_general_badge,
@@ -570,6 +582,11 @@ export function BadgePanel({
                 {scoutBadges.map((scoutBadge) => {
                   const badge = badgeMap.get(scoutBadge.badge_id);
                   const isUsed = usedScoutBadgeIdSet.has(scoutBadge.id);
+                  const reflection = getBadgePromotionDisplay(
+                    scoutBadge.id,
+                    promotionReflectionMap,
+                    usedScoutBadgeIdSet,
+                  );
                   const badgeDetailLine = buildBadgeDetailLine(
                     badge,
                     categoryMap,
@@ -614,9 +631,13 @@ export function BadgePanel({
                       </td>
                       <td style={badgeTableCompactCellStyle}>
                         <span
-                          style={isUsed ? usedBadgeStyle : unusedBadgeStyle}
+                          style={
+                            reflection && reflection.source !== "usage_record"
+                              ? usedBadgeStyle
+                              : unusedBadgeStyle
+                          }
                         >
-                          {isUsed ? "반영" : "미반영"}
+                          {reflection?.label ?? "미반영"}
                         </span>
                       </td>
                       {canManage && (
