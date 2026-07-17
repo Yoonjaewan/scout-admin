@@ -10,14 +10,9 @@ import {
 } from "react-router-dom";
 
 import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
 import PendingApprovalPage from "./pages/PendingApprovalPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
-import SignupRequestsPage from "./pages/SignupRequestsPage";
-import UserManagementPage from "./pages/UserManagementPage";
-import OrganizationsPage from "./pages/OrganizationsPage";
 import SettingsPage from "./pages/SettingsPage";
-import ChangePasswordPage from "./pages/ChangePasswordPage";
 
 const ScoutsPage = lazy(() => import("./pages/ScoutsPage"));
 const ScoutIntegratedPage = lazy(
@@ -40,6 +35,21 @@ const ProgramCompletionsPage = lazy(
 );
 const MeetingsPage = lazy(
   () => import("./pages/MeetingsPage"),
+);
+const SignupRequestsPage = lazy(
+  () => import("./pages/SignupRequestsPage"),
+);
+const OrganizationsPage = lazy(
+  () => import("./pages/OrganizationsPage"),
+);
+const UserManagementPage = lazy(
+  () => import("./pages/UserManagementPage"),
+);
+const RegisterPage = lazy(
+  () => import("./pages/RegisterPage"),
+);
+const ChangePasswordPage = lazy(
+  () => import("./pages/ChangePasswordPage"),
 );
 
 import ApprovedRoute from "./routes/ApprovedRoute";
