@@ -230,6 +230,15 @@ type AdminProfileItem = {
   createdAt: string | null;
 };
 
+type AdminSignupRequestItem = {
+  id: string;
+  displayName: string;
+  organizationName: string;
+  role: UserRole | "unknown";
+  statusLabel: string;
+  createdAt: string | null;
+};
+
 type AdminOrganizationItem = {
   id: string;
   name: string;
@@ -249,7 +258,7 @@ type SuperAdminStats = {
   operations: DashboardStats;
   organizations: AdminOrganizationItem[];
   profiles: AdminProfileItem[];
-  pendingRequests: AdminProfileItem[];
+  pendingRequests: AdminSignupRequestItem[];
   approvedProfiles: AdminProfileItem[];
   rejectedProfiles: AdminProfileItem[];
   suspendedProfiles: AdminProfileItem[];
@@ -1037,12 +1046,47 @@ async function fetchAdminProfiles(
   return [];
 }
 
+async function fetchPendingSignupRequests(): Promise<AdminSignupRequestItem[]> {
+  const { data, error } = await supabase
+    .from("signup_requests")
+    .select("id, email, name, organization_name, requested_role, status, created_at")
+    .eq("status", "pending")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data || []) as unknown as Record<string, unknown>[];
+
+  return rows.map((row) => {
+    const email = getStringValue(row, ["email"]);
+    const name = getStringValue(row, ["name"]);
+    const rawRole = getStringValue(row, ["requested_role"]);
+    const role: UserRole | "unknown" =
+      rawRole && isUserRole(rawRole) ? rawRole : "unknown";
+    const status = getStringValue(row, ["status"]) || "pending";
+
+    return {
+      id: getStringValue(row, ["id"]) || "",
+      displayName: name || email || "신청자",
+      organizationName: getStringValue(row, ["organization_name"]) || "소속대명 미등록",
+      role,
+      statusLabel: getAdminStatusLabel(status),
+      createdAt: getStringValue(row, ["created_at"]),
+    };
+  }).filter((request) => request.id);
+}
+
 async function loadSuperAdminStats(): Promise<SuperAdminStats> {
-  const [operations, organizations, { scouts, statusAvailable }] = await Promise.all([
-    loadDashboardStats(),
-    fetchAdminOrganizations(),
-    fetchScoutsForDashboard(),
-  ]);
+  const [operations, organizations, { scouts, statusAvailable }, pendingRequests] =
+    await Promise.all([
+      loadDashboardStats(),
+      fetchAdminOrganizations(),
+      fetchScoutsForDashboard(),
+      fetchPendingSignupRequests(),
+    ]);
 
   const organizationNameMap = new Map(
     organizations.map((organization) => [organization.id, organization.name]),
@@ -1087,7 +1131,6 @@ async function loadSuperAdminStats(): Promise<SuperAdminStats> {
     }
   });
 
-  const pendingRequests = profiles.filter((profile) => profile.status === "pending");
   const approvedProfiles = profiles.filter((profile) => isApprovedProfileStatus(profile.status));
   const rejectedProfiles = profiles.filter((profile) => profile.status === "rejected");
   const suspendedProfiles = profiles.filter((profile) => profile.status === "suspended");
@@ -1701,7 +1744,7 @@ function SuperAdminDashboardHome({
   );
 }
 
-function SuperAdminRequestTable({ items }: { items: AdminProfileItem[] }) {
+function SuperAdminRequestTable({ items }: { items: AdminSignupRequestItem[] }) {
   if (items.length === 0) {
     return <EmptyCard message="승인 대기 중인 이용신청이 없습니다." />;
   }
