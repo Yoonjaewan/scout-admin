@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
@@ -661,58 +661,68 @@ export default function MeritBadgesPage() {
     [ranks],
   );
 
-  const getNextRankForScout = (scout: Scout) => {
+  const getNextRankForScout = useCallback((scout: Scout) => {
     if (!scout.current_rank_id) return sortedRanks[0] ?? null;
     const currentRank = rankMap.get(scout.current_rank_id) ?? null;
     if (!currentRank) return null;
     return sortedRanks.find((rank) => rank.sort_order === currentRank.sort_order + 1) ?? null;
-  };
+  }, [rankMap, sortedRanks]);
 
-  const getScoutProgress = (scout: Scout) => {
-    const currentRank = scout.current_rank_id ? rankMap.get(scout.current_rank_id) ?? null : null;
-    const nextRank = getNextRankForScout(scout);
-    const requirement = scout.current_rank_id
-      ? rankRequirements.find((item) => item.from_rank_id === scout.current_rank_id) ?? null
-      : null;
-    const ownedRows = scoutBadges.filter((row) => row.scout_id === scout.id);
-    const ownedBadgeIdSet = new Set(ownedRows.map((row) => row.badge_id));
-    const requiredMappings = requirement
-      ? rankRequiredBadges.filter((row) => row.rank_requirement_id === requirement.id)
-      : [];
-    const requiredTotal = requiredMappings.length;
-    const requiredOwned = requiredMappings.filter((row) => ownedBadgeIdSet.has(row.badge_id)).length;
-    const missingRequiredBadges = requiredMappings
-      .filter((row) => !ownedBadgeIdSet.has(row.badge_id))
-      .map((row) => badgeMap.get(row.badge_id) ?? null)
-      .filter((badge): badge is Badge => badge !== null);
-    const generalRequired = requirement?.required_general_badge_count ?? 0;
-    const generalOwned = ownedRows.filter((row) => badgeMap.get(row.badge_id)?.is_general_badge).length;
-    const requiredMissing = Math.max(requiredTotal - requiredOwned, 0);
-    const generalMissing = Math.max(generalRequired - generalOwned, 0);
-    const unconfirmedCount = ownedRows.filter((row) => !row.leader_confirmed).length;
-    const unapprovedCount = ownedRows.filter((row) => !row.approved_at).length;
+  const getScoutProgress = useCallback(
+    (scout: Scout) => {
+      const currentRank = scout.current_rank_id ? rankMap.get(scout.current_rank_id) ?? null : null;
+      const nextRank = getNextRankForScout(scout);
+      const requirement = scout.current_rank_id
+        ? rankRequirements.find((item) => item.from_rank_id === scout.current_rank_id) ?? null
+        : null;
+      const ownedRows = scoutBadges.filter((row) => row.scout_id === scout.id);
+      const ownedBadgeIdSet = new Set(ownedRows.map((row) => row.badge_id));
+      const requiredMappings = requirement
+        ? rankRequiredBadges.filter((row) => row.rank_requirement_id === requirement.id)
+        : [];
+      const requiredTotal = requiredMappings.length;
+      const requiredOwned = requiredMappings.filter((row) => ownedBadgeIdSet.has(row.badge_id)).length;
+      const missingRequiredBadges = requiredMappings
+        .filter((row) => !ownedBadgeIdSet.has(row.badge_id))
+        .map((row) => badgeMap.get(row.badge_id) ?? null)
+        .filter((badge): badge is Badge => badge !== null);
+      const generalRequired = requirement?.required_general_badge_count ?? 0;
+      const generalOwned = ownedRows.filter((row) => badgeMap.get(row.badge_id)?.is_general_badge).length;
+      const requiredMissing = Math.max(requiredTotal - requiredOwned, 0);
+      const generalMissing = Math.max(generalRequired - generalOwned, 0);
+      const unconfirmedCount = ownedRows.filter((row) => !row.leader_confirmed).length;
+      const unapprovedCount = ownedRows.filter((row) => !row.approved_at).length;
 
-    return {
-      currentRank,
-      nextRank,
-      requiredTotal,
-      requiredOwned,
-      requiredMissing,
-      generalRequired,
-      generalOwned,
-      generalMissing,
-      missingRequiredBadges,
-      totalOwned: ownedRows.length,
-      unconfirmedCount,
-      unapprovedCount,
-      isReady: Boolean(nextRank) && requiredMissing === 0 && generalMissing === 0,
-      needsSupport: requiredMissing > 0 || generalMissing > 0,
-    };
-  };
+      return {
+        currentRank,
+        nextRank,
+        requiredTotal,
+        requiredOwned,
+        requiredMissing,
+        generalRequired,
+        generalOwned,
+        generalMissing,
+        missingRequiredBadges,
+        totalOwned: ownedRows.length,
+        unconfirmedCount,
+        unapprovedCount,
+        isReady: Boolean(nextRank) && requiredMissing === 0 && generalMissing === 0,
+        needsSupport: requiredMissing > 0 || generalMissing > 0,
+      };
+    },
+    [
+      badgeMap,
+      getNextRankForScout,
+      rankMap,
+      rankRequiredBadges,
+      rankRequirements,
+      scoutBadges,
+    ],
+  );
 
   const scoutProgressMap = useMemo(() => {
     return new Map(scouts.map((scout) => [scout.id, getScoutProgress(scout)]));
-  }, [scouts, scoutBadges, rankRequirements, rankRequiredBadges, badgeMap, rankMap, sortedRanks]);
+  }, [scouts, getScoutProgress]);
 
   const sortedSummaryScouts = useMemo(() => {
     return [...scouts].sort((a, b) => {
@@ -1065,9 +1075,9 @@ export default function MeritBadgesPage() {
     await loadData();
   };
 
-  const getOrganizationName = (organizationId: string) => {
+  const getOrganizationName = useCallback((organizationId: string) => {
     return organizationNameMap.get(organizationId) ?? "-";
-  };
+  }, [organizationNameMap]);
 
   const getBadgeName = (badgeId: string) => {
     return badgeMap.get(badgeId)?.name ?? "-";
@@ -1080,36 +1090,45 @@ export default function MeritBadgesPage() {
     return categoryMap.get(badge.category_id)?.name ?? "-";
   };
 
-  const getScoutBadgeSortValue = (
-    scoutBadge: ScoutBadge,
-    key: MeritBadgeSortKey,
-  ): string | number => {
-    const scout = scoutMap.get(scoutBadge.scout_id) ?? null;
-    const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
-    const category = badge ? categoryMap.get(badge.category_id) ?? null : null;
+  const getScoutBadgeSortValue = useCallback(
+    (
+      scoutBadge: ScoutBadge,
+      key: MeritBadgeSortKey,
+    ): string | number => {
+      const scout = scoutMap.get(scoutBadge.scout_id) ?? null;
+      const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
+      const category = badge ? categoryMap.get(badge.category_id) ?? null : null;
 
-    if (key === "member_no") return scout?.member_no ?? "";
-    if (key === "name") return scout?.name ?? "";
-    if (key === "organization") {
-      return scout ? getOrganizationName(scout.organization_id) : "";
-    }
-    if (key === "school_name") return scout?.school_name ?? "";
-    if (key === "category") return category?.name ?? "";
-    if (key === "badge") return badge?.name ?? "";
-    if (key === "badge_type") return getBadgeTypeLabel(badge);
-    if (key === "special_rule") {
-      return badge ? getSpecialRuleLabel(badge.special_rule) : "";
-    }
-    if (key === "acquired_at") return scoutBadge.acquired_at ?? "";
-    if (key === "approved_at") return scoutBadge.approved_at ?? "";
-    if (key === "leader_confirmed") return scoutBadge.leader_confirmed ? 1 : 0;
-    if (key === "usage") {
-      return usedScoutBadgeIdSet.has(scoutBadge.id) ? 1 : 0;
-    }
-    if (key === "note") return scoutBadge.note ?? "";
+      if (key === "member_no") return scout?.member_no ?? "";
+      if (key === "name") return scout?.name ?? "";
+      if (key === "organization") {
+        return scout ? getOrganizationName(scout.organization_id) : "";
+      }
+      if (key === "school_name") return scout?.school_name ?? "";
+      if (key === "category") return category?.name ?? "";
+      if (key === "badge") return badge?.name ?? "";
+      if (key === "badge_type") return getBadgeTypeLabel(badge);
+      if (key === "special_rule") {
+        return badge ? getSpecialRuleLabel(badge.special_rule) : "";
+      }
+      if (key === "acquired_at") return scoutBadge.acquired_at ?? "";
+      if (key === "approved_at") return scoutBadge.approved_at ?? "";
+      if (key === "leader_confirmed") return scoutBadge.leader_confirmed ? 1 : 0;
+      if (key === "usage") {
+        return usedScoutBadgeIdSet.has(scoutBadge.id) ? 1 : 0;
+      }
+      if (key === "note") return scoutBadge.note ?? "";
 
-    return "";
-  };
+      return "";
+    },
+    [
+      badgeMap,
+      categoryMap,
+      getOrganizationName,
+      scoutMap,
+      usedScoutBadgeIdSet,
+    ],
+  );
 
   const compareSortValues = (
     leftValue: string | number,
@@ -1143,12 +1162,8 @@ export default function MeritBadgesPage() {
       .map(({ scoutBadge }) => scoutBadge);
   }, [
     filteredScoutBadges,
+    getScoutBadgeSortValue,
     sortConfig,
-    scoutMap,
-    badgeMap,
-    categoryMap,
-    organizationNameMap,
-    usedScoutBadgeIdSet,
   ]);
 
   const sortedSelectedSummaryScoutBadges = useMemo(() => {
@@ -1194,13 +1209,10 @@ export default function MeritBadgesPage() {
       })
       .map(({ scoutBadge }) => scoutBadge);
   }, [
+    badgeMap,
+    getScoutBadgeSortValue,
     selectedSummaryScoutBadges,
     summarySortConfig,
-    scoutMap,
-    badgeMap,
-    categoryMap,
-    organizationNameMap,
-    usedScoutBadgeIdSet,
   ]);
 
   const handleSort = (key: MeritBadgeSortKey) => {
