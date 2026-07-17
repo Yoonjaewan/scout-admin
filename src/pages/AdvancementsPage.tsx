@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
@@ -1083,7 +1083,7 @@ export default function AdvancementsPage() {
     );
   }, [rankRequirements]);
 
-  const isProgramRequiredForTargetRank = (toRankId: string | null) => {
+  const isProgramRequiredForTargetRank = useCallback((toRankId: string | null) => {
     if (!toRankId) return false;
 
     const targetRank = rankByIdMap.get(toRankId);
@@ -1091,16 +1091,16 @@ export default function AdvancementsPage() {
 
     const normalizedRankName = targetRank.rank_name.replace(/\s+/g, "");
     return targetRank.rank_code === "beom" || normalizedRankName === "범";
-  };
+  }, [rankByIdMap]);
 
-  const isProgramRequiredForReview = (review: PromotionReview) => {
+  const isProgramRequiredForReview = useCallback((review: PromotionReview) => {
     return isProgramRequiredForTargetRank(review.to_rank_id);
-  };
+  }, [isProgramRequiredForTargetRank]);
 
-  const isReviewPassedForApproval = (review: PromotionReview) => {
+  const isReviewPassedForApproval = useCallback((review: PromotionReview) => {
     const attendanceRequired = isProgramRequiredForReview(review);
     return review.final_passed && (!attendanceRequired || review.attendance_passed);
-  };
+  }, [isProgramRequiredForReview]);
 
   const getRelevantMissingItems = (review: PromotionReview) => {
     const programRequired = isProgramRequiredForReview(review);
@@ -1173,16 +1173,16 @@ export default function AdvancementsPage() {
     return selectedScoutReviews[0];
   }, [selectedReviewId, selectedScoutReviews]);
 
-  const getRankName = (rankId: string | null) => {
+  const getRankName = useCallback((rankId: string | null) => {
     if (!rankId) return "-";
     return rankNameMap.get(rankId) ?? "-";
-  };
+  }, [rankNameMap]);
 
-  const getOrganizationName = (organizationId: string) => {
+  const getOrganizationName = useCallback((organizationId: string) => {
     return organizationNameMap.get(organizationId) ?? "-";
-  };
+  }, [organizationNameMap]);
 
-  const getNextRank = (scout: Scout) => {
+  const getNextRank = useCallback((scout: Scout) => {
     if (isCubScoutByGrade(scout)) {
       return null;
     }
@@ -1202,9 +1202,9 @@ export default function AdvancementsPage() {
         (rank) => rank.sort_order === currentRank.sort_order + 1,
       ) ?? null
     );
-  };
+  }, [rankByIdMap, sortedRanks]);
 
-  const getCurrentRankDisplay = (scout: Scout) => {
+  const getCurrentRankDisplay = useCallback((scout: Scout) => {
     if (isCubScoutByGrade(scout)) {
       const storedRankName = scout.current_rank_id ? getRankName(scout.current_rank_id) : "";
       return storedRankName && storedRankName !== "-"
@@ -1214,9 +1214,9 @@ export default function AdvancementsPage() {
 
     if (!scout.current_rank_id) return "미등록";
     return getRankName(scout.current_rank_id);
-  };
+  }, [getRankName]);
 
-  const getNextRankDisplay = (scout: Scout) => {
+  const getNextRankDisplay = useCallback((scout: Scout) => {
     if (isCubScoutByGrade(scout)) {
       const nextCubRankName = getNextCubRankNameByGrade(scout.grade);
       return nextCubRankName
@@ -1233,7 +1233,7 @@ export default function AdvancementsPage() {
     }
 
     return nextRank.rank_name;
-  };
+  }, [getNextRank]);
 
   const isRankCompleted = (scout: Scout, rankId: string) => {
     const histories = historiesByScoutId.get(scout.id) ?? [];
@@ -1284,7 +1284,7 @@ export default function AdvancementsPage() {
     return "진급 기준 확인 필요";
   };
 
-  const getExpectedDateDisplay = (scout: Scout) => {
+  const getExpectedDateDisplay = useCallback((scout: Scout) => {
     if (isCubScoutByGrade(scout)) {
       return "학년 기준 자동진급";
     }
@@ -1306,7 +1306,7 @@ export default function AdvancementsPage() {
       })[0] ?? null;
 
     return currentStepReview?.available_at ?? "판정 후 확인";
-  };
+  }, [getNextRank, reviewsByScoutId]);
 
   const getRankStepState = (scout: Scout, rank: Rank): RankStepState => {
     if (isCubScoutByGrade(scout)) {
@@ -1505,7 +1505,7 @@ export default function AdvancementsPage() {
     );
   };
 
-  const getScoutSortValue = (scout: Scout, key: AdvancementSortKey) => {
+  const getScoutSortValue = useCallback((scout: Scout, key: AdvancementSortKey) => {
     if (key === "member_no") return scout.member_no ?? "";
     if (key === "name") return scout.name;
     if (key === "organization") return getOrganizationName(scout.organization_id);
@@ -1526,9 +1526,16 @@ export default function AdvancementsPage() {
     if (key === "review_count") return reviewsByScoutId.get(scout.id)?.length ?? 0;
 
     return "";
-  };
+  }, [
+    getExpectedDateDisplay,
+    getNextRank,
+    getOrganizationName,
+    historiesByScoutId,
+    rankByIdMap,
+    reviewsByScoutId,
+  ]);
 
-  const compareScoutSortValues = (firstScout: Scout, secondScout: Scout) => {
+  const compareScoutSortValues = useCallback((firstScout: Scout, secondScout: Scout) => {
     const firstValue = getScoutSortValue(firstScout, sortState.key);
     const secondValue = getScoutSortValue(secondScout, sortState.key);
 
@@ -1555,7 +1562,7 @@ export default function AdvancementsPage() {
     }
 
     return sortState.direction === "asc" ? compareResult : -compareResult;
-  };
+  }, [getScoutSortValue, sortState]);
 
   const handleSelectScout = (scout: Scout) => {
     setSelectedScoutId(scout.id);
@@ -1637,7 +1644,7 @@ export default function AdvancementsPage() {
     return passed ? conditionPassValueStyle : conditionFailValueStyle;
   };
 
-  const getLatestCurrentStepReview = (scout: Scout) => {
+  const getLatestCurrentStepReview = useCallback((scout: Scout) => {
     if (isCubScoutByGrade(scout)) {
       return null;
     }
@@ -1663,7 +1670,7 @@ export default function AdvancementsPage() {
           return bKey.localeCompare(aKey);
         })[0] ?? null
     );
-  };
+  }, [getNextRank, reviewsByScoutId]);
 
   const getAdvancementStatusLabel = (scout: Scout) => {
     if (isCubScoutByGrade(scout)) return "자동진급";
@@ -1714,59 +1721,68 @@ export default function AdvancementsPage() {
     return items.length > 0 ? items.join(", ") : "조건 재확인";
   };
 
-  const isScoutMatchedAdvancementFilter = (
-    scout: Scout,
-    filter: AdvancementFilter,
-  ) => {
-    if (filter === "all") {
+  const isScoutMatchedAdvancementFilter = useCallback(
+    (
+      scout: Scout,
+      filter: AdvancementFilter,
+    ) => {
+      if (filter === "all") {
+        return true;
+      }
+
+      const nextRank = getNextRank(scout);
+
+      if (!scout.current_rank_id || !nextRank) {
+        return false;
+      }
+
+      const latestReview = getLatestCurrentStepReview(scout);
+
+      if (filter === "not_reviewed") {
+        return latestReview === null;
+      }
+
+      if (!latestReview) {
+        return false;
+      }
+
+      if (filter === "ready") {
+        const alreadyApprovedTargetRank =
+          historiesByScoutId
+            .get(scout.id)
+            ?.some((history) => history.rank_id === nextRank.id) ?? false;
+
+        return isReviewPassedForApproval(latestReview) && !alreadyApprovedTargetRank;
+      }
+
+      if (filter === "period") {
+        return !latestReview.period_passed;
+      }
+
+      if (filter === "badge") {
+        return (
+          !latestReview.required_badges_passed ||
+          !latestReview.general_badges_passed
+        );
+      }
+
+      if (filter === "program") {
+        return (
+          isProgramRequiredForReview(latestReview) &&
+          !latestReview.program_passed
+        );
+      }
+
       return true;
-    }
-
-    const nextRank = getNextRank(scout);
-
-    if (!scout.current_rank_id || !nextRank) {
-      return false;
-    }
-
-    const latestReview = getLatestCurrentStepReview(scout);
-
-    if (filter === "not_reviewed") {
-      return latestReview === null;
-    }
-
-    if (!latestReview) {
-      return false;
-    }
-
-    if (filter === "ready") {
-      const alreadyApprovedTargetRank =
-        historiesByScoutId
-          .get(scout.id)
-          ?.some((history) => history.rank_id === nextRank.id) ?? false;
-
-      return isReviewPassedForApproval(latestReview) && !alreadyApprovedTargetRank;
-    }
-
-    if (filter === "period") {
-      return !latestReview.period_passed;
-    }
-
-    if (filter === "badge") {
-      return (
-        !latestReview.required_badges_passed ||
-        !latestReview.general_badges_passed
-      );
-    }
-
-    if (filter === "program") {
-      return (
-        isProgramRequiredForReview(latestReview) &&
-        !latestReview.program_passed
-      );
-    }
-
-    return true;
-  };
+    },
+    [
+      getLatestCurrentStepReview,
+      getNextRank,
+      historiesByScoutId,
+      isProgramRequiredForReview,
+      isReviewPassedForApproval,
+    ],
+  );
 
   const advancementFilterCounts = useMemo(() => {
     return ADVANCEMENT_FILTER_OPTIONS.reduce(
@@ -1778,14 +1794,7 @@ export default function AdvancementsPage() {
       }),
       {} as Record<AdvancementFilter, number>,
     );
-  }, [
-    scouts,
-    sortedRanks,
-    rankByIdMap,
-    rankHistories,
-    rankRequirements,
-    promotionReviews,
-  ]);
+  }, [isScoutMatchedAdvancementFilter, scouts]);
 
   const filteredScouts = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -1820,19 +1829,15 @@ export default function AdvancementsPage() {
       })
       .sort(compareScoutSortValues);
   }, [
+    compareScoutSortValues,
+    getCurrentRankDisplay,
+    getExpectedDateDisplay,
+    getNextRankDisplay,
+    getOrganizationName,
+    isScoutMatchedAdvancementFilter,
     keyword,
     scouts,
-    sortedRanks,
-    rankNameMap,
-    rankByIdMap,
-    rankRequirements,
-    rankHistories,
-    organizationNameMap,
-    promotionReviews,
     selectedAdvancementFilter,
-    sortState,
-    historiesByScoutId,
-    reviewsByScoutId,
   ]);
 
   useEffect(() => {
