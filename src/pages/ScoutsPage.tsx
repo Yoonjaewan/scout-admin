@@ -3169,7 +3169,7 @@ export default function ScoutsPage() {
   };
 
   const getTemplateFileName = () => {
-    const organizationName = getBulkTargetOrganizationName().replace(/[\/:*?"<>|]/g, "_");
+    const organizationName = getBulkTargetOrganizationName().replace(/[/:*?"<>|]/g, "_");
     return `대원_엑셀_등록양식_${organizationName}_${getTodayText()}.xlsx`;
   };
 
@@ -3301,7 +3301,7 @@ export default function ScoutsPage() {
       return `${year}-${month}-${day}`;
     }
 
-    const text = normalizeText(value).replace(/[.]/g, "-").replace(/[\/]/g, "-");
+    const text = normalizeText(value).replace(/[.]/g, "-").replace(/[/]/g, "-");
     const dateMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
 
     if (!dateMatch) return text;
@@ -3475,7 +3475,7 @@ export default function ScoutsPage() {
         const approvedAt = dateMatch ? parseExcelDate(dateMatch[1]) : "";
         const badgeName = entry
           .replace(dateMatch?.[1] ?? "", "")
-          .replace(/[()\[\]{}:：]/g, " ")
+          .replace(/[()[\]{}:：]/g, " ")
           .replace(/\s+/g, " ")
           .trim();
 
