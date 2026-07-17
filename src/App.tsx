@@ -16,11 +16,6 @@ import UnauthorizedPage from "./pages/UnauthorizedPage";
 import SignupRequestsPage from "./pages/SignupRequestsPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import OrganizationsPage from "./pages/OrganizationsPage";
-import AdvancementsPage from "./pages/AdvancementsPage";
-import MeritBadgesPage from "./pages/MeritBadgesPage";
-import ProgramCompletionsPage from "./pages/ProgramCompletionsPage";
-import MeetingsPage from "./pages/MeetingsPage";
-import ReportsPage from "./pages/ReportsPage";
 import SettingsPage from "./pages/SettingsPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 
@@ -30,6 +25,21 @@ const ScoutIntegratedPage = lazy(
 );
 const OrganizationBackupsPage = lazy(
   () => import("./pages/OrganizationBackupsPage"),
+);
+const AdvancementsPage = lazy(
+  () => import("./pages/AdvancementsPage"),
+);
+const ReportsPage = lazy(
+  () => import("./pages/ReportsPage"),
+);
+const MeritBadgesPage = lazy(
+  () => import("./pages/MeritBadgesPage"),
+);
+const ProgramCompletionsPage = lazy(
+  () => import("./pages/ProgramCompletionsPage"),
+);
+const MeetingsPage = lazy(
+  () => import("./pages/MeetingsPage"),
 );
 
 import ApprovedRoute from "./routes/ApprovedRoute";
