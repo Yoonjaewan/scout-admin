@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Link,
@@ -16,9 +16,6 @@ import UnauthorizedPage from "./pages/UnauthorizedPage";
 import SignupRequestsPage from "./pages/SignupRequestsPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import OrganizationsPage from "./pages/OrganizationsPage";
-import OrganizationBackupsPage from "./pages/OrganizationBackupsPage";
-import ScoutsPage from "./pages/ScoutsPage";
-import ScoutIntegratedPage from "./pages/ScoutIntegratedPage";
 import AdvancementsPage from "./pages/AdvancementsPage";
 import MeritBadgesPage from "./pages/MeritBadgesPage";
 import ProgramCompletionsPage from "./pages/ProgramCompletionsPage";
@@ -26,6 +23,14 @@ import MeetingsPage from "./pages/MeetingsPage";
 import ReportsPage from "./pages/ReportsPage";
 import SettingsPage from "./pages/SettingsPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
+
+const ScoutsPage = lazy(() => import("./pages/ScoutsPage"));
+const ScoutIntegratedPage = lazy(
+  () => import("./pages/ScoutIntegratedPage"),
+);
+const OrganizationBackupsPage = lazy(
+  () => import("./pages/OrganizationBackupsPage"),
+);
 
 import ApprovedRoute from "./routes/ApprovedRoute";
 import SuperAdminRoute from "./routes/SuperAdminRoute";
@@ -3494,19 +3499,21 @@ function SideMenuLink({
 
 function App() {
   return (
-    <Routes>
-      {/* 공개 페이지 */}
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
-      <Route path="/pending-approval" element={<PendingApprovalPage />} />
-      <Route path="/unauthorized" element={<UnauthorizedPage />} />
+    <Suspense fallback={<div style={{ padding: 24 }}>화면을 불러오는 중입니다.</div>}>
+      <Routes>
+        {/* 공개 페이지 */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/pending-approval" element={<PendingApprovalPage />} />
+        <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
-      {/* 승인된 사용자만 접근 가능 */}
-      <Route element={<ApprovedRoute />}>
-        <Route path="/change-password" element={<ChangePasswordPage />} />
-        <Route path="*" element={<AppLayout />} />
-      </Route>
-    </Routes>
+        {/* 승인된 사용자만 접근 가능 */}
+        <Route element={<ApprovedRoute />}>
+          <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route path="*" element={<AppLayout />} />
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }
 
