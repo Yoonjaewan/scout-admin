@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, CSSProperties, FormEvent } from "react";
 import * as XLSX from "xlsx";
 import { createPortal } from "react-dom";
@@ -842,7 +842,7 @@ export default function ScoutsPage() {
   const canUseExcelImport =
     profile?.role === "super_admin" || profile?.role === "org_admin";
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setErrorMessage("");
 
@@ -1077,15 +1077,17 @@ export default function ScoutsPage() {
     setAttendanceRecords((attendanceData ?? []) as unknown as AttendanceRecord[]);
     const loadedOrganizations = (organizationData ?? []) as unknown as Organization[];
     setOrganizations(loadedOrganizations);
-    if (currentProfile.role === "super_admin" && !bulkOrganizationId && loadedOrganizations.length > 0) {
-      setBulkOrganizationId(loadedOrganizations[0].id);
+    if (currentProfile.role === "super_admin" && loadedOrganizations.length > 0) {
+      setBulkOrganizationId((current) =>
+        current || loadedOrganizations[0].id
+      );
     }
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const rankNameMap = useMemo(() => {
     return new Map(ranks.map((rank) => [rank.id, rank.rank_name]));
@@ -1108,7 +1110,7 @@ export default function ScoutsPage() {
     return map;
   }, [ranks]);
 
-  const resolveRankByText = (value: unknown) => {
+  const resolveRankByText = useCallback((value: unknown) => {
     const normalizedValue = normalizeLookupText(value);
 
     if (!normalizedValue) return null;
@@ -1125,12 +1127,12 @@ export default function ScoutsPage() {
         );
       }) ?? null
     );
-  };
+  }, [rankByNormalizedName, ranks]);
 
-  const getAutoCubRank = (grade: string | null | undefined) => {
+  const getAutoCubRank = useCallback((grade: string | null | undefined) => {
     const cubRankName = getCubRankNameByGrade(grade);
     return cubRankName ? resolveRankByText(cubRankName) : null;
-  };
+  }, [resolveRankByText]);
 
   const applyAutomaticCubRank = async (scout: Scout, grade: string | null | undefined) => {
     const cubRankName = getCubRankNameByGrade(grade);
@@ -1162,7 +1164,7 @@ export default function ScoutsPage() {
     };
   };
 
-  const getScoutCurrentRankDisplay = (scout: Scout) => {
+  const getScoutCurrentRankDisplay = useCallback((scout: Scout) => {
     const storedRankName = scout.current_rank_id
       ? rankNameMap.get(scout.current_rank_id)
       : "";
@@ -1171,7 +1173,7 @@ export default function ScoutsPage() {
 
     const cubRankName = getCubRankNameByGrade(scout.grade);
     return cubRankName || "-";
-  };
+  }, [rankNameMap]);
 
   const getCreateFormCubRankNotice = () => {
     const cubRankName = getCubRankNameByGrade(createForm.grade);
@@ -2059,7 +2061,17 @@ export default function ScoutsPage() {
 
       return scoutSortConfig.direction === "asc" ? result : -result;
     });
-  }, [keyword, organizationNameMap, rankMap, rankNameMap, scoutSortConfig, scouts, sectionFilter, statusFilter]);
+  }, [
+    getAutoCubRank,
+    getScoutCurrentRankDisplay,
+    keyword,
+    organizationNameMap,
+    rankMap,
+    scoutSortConfig,
+    scouts,
+    sectionFilter,
+    statusFilter,
+  ]);
 
   const handleSortScoutColumn = (key: ScoutSortKey) => {
     setScoutSortConfig((current) => {
