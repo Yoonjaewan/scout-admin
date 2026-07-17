@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { EmptyState, FeedbackToast, PageHelpButton } from "../components/common/CommonFeedback";
@@ -499,22 +499,25 @@ export default function ProgramCompletionsPage() {
     return map;
   }, [scoutRankHistories]);
 
-  const getScoutRankInfo = (scoutId: string) => {
-    const latestHistory = latestRankHistoryByScoutMap.get(scoutId);
-    const currentRankName = latestHistory
-      ? rankNameMap.get(latestHistory.rank_id) ?? "인가기록 없음"
-      : "인가기록 없음";
-    const nextRankName =
-      currentRankName === "인가기록 없음"
-        ? "초급"
-        : getNextRankName(currentRankName);
+  const getScoutRankInfo = useCallback(
+    (scoutId: string) => {
+      const latestHistory = latestRankHistoryByScoutMap.get(scoutId);
+      const currentRankName = latestHistory
+        ? rankNameMap.get(latestHistory.rank_id) ?? "인가기록 없음"
+        : "인가기록 없음";
+      const nextRankName =
+        currentRankName === "인가기록 없음"
+          ? "초급"
+          : getNextRankName(currentRankName);
 
-    return {
-      currentRankName,
-      nextRankName,
-      isBeomTarget: isBeomTargetRank(nextRankName),
-    };
-  };
+      return {
+        currentRankName,
+        nextRankName,
+        isBeomTarget: isBeomTargetRank(nextRankName),
+      };
+    },
+    [latestRankHistoryByScoutMap, rankNameMap],
+  );
 
   const programCompletionCountByScoutMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -557,7 +560,7 @@ export default function ProgramCompletionsPage() {
   const beomTargetScoutCount = useMemo(() => {
     return activeScouts.filter((scout) => getScoutRankInfo(scout.id).isBeomTarget)
       .length;
-  }, [activeScouts, latestRankHistoryByScoutMap, rankNameMap]);
+  }, [activeScouts, getScoutRankInfo]);
 
   const programMissingScoutCount = useMemo(() => {
     return activeScouts.filter((scout) => {
@@ -573,9 +576,8 @@ export default function ProgramCompletionsPage() {
     }).length;
   }, [
     activeScouts,
-    latestRankHistoryByScoutMap,
+    getScoutRankInfo,
     programCompletionByScoutAndTypeMap,
-    rankNameMap,
   ]);
 
   const needsLeaderReviewCount = useMemo(() => {
@@ -677,12 +679,11 @@ export default function ProgramCompletionsPage() {
       return targetText.includes(normalizedKeyword);
     });
   }, [
+    getScoutRankInfo,
     keyword,
-    latestRankHistoryByScoutMap,
     organizationNameMap,
     programCompletionByScoutAndTypeMap,
     progressFilter,
-    rankNameMap,
     scouts,
     selectedProgramType,
     selectedScoutId,
@@ -748,10 +749,9 @@ export default function ProgramCompletionsPage() {
     });
   }, [
     filteredScouts,
-    latestRankHistoryByScoutMap,
+    getScoutRankInfo,
     organizationNameMap,
     programCompletionByScoutAndTypeMap,
-    rankNameMap,
     scoutSortDirection,
     scoutSortKey,
   ]);
