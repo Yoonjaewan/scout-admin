@@ -1190,7 +1190,7 @@ export default function ReportsPage() {
         if (memberCompare !== 0) return memberCompare;
         return a.name.localeCompare(b.name);
       });
-  }, [currentOrganizationFilter, getRankName, keyword, scouts, organizationNameMap]);
+  }, [currentOrganizationFilter, getOrganizationName, getRankName, keyword, scouts]);
 
   useEffect(() => {
     setSelectedBeomScoutId((currentScoutId) => {
@@ -1273,7 +1273,7 @@ export default function ReportsPage() {
     rankHistoriesByScoutId,
     scouts,
     sortedRanks,
-    organizationNameMap,
+    getOrganizationName,
   ]);
 
   const rankReportRows = useMemo<RankReportRow[]>(() => {
@@ -1350,7 +1350,7 @@ export default function ReportsPage() {
     scoutMap,
     selectedRankId,
     startDate,
-    organizationNameMap,
+    getOrganizationName,
   ]);
 
   const badgeReportRows = useMemo<BadgeReportRow[]>(() => {
@@ -1442,7 +1442,7 @@ export default function ReportsPage() {
     selectedBadgeCategoryId,
     selectedBadgeId,
     startDate,
-    organizationNameMap,
+    getOrganizationName,
   ]);
 
   const selectedBeomApplicationData = useMemo<BeomApplicationData | null>(() => {
