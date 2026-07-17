@@ -1,8 +1,8 @@
-import type { CSSProperties } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   DetailedConditionCard,
   RecordCheckRow,
-  SupportItem
 } from "./ScoutIntegratedDisplayComponents";
 import {
   allPassedBoxStyle,
@@ -33,17 +33,24 @@ import {
   recordCheckGridStyle,
   promotionActionGridStyle,
   promotionApprovalControlStyle,
-  promotionStatusAreaStyle,
   promotionTaskControlStyle,
-  promotionTaskDescriptionStyle,
   promotionTaskStyle,
   promotionTaskTitleStyle,
   promotionWorkCardStyle,
   promotionWorkHeaderStyle,
   promotionWorkTitleStyle,
+  infoItemStyle,
+  infoLabelStyle,
+  infoValueStyle,
+  programActionNoticeStyle,
+  programSummaryCardStyle,
+  programSummaryGridStyle,
+  recordCheckGoodStyle,
+  recordCheckWarningStyle,
+  rowActionStyle,
+  smallButtonStyle,
   strongTdStyle,
   successMessageStyle,
-  supportItemGridStyle,
   tableStyle,
   tableWrapStyle,
   tdStyle,
@@ -369,33 +376,6 @@ function getStageBadgeSummary(
     generalOwned,
     generalRequired: stage.requiredGeneralCount,
     generalMissing: Math.max(0, stage.requiredGeneralCount - generalOwned),
-  };
-}
-
-const conditionBadgeBaseStyle: CSSProperties = {
-  minHeight: "26px",
-  padding: "0 9px",
-  display: "inline-flex",
-  alignItems: "center",
-  borderRadius: "999px",
-  fontSize: "12px",
-  fontWeight: 900,
-  whiteSpace: "nowrap",
-};
-
-function getConditionStyle(passed: boolean | null): CSSProperties {
-  if (passed === null) {
-    return {
-      ...conditionBadgeBaseStyle,
-      backgroundColor: "#f1f5f9",
-      color: "#475569",
-    };
-  }
-
-  return {
-    ...conditionBadgeBaseStyle,
-    backgroundColor: passed ? "#dcfce7" : "#fee2e2",
-    color: passed ? "#166534" : "#b91c1c",
   };
 }
 
@@ -881,33 +861,147 @@ export function AdvancementPanel({
     currentGeneralBadgesPassed &&
     currentProgramPassed &&
     currentAttendancePassed;
+  const isTargetRankApproved = latestReview
+    ? histories.some((history) => history.rank_id === latestReview.to_rank_id)
+    : false;
+  const reviewStatusLabel = !latestReview
+    ? "판정 전"
+    : effectiveFinalPassed
+      ? "통과"
+      : "보완 필요";
+  const approvalStatusLabel = isTargetRankApproved
+    ? "인가 완료"
+    : !latestReview || !effectiveFinalPassed
+      ? "판정 필요"
+      : "인가 가능";
+  const reviewStatusTone =
+    reviewStatusLabel === "통과"
+      ? ("good" as const)
+      : reviewStatusLabel === "보완 필요"
+        ? ("warning" as const)
+        : ("neutral" as const);
+  const approvalStatusTone =
+    approvalStatusLabel === "인가 완료" || approvalStatusLabel === "인가 가능"
+      ? ("good" as const)
+      : ("warning" as const);
+  const summaryItems = [
+    {
+      label: "현재 급위",
+      value: currentRank?.rank_name ?? "급위 미등록",
+      tone: "neutral" as const,
+    },
+    {
+      label: "다음 급위",
+      value: targetRank?.rank_name ?? "다음 급위 확인 필요",
+      tone: "neutral" as const,
+    },
+    {
+      label: "판정 상태",
+      value: reviewStatusLabel,
+      tone: reviewStatusTone,
+    },
+    {
+      label: "인가 상태",
+      value: approvalStatusLabel,
+      tone: approvalStatusTone,
+    },
+  ];
+  const priorityAction = !latestReview
+    ? {
+        tone: "action" as const,
+        message: "진급 조건을 확인하고 진급 판정을 실행하세요.",
+      }
+    : !effectiveFinalPassed
+      ? {
+          tone: "warning" as const,
+          message: "보완이 필요한 조건을 먼저 확인하세요.",
+        }
+      : isTargetRankApproved
+        ? {
+            tone: "good" as const,
+            message: "현재 진급 단계의 인가가 완료되었습니다.",
+          }
+        : {
+            tone: "action" as const,
+            message:
+              "진급 인가일과 비고를 확인한 후 인가를 저장하세요.",
+          };
+  const conditionPassedFlags = latestReview
+    ? [
+        latestReview.period_passed,
+        currentAttendancePassed,
+        currentRequiredBadgesPassed,
+        currentGeneralBadgesPassed,
+        currentProgramPassed,
+      ]
+    : [];
+  const conditionPassedCount = conditionPassedFlags.filter(Boolean).length;
+  const conditionFailedCount =
+    conditionPassedFlags.length - conditionPassedCount;
+  const navigate = useNavigate();
+  const [showConditionDetails, setShowConditionDetails] = useState(false);
 
   return (
     <div style={overviewStackStyle}>
+      <section style={programSummaryCardStyle}>
+        <div style={overviewSectionHeaderStyle}>
+          <div>
+            <h3 style={contentTitleStyle}>진급 업무 요약</h3>
+            <p style={contentDescriptionStyle}>
+              현재 급위와 다음 진급 단계의 판정·인가 상태를 확인합니다.
+            </p>
+          </div>
+        </div>
+        <div style={programSummaryGridStyle}>
+          {summaryItems.map((item) => (
+            <div key={item.label} style={infoItemStyle}>
+              <span style={infoLabelStyle}>{item.label}</span>
+              <strong
+                style={{
+                  ...infoValueStyle,
+                  ...(item.tone === "warning"
+                    ? recordCheckWarningStyle
+                    : item.tone === "good"
+                      ? recordCheckGoodStyle
+                      : {}),
+                }}
+              >
+                {item.value}
+              </strong>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section style={contentCardStyle}>
+        <div style={overviewSectionHeaderStyle}>
+          <div>
+            <h3 style={contentTitleStyle}>지금 처리할 사항</h3>
+          </div>
+        </div>
+        {priorityAction.tone === "good" ? (
+          <div style={allPassedBoxStyle}>{priorityAction.message}</div>
+        ) : (
+          <div style={programActionNoticeStyle}>
+            <span>{priorityAction.message}</span>
+          </div>
+        )}
+      </section>
+
       <section style={promotionWorkCardStyle}>
         <div style={promotionWorkHeaderStyle}>
           <div>
-            <h3 style={promotionWorkTitleStyle}>
-              {currentRank?.rank_name ?? "급위 미등록"} →{" "}
-              {targetRank?.rank_name ?? "다음 급위 확인 필요"}
-            </h3>
-            <p style={contentDescriptionStyle}>
-              판정 실행부터 조건 확인, 진급 인가까지 이 화면에서 처리합니다.
-            </p>
+            <h3 style={promotionWorkTitleStyle}>진급 판정·인가</h3>
           </div>
 
-          <div style={promotionStatusAreaStyle}>
-            <span
-              style={getConditionStyle(
-                latestReview ? effectiveFinalPassed : null,
-              )}
+          <div style={rowActionStyle}>
+            <button
+              type="button"
+              style={smallButtonStyle}
+              onClick={() => navigate("/advancements")}
             >
-              {!latestReview
-                ? "판정 필요"
-                : effectiveFinalPassed
-                  ? "인가 가능"
-                  : "조건 보완 필요"}
-            </span>
+              진급관리로 이동
+            </button>
           </div>
         </div>
 
@@ -921,9 +1015,6 @@ export function AdvancementPanel({
           <div style={promotionTaskStyle}>
             <div>
               <strong style={promotionTaskTitleStyle}>진급 판정</strong>
-              <p style={promotionTaskDescriptionStyle}>
-                현재 저장된 기간·기능장·프로그램·출석 기록으로 판정합니다.
-              </p>
             </div>
             <div style={promotionTaskControlStyle}>
               <label style={compactFieldStyle}>
@@ -952,9 +1043,6 @@ export function AdvancementPanel({
           <div style={promotionTaskStyle}>
             <div>
               <strong style={promotionTaskTitleStyle}>진급 인가</strong>
-              <p style={promotionTaskDescriptionStyle}>
-                모든 조건을 충족한 최신 판정 결과를 인가 기록으로 저장합니다.
-              </p>
             </div>
             <div style={promotionApprovalControlStyle}>
               <label style={compactFieldStyle}>
@@ -995,35 +1083,53 @@ export function AdvancementPanel({
       <section style={contentCardStyle}>
         <div style={overviewSectionHeaderStyle}>
           <div>
-            <h3 style={contentTitleStyle}>최근 진급 판정 상세</h3>
+            <h3 style={contentTitleStyle}>진급 조건 상세</h3>
             <p style={contentDescriptionStyle}>
-              단순 충족 여부가 아니라 실제 판정 근거를 확인합니다.
+              {latestReview
+                ? `충족 ${conditionPassedCount}개 · 보완 필요 ${conditionFailedCount}개`
+                : "판정 후 조건 상세를 확인할 수 있습니다."}
             </p>
           </div>
-          {latestReview && (
-            <span style={countBadgeStyle}>
-              판정일 {formatDate(latestReview.review_date)}
-            </span>
-          )}
-        </div>
-
-        {latestReview && latestReview.final_passed && !effectiveFinalPassed && (
-          <div style={criticalDataMismatchStyle}>
-            <strong>진급 판정 오류 확인 필요</strong>
-            <span>
-              저장된 판정은 통과로 되어 있으나 현재 실제 필수·일반 기능장 또는
-              기타 진급 조건이 미충족입니다. 현재 기록을 기준으로 진급 인가를
-              차단했습니다. 기록을 보완한 뒤 진급 판정을 다시 실행하세요.
-            </span>
+          <div style={rowActionStyle}>
+            {latestReview && (
+              <span style={countBadgeStyle}>
+                판정일 {formatDate(latestReview.review_date)}
+              </span>
+            )}
+            <button
+              type="button"
+              style={smallButtonStyle}
+              onClick={() => setShowConditionDetails((current) => !current)}
+              disabled={!latestReview}
+            >
+              {showConditionDetails ? "상세 닫기" : "상세 보기"}
+            </button>
           </div>
-        )}
+        </div>
 
         {!latestReview ? (
           <div style={emptyContentStyle}>
-            최근 판정 기록이 없습니다. 상단의 진급 판정 실행 버튼을 사용하세요.
+            최근 판정 기록이 없습니다. 진급 판정을 실행하면 조건 상세가
+            표시됩니다.
+          </div>
+        ) : !showConditionDetails ? (
+          <div style={emptyContentStyle}>
+            충족 {conditionPassedCount}개 · 보완 필요 {conditionFailedCount}개
           </div>
         ) : (
-          <div style={conditionDetailGridStyle}>
+          <>
+            {latestReview.final_passed && !effectiveFinalPassed && (
+              <div style={criticalDataMismatchStyle}>
+                <strong>진급 판정 오류 확인 필요</strong>
+                <span>
+                  저장된 판정은 통과로 되어 있으나 현재 실제 필수·일반 기능장 또는
+                  기타 진급 조건이 미충족입니다. 현재 기록을 기준으로 진급 인가를
+                  차단했습니다. 기록을 보완한 뒤 진급 판정을 다시 실행하세요.
+                </span>
+              </div>
+            )}
+
+            <div style={conditionDetailGridStyle}>
             <DetailedConditionCard
               title="활동기간"
               passed={latestReview.period_passed}
@@ -1154,70 +1260,8 @@ export function AdvancementPanel({
                 ],
               ]}
             />
-          </div>
-        )}
-      </section>
-
-      <section style={contentCardStyle}>
-        <div style={overviewSectionHeaderStyle}>
-          <div>
-            <h3 style={contentTitleStyle}>보완 필요 항목</h3>
-            <p style={contentDescriptionStyle}>
-              판정 결과와 현재 기록을 기준으로 조치 항목을 정리합니다.
-            </p>
-          </div>
-        </div>
-
-        {!latestReview ? (
-          <div style={emptyContentStyle}>판정 후 보완 항목이 표시됩니다.</div>
-        ) : effectiveFinalPassed ? (
-          <div style={allPassedBoxStyle}>
-            모든 진급 조건을 충족했습니다. 상단에서 진급 인가를 저장할 수
-            있습니다.
-          </div>
-        ) : (
-          <div style={supportItemGridStyle}>
-            {!latestReview.period_passed && (
-              <SupportItem
-                title="활동기간"
-                text={
-                  latestReview.available_at
-                    ? `${formatDate(
-                        latestReview.available_at,
-                      )}부터 진급 가능합니다.`
-                    : "진급 가능 예정일을 확인하세요."
-                }
-              />
-            )}
-            {!currentRequiredBadgesPassed && (
-              <SupportItem
-                title="필수 기능장"
-                text={
-                  stageSummary.missingRequiredNames.length > 0
-                    ? `${stageSummary.missingRequiredNames.join(", ")} 취득이 필요합니다.`
-                    : "필수 기능장의 인가일과 인정 여부를 확인하세요."
-                }
-              />
-            )}
-            {!currentGeneralBadgesPassed && (
-              <SupportItem
-                title="일반 기능장"
-                text={`현재 단계에서 ${stageSummary.generalMissing}개가 부족합니다.`}
-              />
-            )}
-            {isBeomTarget && !currentProgramPassed && (
-              <SupportItem
-                title="WSEP/MoP"
-                text="WSEP 또는 MoP 중 1개 이상의 이수 및 승인 기록이 필요합니다."
-              />
-            )}
-            {isBeomTarget && !currentAttendancePassed && (
-              <SupportItem
-                title="출석률"
-                text={`현재 ${attendanceSummary.rate ?? 0}%입니다. 범 진급 기준 80% 이상이 필요합니다.`}
-              />
-            )}
-          </div>
+            </div>
+          </>
         )}
       </section>
 

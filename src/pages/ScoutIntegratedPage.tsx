@@ -41,11 +41,9 @@ import {
   panelTitleStyle,
   panelDescriptionStyle,
   panelHeaderActionStyle,
-  registrationMenuWrapStyle,
   registrationMenuButtonStyle,
-  registrationMenuStyle,
-  registrationMenuItemStyle,
-  registrationMenuItemDescriptionStyle,
+  registrationActionRowStyle,
+  registrationSecondaryButtonStyle,
   searchAreaStyle,
   searchInputStyle,
   filterGridStyle,
@@ -642,8 +640,6 @@ export default function ScoutIntegratedPage() {
   const [readinessFilter, setReadinessFilter] =
     useState<ReadinessFilter>("all");
   const [rankFilter, setRankFilter] = useState("");
-  const [registrationMenuOpen, setRegistrationMenuOpen] = useState(false);
-  const registrationMenuRef = useRef<HTMLDivElement | null>(null);
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [appliedKeyword, setAppliedKeyword] = useState("");
@@ -1889,26 +1885,6 @@ export default function ScoutIntegratedPage() {
       .sort((a, b) => a.sort_order - b.sort_order);
   };
 
-  useEffect(() => {
-    if (!registrationMenuOpen) return;
-
-    const handleOutsidePointer = (event: MouseEvent) => {
-      if (registrationMenuRef.current && !registrationMenuRef.current.contains(event.target as Node)) {
-        setRegistrationMenuOpen(false);
-      }
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setRegistrationMenuOpen(false);
-    };
-
-    document.addEventListener("mousedown", handleOutsidePointer);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("mousedown", handleOutsidePointer);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [registrationMenuOpen]);
-
   const handleOpenScoutCreate = () => {
     if (!canManageScouts) return;
     setScoutCreateForm({
@@ -2279,53 +2255,10 @@ export default function ScoutIntegratedPage() {
             )}
 
             <div style={panelHeaderActionStyle}>
-              {!scoutListCollapsed && canManageScouts && (
-                <div ref={registrationMenuRef} style={registrationMenuWrapStyle}>
-                  <button
-                    type="button"
-                    style={registrationMenuButtonStyle}
-                    onClick={() => setRegistrationMenuOpen((current) => !current)}
-                    aria-haspopup="menu"
-                    aria-expanded={registrationMenuOpen}
-                  >
-                    + 등록 <span aria-hidden="true">▾</span>
-                  </button>
-                  {registrationMenuOpen && (
-                    <div style={registrationMenuStyle} role="menu">
-                      <button
-                        type="button"
-                        style={registrationMenuItemStyle}
-                        onClick={() => {
-                          setRegistrationMenuOpen(false);
-                          handleOpenScoutCreate();
-                        }}
-                        role="menuitem"
-                      >
-                        <strong>대원 직접 등록</strong>
-                        <span style={registrationMenuItemDescriptionStyle}>한 명의 기본정보와 현재급위를 등록합니다.</span>
-                      </button>
-                      <button
-                        type="button"
-                        style={registrationMenuItemStyle}
-                        onClick={() => {
-                          setRegistrationMenuOpen(false);
-                          setExcelImportOpen(true);
-                        }}
-                        role="menuitem"
-                      >
-                        <strong>엑셀 일괄등록</strong>
-                        <span style={registrationMenuItemDescriptionStyle}>현재 화면에서 여러 대원을 한 번에 등록·수정합니다.</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
               <button
                 type="button"
                 style={scoutPanelCollapseButtonStyle}
                 onClick={() => {
-                  setRegistrationMenuOpen(false);
                   setScoutListCollapsed((current) => !current);
                 }}
                 aria-label={scoutListCollapsed ? "대원 목록 펼치기" : "대원 목록 접기"}
@@ -2335,6 +2268,25 @@ export default function ScoutIntegratedPage() {
               </button>
             </div>
           </div>
+
+          {!scoutListCollapsed && canManageScouts && (
+            <div style={registrationActionRowStyle}>
+              <button
+                type="button"
+                style={registrationMenuButtonStyle}
+                onClick={handleOpenScoutCreate}
+              >
+                + 대원등록
+              </button>
+              <button
+                type="button"
+                style={registrationSecondaryButtonStyle}
+                onClick={() => setExcelImportOpen(true)}
+              >
+                엑셀등록
+              </button>
+            </div>
+          )}
 
           {!scoutListCollapsed && (
           <>

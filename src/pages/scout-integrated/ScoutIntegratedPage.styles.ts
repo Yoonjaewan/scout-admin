@@ -306,14 +306,17 @@ export const errorBoxStyle: CSSProperties = {
 
 export const workspaceStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "270px minmax(0, 1fr)",
-  gap: "18px",
+  gridTemplateColumns: "232px minmax(0, 1fr)",
+  gap: "12px",
   alignItems: "start",
 };
 
 export const scoutPanelStyle: CSSProperties = {
   position: "sticky",
   top: "20px",
+  width: "232px",
+  minWidth: "232px",
+  maxWidth: "232px",
   height: "calc(100vh - 40px)",
   display: "flex",
   flexDirection: "column",
@@ -324,7 +327,7 @@ export const scoutPanelStyle: CSSProperties = {
 };
 
 export const panelHeaderStyle: CSSProperties = {
-  padding: "12px",
+  padding: "10px",
   display: "flex",
   alignItems: "flex-start",
   justifyContent: "space-between",
@@ -358,10 +361,12 @@ export const registrationMenuWrapStyle: CSSProperties = {
 };
 
 export const registrationMenuButtonStyle: CSSProperties = {
+  width: "96px",
   minHeight: "36px",
-  padding: "0 12px",
+  padding: "0 10px",
   display: "inline-flex",
   alignItems: "center",
+  justifyContent: "center",
   gap: "6px",
   border: "1px solid #2563eb",
   borderRadius: "8px",
@@ -369,6 +374,34 @@ export const registrationMenuButtonStyle: CSSProperties = {
   color: "#ffffff",
   fontFamily: "inherit",
   fontSize: "13px",
+  fontWeight: 900,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+export const registrationActionRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, 96px)",
+  justifyContent: "center",
+  gap: "8px",
+  padding: "9px 8px",
+  borderBottom: "1px solid #e2e8f0",
+  backgroundColor: "#ffffff",
+};
+
+export const registrationSecondaryButtonStyle: CSSProperties = {
+  width: "96px",
+  minHeight: "36px",
+  padding: "0 10px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #93c5fd",
+  borderRadius: "8px",
+  backgroundColor: "#eff6ff",
+  color: "#1d4ed8",
+  fontFamily: "inherit",
+  fontSize: "12px",
   fontWeight: 900,
   cursor: "pointer",
   whiteSpace: "nowrap",
@@ -409,7 +442,7 @@ export const registrationMenuItemDescriptionStyle: CSSProperties = {
 };
 
 export const searchAreaStyle: CSSProperties = {
-  padding: "10px",
+  padding: "8px",
   borderBottom: "1px solid #e2e8f0",
   backgroundColor: "#f8fafc",
 };
@@ -430,7 +463,7 @@ export const searchInputStyle: CSSProperties = {
 export const filterGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: "8px",
+  gap: "6px",
   marginTop: "8px",
 };
 
