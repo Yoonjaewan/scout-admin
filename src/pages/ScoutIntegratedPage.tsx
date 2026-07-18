@@ -9,6 +9,11 @@ import { useSearchParams } from "react-router-dom";
 import { PageHelpButton } from "../components/common/CommonFeedback";
 import { getSeoulTodayText } from "../lib/businessDate";
 import { buildPromotionBadgeReflectionMap } from "../lib/promotionBadgeReflection";
+import {
+  getLatestRankApprovalDate,
+  getSurvivalBadgeRegistrationState,
+  mapBadgeRegistrationError,
+} from "../lib/survivalBadgeValidation";
 import { supabase } from "../lib/supabase";
 import {
   RankProgressOverview,
@@ -659,6 +664,7 @@ export default function ScoutIntegratedPage() {
   );
   const [badgeForm, setBadgeForm] = useState<BadgeForm>(getEmptyBadgeForm());
   const [badgeFormError, setBadgeFormError] = useState("");
+  const [badgePanelError, setBadgePanelError] = useState("");
   const [badgeSubmitting, setBadgeSubmitting] = useState(false);
   const [badgeDeletingId, setBadgeDeletingId] = useState("");
   const [scoutCreateOpen, setScoutCreateOpen] = useState(false);
@@ -1255,6 +1261,38 @@ export default function ScoutIntegratedPage() {
     );
   }, [data.scoutBadges, selectedScout]);
 
+  const badgeFormBadge = badgeForm.badge_id
+    ? badgeMap.get(badgeForm.badge_id) ?? null
+    : null;
+  const badgeFormCurrentRank = selectedScout?.current_rank_id
+    ? rankMap.get(selectedScout.current_rank_id) ?? null
+    : null;
+  const mugunghwaRank =
+    data.ranks.find((rank) => rank.rank_code === "mugunghwa") ?? null;
+  const badgeFormMugunghwaApprovedAt =
+    selectedScout && mugunghwaRank
+      ? getLatestRankApprovalDate({
+          histories: data.rankHistories,
+          scoutId: selectedScout.id,
+          rankId: mugunghwaRank.id,
+          today: getSeoulTodayText(),
+        })
+      : null;
+  const badgeSurvivalState = getSurvivalBadgeRegistrationState({
+    badge: badgeFormBadge,
+    currentRank: badgeFormCurrentRank,
+    mugunghwaApprovedAt: badgeFormMugunghwaApprovedAt,
+    acquiredAt: badgeForm.acquired_at,
+    hasExistingRecord: Boolean(
+      badgeFormBadge &&
+        selectedScoutBadges.some(
+          (record) =>
+            record.badge_id === badgeFormBadge.id &&
+            record.id !== badgeForm.id,
+        ),
+    ),
+  });
+
   const selectedPrograms = useMemo(() => {
     if (!selectedScout) return [];
 
@@ -1327,6 +1365,7 @@ export default function ScoutIntegratedPage() {
     setBadgeFormMode(null);
     setBadgeForm(getEmptyBadgeForm());
     setBadgeFormError("");
+    setBadgePanelError("");
     setPromotionReviewError("");
     setPromotionApprovalError("");
     setPromotionActionMessage("");
@@ -1771,6 +1810,7 @@ export default function ScoutIntegratedPage() {
       id: "",
     });
     setBadgeFormError("");
+    setBadgePanelError("");
     setBadgeFormMode("create");
   };
 
@@ -1778,7 +1818,7 @@ export default function ScoutIntegratedPage() {
     if (!canManageBadges) return;
 
     if (usedScoutBadgeIdSet.has(scoutBadge.id)) {
-      setBadgeFormError(
+      setBadgePanelError(
         "이미 진급 인가에 사용된 기능장 기록은 수정할 수 없습니다.",
       );
       return;
@@ -1794,6 +1834,7 @@ export default function ScoutIntegratedPage() {
       note: scoutBadge.note ?? "",
     });
     setBadgeFormError("");
+    setBadgePanelError("");
     setBadgeFormMode("edit");
   };
 
@@ -1813,6 +1854,9 @@ export default function ScoutIntegratedPage() {
       badgeForm.approved_at < badgeForm.acquired_at
     ) {
       return "인가일은 취득일보다 빠를 수 없습니다.";
+    }
+    if (badgeSurvivalState.blocked) {
+      return badgeSurvivalState.message ?? "취득일을 입력해야 합니다.";
     }
     return "";
   };
@@ -1858,8 +1902,12 @@ export default function ScoutIntegratedPage() {
         });
 
     if (result.error) {
+      console.error(
+        `${isEdit ? "기능장 수정" : "기능장 등록"} 오류:`,
+        result.error.message,
+      );
       setBadgeFormError(
-        `${isEdit ? "기능장 수정" : "기능장 등록"}에 실패했습니다. ${result.error.message}`,
+        mapBadgeRegistrationError(result.error.message, badgeSurvivalState),
       );
       setBadgeSubmitting(false);
       return;
@@ -1876,7 +1924,7 @@ export default function ScoutIntegratedPage() {
     if (!canManageBadges) return;
 
     if (usedScoutBadgeIdSet.has(scoutBadge.id)) {
-      setBadgeFormError(
+      setBadgePanelError(
         "이미 진급 인가에 사용된 기능장 기록은 삭제할 수 없습니다.",
       );
       return;
@@ -1890,7 +1938,7 @@ export default function ScoutIntegratedPage() {
     if (!confirmed) return;
 
     setBadgeDeletingId(scoutBadge.id);
-    setBadgeFormError("");
+    setBadgePanelError("");
 
     const rpcClient = supabase as unknown as RpcClient;
     const { error } = await rpcClient.rpc("archive_scout_badge_record", {
@@ -1898,12 +1946,14 @@ export default function ScoutIntegratedPage() {
     });
 
     if (error) {
-      setBadgeFormError(`기능장 삭제에 실패했습니다. ${error.message}`);
+      console.error("기능장 삭제 오류:", error.message);
+      setBadgePanelError(mapBadgeRegistrationError(error.message));
       setBadgeDeletingId("");
       return;
     }
 
     setBadgeDeletingId("");
+    setBadgePanelError("");
     await loadData();
     setActiveTab("badges");
   };
@@ -2741,7 +2791,7 @@ export default function ScoutIntegratedPage() {
                   usedScoutBadgeIdSet={usedScoutBadgeIdSet}
                   promotionReflectionMap={promotionReflectionMap}
                   canManage={canManageBadges}
-                  formError={badgeFormError}
+                  formError={badgePanelError}
                   deletingId={badgeDeletingId}
                   onCreate={handleOpenCreateBadge}
                   onEdit={handleOpenEditBadge}
@@ -2841,6 +2891,8 @@ export default function ScoutIntegratedPage() {
           scout={selectedScout}
           form={badgeForm}
           errorMessage={badgeFormError}
+          survivalValidationMessage={badgeSurvivalState.message}
+          submitDisabled={badgeSurvivalState.blocked}
           submitting={badgeSubmitting}
           ranks={data.ranks}
           histories={selectedRankHistories}
@@ -2863,7 +2915,10 @@ export default function ScoutIntegratedPage() {
             data.rankRequiredBadges,
             badgeMap,
           )}
-          onFormChange={(nextForm) => setBadgeForm(nextForm)}
+          onFormChange={(nextForm) => {
+            setBadgeForm(nextForm);
+            setBadgeFormError("");
+          }}
           onClose={handleCloseBadgeForm}
           onSubmit={handleSaveBadge}
         />

@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import { useEffect, useRef, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   badgeDrawerDangerStyle,
@@ -198,6 +198,8 @@ export function BadgeDrawer({
   scout,
   form,
   errorMessage,
+  survivalValidationMessage,
+  submitDisabled,
   submitting,
   ranks,
   histories,
@@ -215,6 +217,8 @@ export function BadgeDrawer({
   scout: Scout;
   form: BadgeForm;
   errorMessage: string;
+  survivalValidationMessage: string | null;
+  submitDisabled: boolean;
   submitting: boolean;
   ranks: Rank[];
   histories: RankHistory[];
@@ -229,6 +233,19 @@ export function BadgeDrawer({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
+  const errorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!errorMessage) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      errorRef.current?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [errorMessage]);
+
   const ownedBadgeIdSet = new Set(scoutBadges.filter((row) => row.id !== form.id).map((row) => row.badge_id));
   const missingRequiredBadges = stageSummary.missingRequiredNames
     .map((name) => badges.find((badge) => normalizeName(badge.name) === normalizeName(name)) ?? null)
@@ -248,7 +265,26 @@ export function BadgeDrawer({
           </div>
 
           <div style={drawerBodyStyle}>
-            {errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
+            {errorMessage && (
+              <div
+                ref={errorRef}
+                style={{ ...errorBoxStyle, whiteSpace: "pre-line" }}
+                tabIndex={-1}
+                role="alert"
+              >
+                {errorMessage}
+              </div>
+            )}
+
+            {survivalValidationMessage &&
+              errorMessage !== survivalValidationMessage && (
+                <div
+                  style={{ ...errorBoxStyle, whiteSpace: "pre-line" }}
+                  role="status"
+                >
+                  {survivalValidationMessage}
+                </div>
+              )}
 
             {stageSummary.stage && (
               <section style={badgeDrawerRequirementStyle}>
@@ -339,7 +375,13 @@ export function BadgeDrawer({
 
           <div style={drawerFooterStyle}>
             <button type="button" style={secondaryButtonStyle} onClick={onClose} disabled={submitting}>취소</button>
-            <button type="submit" style={primaryButtonStyle} disabled={submitting}>{submitting ? "저장 중..." : mode === "create" ? "기능장 등록 저장" : "기능장 수정 저장"}</button>
+            <button
+              type="submit"
+              style={primaryButtonStyle}
+              disabled={submitting || submitDisabled}
+            >
+              {submitting ? "저장 중..." : mode === "create" ? "기능장 등록 저장" : "기능장 수정 저장"}
+            </button>
           </div>
         </form>
       </aside>

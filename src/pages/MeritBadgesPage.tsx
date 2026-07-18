@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
@@ -8,6 +8,11 @@ import {
   buildPromotionBadgeReflectionMap,
   getBadgePromotionDisplay,
 } from "../lib/promotionBadgeReflection";
+import {
+  getLatestRankApprovalDate,
+  getSurvivalBadgeRegistrationState,
+  mapBadgeRegistrationError,
+} from "../lib/survivalBadgeValidation";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -286,6 +291,7 @@ export default function MeritBadgesPage() {
   const [deletingId, setDeletingId] = useState("");
   const [formErrorMessage, setFormErrorMessage] = useState("");
   const [editErrorMessage, setEditErrorMessage] = useState("");
+  const createFormErrorRef = useRef<HTMLDivElement | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -595,6 +601,42 @@ export default function MeritBadgesPage() {
       scoutBadges,
     ],
   );
+
+  const createFormScout = createForm.scout_id
+    ? scoutMap.get(createForm.scout_id) ?? null
+    : null;
+  const createFormBadge = createForm.badge_id
+    ? badgeMap.get(createForm.badge_id) ?? null
+    : null;
+  const createFormCurrentRank = createFormScout?.current_rank_id
+    ? rankMap.get(createFormScout.current_rank_id) ?? null
+    : null;
+  const mugunghwaRank =
+    ranks.find((rank) => rank.rank_code === "mugunghwa") ?? null;
+  const createFormMugunghwaApprovedAt =
+    createFormScout && mugunghwaRank
+      ? getLatestRankApprovalDate({
+          histories: rankHistories,
+          scoutId: createFormScout.id,
+          rankId: mugunghwaRank.id,
+          today: getSeoulTodayText(),
+        })
+      : null;
+  const createSurvivalBadgeState = getSurvivalBadgeRegistrationState({
+    badge: createFormBadge,
+    currentRank: createFormCurrentRank,
+    mugunghwaApprovedAt: createFormMugunghwaApprovedAt,
+    acquiredAt: createForm.acquired_at,
+    hasExistingRecord: Boolean(
+      createFormScout &&
+        createFormBadge &&
+        scoutBadges.some(
+          (record) =>
+            record.scout_id === createFormScout.id &&
+            record.badge_id === createFormBadge.id,
+        ),
+    ),
+  });
 
   const requiredBadgeGroups = useMemo(() => {
     return rankRequirements
@@ -954,6 +996,7 @@ export default function MeritBadgesPage() {
       ...prev,
       [field]: value,
     }));
+    setFormErrorMessage("");
   };
 
   const updateEditForm = <K extends keyof BadgeEditForm>(
@@ -1021,6 +1064,13 @@ export default function MeritBadgesPage() {
       return;
     }
 
+    if (createSurvivalBadgeState.blocked) {
+      if (createSurvivalBadgeState.message) {
+        setFormErrorMessage(createSurvivalBadgeState.message);
+      }
+      return;
+    }
+
     setSubmitting(true);
     setFormErrorMessage("");
 
@@ -1038,7 +1088,9 @@ export default function MeritBadgesPage() {
 
     if (error) {
       console.error("기능장 등록 오류:", error.message);
-      setFormErrorMessage(`기능장 등록에 실패했습니다. ${error.message}`);
+      setFormErrorMessage(
+        mapBadgeRegistrationError(error.message, createSurvivalBadgeState),
+      );
       setSubmitting(false);
       return;
     }
@@ -1089,7 +1141,7 @@ export default function MeritBadgesPage() {
 
     if (error) {
       console.error("기능장 수정 오류:", error.message);
-      setEditErrorMessage(`기능장 수정에 실패했습니다. ${error.message}`);
+      setEditErrorMessage(mapBadgeRegistrationError(error.message));
       setSubmitting(false);
       return;
     }
@@ -1141,7 +1193,7 @@ export default function MeritBadgesPage() {
     if (error) {
       console.error("기능장 삭제 오류:", error.message);
       setSelectedScoutBadgeId(scoutBadge.id);
-      setEditErrorMessage(`기능장 삭제에 실패했습니다. ${error.message}`);
+      setEditErrorMessage(mapBadgeRegistrationError(error.message));
       setDeletingId("");
       return;
     }
@@ -1502,10 +1554,6 @@ export default function MeritBadgesPage() {
     );
   };
 
-  const createFormScout = createForm.scout_id
-    ? scoutMap.get(createForm.scout_id) ?? null
-    : null;
-
   const createFormBadgeContext = createForm.scout_id
     ? getScoutBadgeOptionContext(createForm.scout_id)
     : null;
@@ -1524,6 +1572,20 @@ export default function MeritBadgesPage() {
       document.body.style.overflow = originalOverflow;
     };
   }, [isBadgeDrawerOpen]);
+
+  useEffect(() => {
+    if (!isCreateFormOpen || !formErrorMessage) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      createFormErrorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+      createFormErrorRef.current?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [formErrorMessage, isCreateFormOpen]);
 
   return (
     <div>
@@ -2153,7 +2215,26 @@ export default function MeritBadgesPage() {
                     </div>
                   )}
 
-                  {formErrorMessage && <div style={errorBoxStyle}>{formErrorMessage}</div>}
+                  {formErrorMessage && (
+                    <div
+                      ref={createFormErrorRef}
+                      style={{ ...errorBoxStyle, whiteSpace: "pre-line" }}
+                      tabIndex={-1}
+                      role="alert"
+                    >
+                      {formErrorMessage}
+                    </div>
+                  )}
+
+                  {createSurvivalBadgeState.message &&
+                    formErrorMessage !== createSurvivalBadgeState.message && (
+                      <div
+                        style={{ ...errorBoxStyle, whiteSpace: "pre-line" }}
+                        role="status"
+                      >
+                        {createSurvivalBadgeState.message}
+                      </div>
+                    )}
 
                   <label style={drawerFieldLabelStyle}>
                     <span style={drawerLabelTextStyle}>
@@ -2259,7 +2340,11 @@ export default function MeritBadgesPage() {
                     취소
                   </button>
 
-                  <button type="submit" style={submitButtonStyle} disabled={submitting}>
+                  <button
+                    type="submit"
+                    style={submitButtonStyle}
+                    disabled={submitting || createSurvivalBadgeState.blocked}
+                  >
                     {submitting ? "등록 중..." : "기능장 등록 저장"}
                   </button>
                 </div>
