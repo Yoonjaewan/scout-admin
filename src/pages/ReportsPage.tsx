@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, CSSProperties, KeyboardEvent } from "react";
 import { EmptyState, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
@@ -342,6 +342,13 @@ function chunkArray<T>(items: T[], size: number) {
 
   return chunks;
 }
+
+/** 진급·기능장 인가: 좌 20 + 우 20 = 40건/페이지 */
+const RANK_APPROVAL_PAGE_SIZE = 40;
+const BADGE_APPROVAL_PAGE_SIZE = 40;
+const APPROVAL_TABLE_ROW_COUNT = 20;
+/** 대원별 진급 이력표: 20명/페이지 */
+const RANK_HISTORY_PAGE_SIZE = 20;
 
 function getCurrentYearText() {
   return String(new Date().getFullYear());
@@ -709,6 +716,10 @@ export default function ReportsPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isTargetPreviewOpen, setIsTargetPreviewOpen] = useState(false);
   const [selectedReportTargetIds, setSelectedReportTargetIds] = useState<string[]>([]);
+  const [previewScale, setPreviewScale] = useState(1);
+  const [previewScaledHeight, setPreviewScaledHeight] = useState<number | undefined>(undefined);
+  const previewViewportRef = useRef<HTMLDivElement | null>(null);
+  const previewScaleWrapperRef = useRef<HTMLDivElement | null>(null);
 
   const isSuperAdmin = profile?.role === "super_admin";
   const currentOrganizationFilter = isSuperAdmin
@@ -980,6 +991,18 @@ export default function ReportsPage() {
 
   const handleResetReportFooterSettings = () => {
     setReportFooterSettings(getDefaultReportFooterSettings());
+  };
+
+  const handleResetReportFilters = () => {
+    setReportType("rank_approval");
+    setStartDate(getYearStartText());
+    setEndDate(getTodayText());
+    setSelectedOrganizationId("");
+    setSelectedRankId("");
+    setSelectedBadgeCategoryId("");
+    setSelectedBadgeId("");
+    setSelectedBeomScoutId("");
+    setKeyword("");
   };
 
   const updateBeomManualField = <K extends keyof BeomApplicationManualFields>(
@@ -1603,6 +1626,95 @@ export default function ReportsPage() {
             ? 1
             : 0;
 
+  const reportTypeTotalCount = useMemo(() => {
+    if (reportType === "rank_approval") {
+      return rankHistories.filter((history) => {
+        if (
+          currentOrganizationFilter &&
+          history.organization_id !== currentOrganizationFilter
+        ) {
+          return false;
+        }
+        return Boolean(scoutMap.get(history.scout_id));
+      }).length;
+    }
+
+    if (reportType === "rank_certificate") {
+      return rankHistories.filter((history) => {
+        if (
+          currentOrganizationFilter &&
+          history.organization_id !== currentOrganizationFilter
+        ) {
+          return false;
+        }
+        if (!scoutMap.get(history.scout_id)) return false;
+        const rank = rankMap.get(history.rank_id);
+        return Boolean(rank && isRankCertificateSupported(rank.rank_name));
+      }).length;
+    }
+
+    if (reportType === "badge_approval") {
+      return scoutBadges.filter((scoutBadge) => {
+        if (!scoutBadge.approved_at) return false;
+        if (
+          currentOrganizationFilter &&
+          scoutBadge.organization_id !== currentOrganizationFilter
+        ) {
+          return false;
+        }
+        return Boolean(scoutMap.get(scoutBadge.scout_id));
+      }).length;
+    }
+
+    if (reportType === "rank_history") {
+      return scouts.filter((scout) => {
+        if (
+          currentOrganizationFilter &&
+          scout.organization_id !== currentOrganizationFilter
+        ) {
+          return false;
+        }
+        return true;
+      }).length;
+    }
+
+    if (reportType === "beom_application") {
+      return scouts.filter((scout) => {
+        if (
+          currentOrganizationFilter &&
+          scout.organization_id !== currentOrganizationFilter
+        ) {
+          return false;
+        }
+        return true;
+      }).length;
+    }
+
+    return 0;
+  }, [
+    currentOrganizationFilter,
+    rankHistories,
+    rankMap,
+    reportType,
+    scoutBadges,
+    scoutMap,
+    scouts,
+  ]);
+
+  const isBeomScoutFilterActive =
+    reportType === "beom_application" && selectedBeomScoutId !== "";
+
+  const isReportFilterDirty =
+    reportType !== "rank_approval" ||
+    startDate !== getYearStartText() ||
+    endDate !== getTodayText() ||
+    selectedOrganizationId !== "" ||
+    selectedRankId !== "" ||
+    selectedBadgeCategoryId !== "" ||
+    selectedBadgeId !== "" ||
+    keyword.trim().length > 0 ||
+    isBeomScoutFilterActive;
+
   const reportReviewItems = useMemo(() => {
     if (reportType !== "beom_application" || !selectedBeomApplicationData) {
       return [] as string[];
@@ -1777,13 +1889,85 @@ export default function ReportsPage() {
 
   const selectedPrintRowCount = selectedReportTargetRows.length;
 
-  const rankReportPages = useMemo(() => chunkArray(selectedRankReportRows, 40), [selectedRankReportRows]);
+  const rankReportPages = useMemo(
+    () => chunkArray(selectedRankReportRows, RANK_APPROVAL_PAGE_SIZE),
+    [selectedRankReportRows],
+  );
   const rankCertificatePages = useMemo(() => selectedRankCertificateRows, [selectedRankCertificateRows]);
-  const badgeReportPages = useMemo(() => chunkArray(selectedBadgeReportRows, 20), [selectedBadgeReportRows]);
+  const badgeReportPages = useMemo(
+    () => chunkArray(selectedBadgeReportRows, BADGE_APPROVAL_PAGE_SIZE),
+    [selectedBadgeReportRows],
+  );
   const rankHistoryReportPages = useMemo(
-    () => chunkArray(selectedRankHistoryReportRows, 24),
+    () => chunkArray(selectedRankHistoryReportRows, RANK_HISTORY_PAGE_SIZE),
     [selectedRankHistoryReportRows],
   );
+
+  const previewPageCount = useMemo(() => {
+    if (reportType === "rank_approval") return rankReportPages.length;
+    if (reportType === "badge_approval") return badgeReportPages.length;
+    if (reportType === "rank_history") return rankHistoryReportPages.length;
+    if (reportType === "rank_certificate") return rankCertificatePages.length;
+    if (reportType === "beom_application") {
+      return selectedBeomApplicationDataForPrint ? 1 : 0;
+    }
+    return 0;
+  }, [
+    badgeReportPages.length,
+    rankCertificatePages.length,
+    rankHistoryReportPages.length,
+    rankReportPages.length,
+    reportType,
+    selectedBeomApplicationDataForPrint,
+  ]);
+
+  useLayoutEffect(() => {
+    if (selectedPrintRowCount === 0 || previewPageCount === 0) {
+      setPreviewScale(1);
+      setPreviewScaledHeight(undefined);
+      return;
+    }
+
+    const viewport = previewViewportRef.current;
+    const wrapper = previewScaleWrapperRef.current;
+    if (!viewport || !wrapper) return;
+
+    const updatePreviewScale = () => {
+      const page = wrapper.querySelector(".report-page") as HTMLElement | null;
+      if (!page) {
+        setPreviewScale(1);
+        setPreviewScaledHeight(undefined);
+        return;
+      }
+
+      const pageWidth = page.offsetWidth;
+      const availableWidth = viewport.clientWidth;
+      const nextScale =
+        pageWidth > 0 ? Math.min(1, Math.max(0.35, (availableWidth - 8) / pageWidth)) : 1;
+
+      setPreviewScale(nextScale);
+      setPreviewScaledHeight(wrapper.scrollHeight * nextScale);
+    };
+
+    updatePreviewScale();
+
+    const observer = new ResizeObserver(() => {
+      updatePreviewScale();
+    });
+    observer.observe(viewport);
+    observer.observe(wrapper);
+
+    return () => observer.disconnect();
+  }, [
+    badgeReportPages,
+    previewPageCount,
+    rankCertificatePages,
+    rankHistoryReportPages,
+    rankReportPages,
+    reportType,
+    selectedBeomApplicationDataForPrint,
+    selectedPrintRowCount,
+  ]);
 
   const handleOpenTargetPreview = () => {
     setIsTargetPreviewOpen(true);
@@ -1861,97 +2045,112 @@ export default function ReportsPage() {
   };
 
   return (
-    <div style={reportsPageRootStyle}>
+    <div className="reports-page-root" style={reportsPageRootStyle}>
       <style>
         {`
           @media screen {
+            .preview-scale-viewport {
+              width: 100%;
+              overflow: hidden;
+              box-sizing: border-box;
+            }
+
+            .preview-scale-wrapper {
+              transform-origin: top center;
+            }
+
             #report-print-area {
               position: relative;
               z-index: 0;
-              max-width: 100%;
             }
 
             #report-print-area .report-page {
-              max-width: 210mm;
+              width: 210mm;
+              height: 297mm;
             }
           }
 
           @media print {
-            body * {
-              visibility: hidden !important;
+            @page {
+              size: A4 portrait;
+              margin: 0;
             }
 
-            #report-print-area,
-            #report-print-area * {
-              visibility: visible !important;
-            }
-
-            #report-print-area {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 100%;
-              background: #ffffff;
-            }
-
-            .report-page {
-              box-shadow: none !important;
-              border: none !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              page-break-after: always;
-            }
-
-            .report-page:last-child {
-              page-break-after: auto;
-            }
-
-            .beom-application-page {
-              width: 100% !important;
-              min-height: calc(297mm - 20mm) !important;
-              box-sizing: border-box !important;
-              padding: 0 !important;
-              font-size: 9px !important;
-              display: flex !important;
-              flex-direction: column !important;
-              justify-content: center !important;
-            }
-
-            .rank-certificate-page {
-              width: 210mm !important;
-              height: 297mm !important;
-              min-height: 297mm !important;
-              padding: 0 !important;
-              overflow: hidden !important;
-              box-sizing: border-box !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-
-            .rank-certificate-page img,
-            .rank-certificate-page div,
-            .rank-certificate-date-overlay {
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-
-            .rank-certificate-date-overlay {
-              background-color: rgb(250, 250, 255) !important;
-            }
-
-            .no-print-section {
+            .no-print-section,
+            .app-fixed-sidebar {
               display: none !important;
             }
 
-            @page {
-              size: A4 portrait;
-              margin: ${reportType === "rank_certificate" ? "0" : reportType === "beom_application" ? "10mm 15mm" : "10mm"};
+            html,
+            body,
+            #root,
+            #app-main-content,
+            .reports-page-root,
+            .preview-print-shell,
+            .preview-scale-viewport,
+            .preview-scale-wrapper,
+            #report-print-area {
+              margin: 0 !important;
+              padding: 0 !important;
+              width: auto !important;
+              max-width: none !important;
+              height: auto !important;
+              min-height: 0 !important;
+              overflow: visible !important;
+              background: transparent !important;
+              box-shadow: none !important;
+              border: none !important;
+              contain: none !important;
+              isolation: auto !important;
+              transform: none !important;
+              zoom: 1 !important;
+            }
+
+            #app-main-content,
+            .reports-page-root,
+            .preview-print-shell,
+            .preview-scale-viewport,
+            .preview-scale-wrapper,
+            #report-print-area {
+              display: block !important;
+              position: static !important;
+            }
+
+            /* 보고서 내부 크기·여백·표·footer는 미리보기와 동일하게 유지.
+               화면용 장식(그림자·테두리·페이지 간격)만 제거한다. */
+            #report-print-area .report-page {
+              box-shadow: none !important;
+              border: none !important;
+              margin: 0 !important;
+              page-break-after: always;
+              break-after: page;
+            }
+
+            #report-print-area .report-page:last-child {
+              page-break-after: auto;
+              break-after: auto;
+            }
+
+            #report-print-area .rank-certificate-page {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+
+            #report-print-area .rank-certificate-page img,
+            #report-print-area .rank-certificate-page div,
+            #report-print-area .rank-certificate-date-overlay {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+
+            #report-print-area .rank-certificate-date-overlay {
+              background-color: rgb(250, 250, 255) !important;
             }
           }
         `}
       </style>
 
-      <div style={pageHeaderStyle}>
+      <div className="no-print-section" style={pageHeaderStyle}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>보고서 출력</h1><PageHelpButton title="보고서 출력" description="진급·기능장 보고서와 신청서·인증서를 출력합니다." sections={[{ title: "사용 순서", content: "보고서 종류와 조회 조건을 선택한 뒤 출력 대상을 확인하고 인쇄합니다." },{ title: "주의사항", content: "별도 출력 이력은 저장되지 않으므로 동일 조건으로 재출력할 수 있습니다." }]} /></div>
           <p style={pageDescriptionStyle}>
@@ -1962,7 +2161,7 @@ export default function ReportsPage() {
         {profile && <div style={roleBadgeStyle}>{ROLE_LABELS[profile.role]}</div>}
       </div>
 
-      <div style={summaryGridStyle}>
+      <div className="no-print-section" style={summaryGridStyle}>
         <section style={summaryCardStyle}>
           <h2 style={summaryTitleStyle}>선택 보고서</h2>
           <p style={summaryValueStyle}>{currentReportTitle}</p>
@@ -2005,7 +2204,7 @@ export default function ReportsPage() {
         </section>
       </div>
 
-      <section style={contentCardStyle}>
+      <section className="no-print-section" style={contentCardStyle}>
         <div style={toolbarStyle}>
           <div>
             <h2 style={sectionTitleStyle}>출력 조건</h2>
@@ -2015,10 +2214,6 @@ export default function ReportsPage() {
           </div>
 
           <div style={toolbarRightStyle}>
-            <button type="button" style={secondaryButtonStyle} onClick={loadData}>
-              새로고침
-            </button>
-
             <button
               type="button"
               style={primaryButtonStyle}
@@ -2031,16 +2226,15 @@ export default function ReportsPage() {
         </div>
 
         <div style={reportGuideBoxStyle}>
-          <div>
+          <div style={reportGuideMainStyle}>
             <strong style={reportGuideTitleStyle}>{currentReportTitle}</strong>
-            <p style={reportGuideTextStyle}>{currentReportGuide.purpose}</p>
+            <p style={reportGuideRuleStyle}>{currentReportGuide.outputRule}</p>
           </div>
           <div style={reportGuideMetaStyle}>
             <span>기준: {currentReportGuide.standard}</span>
             <span>소속: {selectedOrganizationName}</span>
-            <span>범위: {getPrintPeriodText()}</span>
+            <span>기간: {getPrintPeriodText()}</span>
           </div>
-          <p style={reportGuideRuleStyle}>{currentReportGuide.outputRule}</p>
         </div>
 
         {reportReviewItems.length > 0 && (
@@ -2049,156 +2243,187 @@ export default function ReportsPage() {
           </div>
         )}
 
-        <div style={filterGridStyle}>
-          <label style={fieldLabelStyle}>
-            보고서 종류
-            <select
-              style={inputStyle}
-              value={reportType}
-              onChange={(event) => setReportType(event.target.value as ReportType)}
-            >
-              {REPORT_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {reportType !== "rank_history" && reportType !== "beom_application" && (
-            <>
-              <label style={fieldLabelStyle}>
-                시작일
-                <input
-                  style={inputStyle}
-                  type="date"
-                  value={startDate}
-                  onChange={(event) => setStartDate(event.target.value)}
-                />
-              </label>
-
-              <label style={fieldLabelStyle}>
-                종료일
-                <input
-                  style={inputStyle}
-                  type="date"
-                  value={endDate}
-                  onChange={(event) => setEndDate(event.target.value)}
-                />
-              </label>
-            </>
-          )}
-
-          {isSuperAdmin && (
-            <label style={fieldLabelStyle}>
-              소속
+        <div style={reportSearchPanelStyle}>
+          <div style={reportSearchFiltersRowStyle}>
+            <label style={reportSearchFieldStyle}>
+              보고서 종류
               <select
-                style={inputStyle}
-                value={selectedOrganizationId}
-                onChange={(event) => setSelectedOrganizationId(event.target.value)}
+                style={reportSearchSelectStyle}
+                value={reportType}
+                onChange={(event) => setReportType(event.target.value as ReportType)}
               >
-                <option value="">전체 소속</option>
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
+                {REPORT_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
             </label>
-          )}
 
-          {(reportType === "rank_approval" || reportType === "rank_certificate") && (
-            <label style={fieldLabelStyle}>
-              인가 급위
-              <select
-                style={inputStyle}
-                value={selectedRankId}
-                onChange={(event) => setSelectedRankId(event.target.value)}
-              >
-                <option value="">전체 급위</option>
-                {(reportType === "rank_certificate" ? supportedCertificateRanks : sortedRanks).map((rank) => (
-                  <option key={rank.id} value={rank.id}>
-                    {rank.rank_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+            {reportType !== "rank_history" && reportType !== "beom_application" && (
+              <>
+                <label style={reportSearchFieldStyle}>
+                  시작일
+                  <input
+                    style={reportSearchSelectStyle}
+                    type="date"
+                    value={startDate}
+                    onChange={(event) => setStartDate(event.target.value)}
+                  />
+                </label>
 
-          {reportType === "badge_approval" && (
-            <>
-              <label style={fieldLabelStyle}>
-                기능장 분류
+                <label style={reportSearchFieldStyle}>
+                  종료일
+                  <input
+                    style={reportSearchSelectStyle}
+                    type="date"
+                    value={endDate}
+                    onChange={(event) => setEndDate(event.target.value)}
+                  />
+                </label>
+              </>
+            )}
+
+            {(reportType === "rank_approval" || reportType === "rank_certificate") && (
+              <label style={reportSearchFieldStyle}>
+                인가 급위
                 <select
-                  style={inputStyle}
-                  value={selectedBadgeCategoryId}
-                  onChange={(event) => setSelectedBadgeCategoryId(event.target.value)}
+                  style={reportSearchSelectStyle}
+                  value={selectedRankId}
+                  onChange={(event) => setSelectedRankId(event.target.value)}
                 >
-                  <option value="">전체 분류</option>
-                  {badgeCategories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
+                  <option value="">전체 급위</option>
+                  {(reportType === "rank_certificate" ? supportedCertificateRanks : sortedRanks).map((rank) => (
+                    <option key={rank.id} value={rank.id}>
+                      {rank.rank_name}
                     </option>
                   ))}
                 </select>
               </label>
+            )}
 
-              <label style={fieldLabelStyle}>
-                기능장
+            {isSuperAdmin && (
+              <label style={reportSearchFieldStyle}>
+                소속
                 <select
-                  style={inputStyle}
-                  value={selectedBadgeId}
-                  onChange={(event) => setSelectedBadgeId(event.target.value)}
+                  style={reportSearchSelectStyle}
+                  value={selectedOrganizationId}
+                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
                 >
-                  <option value="">전체 기능장</option>
-                  {badgesForSelectedCategory.map((badge) => (
-                    <option key={badge.id} value={badge.id}>
-                      {badge.name}
+                  <option value="">전체 소속</option>
+                  {organizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organization.name}
                     </option>
                   ))}
                 </select>
               </label>
-            </>
-          )}
+            )}
 
-          {reportType === "beom_application" && (
-            <label style={fieldLabelStyle}>
-              신청서 대상 대원
-              <select
-                style={inputStyle}
-                value={selectedBeomScoutId}
-                onChange={(event) => setSelectedBeomScoutId(event.target.value)}
-              >
-                <option value="">대원 선택</option>
-                {filteredBeomScouts.map((scout) => (
-                  <option key={scout.id} value={scout.id}>
-                    {scout.name} {scout.member_no ? `(${scout.member_no})` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+            {reportType === "badge_approval" && (
+              <>
+                <label style={reportSearchFieldStyle}>
+                  기능장 분류
+                  <select
+                    style={reportSearchSelectStyle}
+                    value={selectedBadgeCategoryId}
+                    onChange={(event) => setSelectedBadgeCategoryId(event.target.value)}
+                  >
+                    <option value="">전체 분류</option>
+                    {badgeCategories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-          <label style={fieldLabelStyle}>
-            검색어
+                <label style={reportSearchFieldStyle}>
+                  기능장
+                  <select
+                    style={reportSearchSelectStyle}
+                    value={selectedBadgeId}
+                    onChange={(event) => setSelectedBadgeId(event.target.value)}
+                  >
+                    <option value="">전체 기능장</option>
+                    {badgesForSelectedCategory.map((badge) => (
+                      <option key={badge.id} value={badge.id}>
+                        {badge.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+
+            {reportType === "beom_application" && (
+              <label style={reportSearchFieldStyle}>
+                신청서 대상 대원
+                <select
+                  style={reportSearchSelectStyle}
+                  value={selectedBeomScoutId}
+                  onChange={(event) => setSelectedBeomScoutId(event.target.value)}
+                >
+                  <option value="">대원 선택</option>
+                  {filteredBeomScouts.map((scout) => (
+                    <option key={scout.id} value={scout.id}>
+                      {scout.name} {scout.member_no ? `(${scout.member_no})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+
+          <div style={reportSearchActionsRowStyle}>
             <input
-              style={inputStyle}
+              style={reportSearchInputStyle}
               type="search"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               placeholder="대원명, 대원번호, 급위, 기능장 검색"
+              aria-label="검색어"
             />
-          </label>
+
+            {isReportFilterDirty && (
+              <button
+                type="button"
+                style={reportSearchResetButtonStyle}
+                onClick={handleResetReportFilters}
+              >
+                초기화
+              </button>
+            )}
+
+            <button
+              type="button"
+              style={{ ...secondaryButtonStyle, flex: "0 0 auto" }}
+              onClick={loadData}
+            >
+              새로고침
+            </button>
+
+            <div style={reportSearchCountStyle} aria-live="polite">
+              <span style={reportSearchCountLabelStyle}>조회 결과</span>
+              <strong style={reportSearchCountNumberStyle}>{currentRowCount}건</strong>
+              <span style={reportSearchCountTotalStyle}>
+                / 전체 {reportTypeTotalCount}건
+              </span>
+            </div>
+          </div>
         </div>
 
         <div style={printCheckBoxStyle}>
           <div style={printCheckHeaderStyle}>
-            <div>
+            <div style={printCheckTextStyle}>
               <h3 style={printCheckTitleStyle}>출력 전 확인</h3>
               <p style={printCheckDescriptionStyle}>
-                현재 조건에 맞는 출력 대상은 <strong>{currentRowCount}건</strong>이며,
-                선택된 출력 대상은 <strong>{selectedPrintRowCount}건</strong>입니다.
-                상단 출력 대상 카드를 누르거나 아래 버튼을 누르면 대상 목록을 확인하고 필요한 항목만 선택할 수 있습니다.
+                출력 대상{" "}
+                <strong style={printCheckCountStrongStyle}>{currentRowCount}</strong>건 · 선택{" "}
+                <strong style={printCheckCountStrongStyle}>{selectedPrintRowCount}</strong>건
+              </p>
+              <p style={reprintNoticeStyle}>
+                출력 이력은 저장되지 않습니다. 같은 조건으로 다시 조회하면 현재 자료 기준으로 출력됩니다.
               </p>
             </div>
 
@@ -2210,10 +2435,6 @@ export default function ReportsPage() {
             >
               {isTargetPreviewOpen ? "출력 대상 목록 닫기" : "출력 대상 목록 열기"}
             </button>
-          </div>
-          <div style={reprintNoticeStyle}>
-            현재 데이터베이스에는 별도의 출력 이력 테이블이 없습니다. 따라서 출력 완료 여부는 저장되지 않으며,
-            같은 조건을 다시 조회하면 현재 등록된 자료를 기준으로 재출력할 수 있습니다.
           </div>
 
           {isTargetPreviewOpen && (
@@ -2294,11 +2515,124 @@ export default function ReportsPage() {
             </div>
           )}
         </div>
+      </section>
 
+      {loading && (
+        <div className="no-print-section" style={emptyStateStyle}>
+          보고서 정보를 불러오는 중입니다...
+        </div>
+      )}
+
+      {!loading && errorMessage && (
+        <div className="no-print-section" style={errorBoxStyle}>
+          {errorMessage}
+        </div>
+      )}
+
+      {!loading && !errorMessage && currentRowCount === 0 && (
+        <div className="no-print-section">
+          <EmptyState title="출력 대상이 없습니다" description="보고서 종류, 기간, 소속대 및 대상 조건을 다시 확인하세요." />
+        </div>
+      )}
+
+      {!loading && !errorMessage && currentRowCount > 0 && selectedPrintRowCount === 0 && (
+        <div className="no-print-section" style={emptyStateStyle}>
+          출력할 대상을 선택하세요.
+        </div>
+      )}
+
+      {!loading && !errorMessage && selectedPrintRowCount > 0 && (
+        <section className="preview-print-shell" style={previewCardStyle}>
+          <div className="no-print-section" style={previewHeaderStyle}>
+            <div>
+              <h2 style={sectionTitleStyle}>미리보기</h2>
+              <p style={sectionDescriptionStyle}>
+                아래 미리보기는 실제 인쇄 원본과 동일한 서식입니다. 화면에서만 축소되어 보이며, 인쇄·PDF에는 원본 크기로 출력됩니다.
+              </p>
+              <p style={printGuideTextStyle}>
+                인쇄 권장 설정: 용지 A4 · 배율 100% · 여백 없음 · 머리글/바닥글 해제
+              </p>
+            </div>
+          </div>
+
+          <div
+            ref={previewViewportRef}
+            className="preview-scale-viewport"
+            style={{
+              ...previewScaleViewportStyle,
+              height: previewScaledHeight,
+            }}
+          >
+            <div
+              ref={previewScaleWrapperRef}
+              className="preview-scale-wrapper"
+              style={{
+                ...previewScaleWrapperStyle,
+                transform: `scale(${previewScale})`,
+              }}
+            >
+              <div id="report-print-area" style={printAreaStyle}>
+                {reportType === "rank_approval" &&
+                  rankReportPages.map((pageRows, pageIndex) => (
+                    <RankApprovalReportPage
+                      key={`rank-page-${pageIndex}`}
+                      rows={pageRows}
+                      pageIndex={pageIndex}
+                      organizationName={selectedOrganizationName}
+                      startDate={startDate}
+                      endDate={endDate}
+                      reportFooterSettings={reportFooterSettings}
+                    />
+                  ))}
+
+                {reportType === "badge_approval" &&
+                  badgeReportPages.map((pageRows, pageIndex) => (
+                    <BadgeApprovalReportPage
+                      key={`badge-page-${pageIndex}`}
+                      rows={pageRows}
+                      pageIndex={pageIndex}
+                      organizationName={selectedOrganizationName}
+                      startDate={startDate}
+                      endDate={endDate}
+                      reportFooterSettings={reportFooterSettings}
+                    />
+                  ))}
+
+                {reportType === "rank_history" &&
+                  rankHistoryReportPages.map((pageRows, pageIndex) => (
+                    <RankHistoryReportPage
+                      key={`rank-history-page-${pageIndex}`}
+                      rows={pageRows}
+                      ranks={sortedRanks}
+                      pageIndex={pageIndex}
+                      organizationName={selectedOrganizationName}
+                      reportFooterSettings={reportFooterSettings}
+                    />
+                  ))}
+
+                {reportType === "rank_certificate" &&
+                  rankCertificatePages.map((row) => (
+                    <RankCertificatePage
+                      key={`rank-certificate-${row.id}`}
+                      row={row}
+                      leaderName={reportFooterSettings.leaderName}
+                    />
+                  ))}
+
+                {reportType === "beom_application" && selectedBeomApplicationDataForPrint && (
+                  <BeomApplicationReportPage data={selectedBeomApplicationDataForPrint} />
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="no-print-section" style={contentCardStyle}>
         {reportType !== "beom_application" && reportType !== "rank_certificate" && (
           <div style={footerSettingsBoxStyle}>
             <div style={footerSettingsHeaderStyle}>
-              <div>
+              <div style={footerSettingsHeaderTextStyle}>
                 <h3 style={footerSettingsTitleStyle}>보고서 하단 정보</h3>
                 <p style={footerSettingsDescriptionStyle}>
                   한 번 입력한 하단 정보는 다음 출력 때 다시 사용할 수 있습니다.
@@ -2307,7 +2641,7 @@ export default function ReportsPage() {
 
               <button
                 type="button"
-                style={secondaryButtonStyle}
+                style={footerResetButtonStyle}
                 onClick={handleResetReportFooterSettings}
               >
                 초기화
@@ -2385,6 +2719,17 @@ export default function ReportsPage() {
               <div dangerouslySetInnerHTML={{ __html: getReportFooterSignatureLine(reportFooterSettings) }} />
               <div>{getReportFooterFederationLine(reportFooterSettings)}</div>
             </div>
+
+            <div style={footerPrintActionStyle}>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={handlePrint}
+                disabled={loading || currentRowCount === 0 || selectedPrintRowCount === 0}
+              >
+                선택 항목 인쇄 / PDF 저장
+              </button>
+            </div>
           </div>
         )}
 
@@ -2394,13 +2739,15 @@ export default function ReportsPage() {
             onChange={updateBeomManualField}
             onPhotoChange={handleBeomPhotoChange}
             onReset={handleResetBeomManualInput}
+            onPrint={handlePrint}
+            printDisabled={loading || currentRowCount === 0 || selectedPrintRowCount === 0}
           />
         )}
 
         {reportType === "rank_certificate" && (
           <div style={footerSettingsBoxStyle}>
             <div style={footerSettingsHeaderStyle}>
-              <div>
+              <div style={footerSettingsHeaderTextStyle}>
                 <h3 style={footerSettingsTitleStyle}>진급 인증서 입력 정보</h3>
                 <p style={footerSettingsDescriptionStyle}>
                   인가일 기준으로 조회된 진급 이력에 대해 급위별 인증서 양식을 적용합니다.
@@ -2411,7 +2758,7 @@ export default function ReportsPage() {
 
               <button
                 type="button"
-                style={secondaryButtonStyle}
+                style={footerResetButtonStyle}
                 onClick={handleResetReportFooterSettings}
               >
                 초기화
@@ -2435,6 +2782,17 @@ export default function ReportsPage() {
             <p style={footerSettingsDescriptionStyle}>
               인쇄창에서는 여백을 “없음” 또는 “최소”로 설정하는 것을 권장합니다.
             </p>
+
+            <div style={footerPrintActionStyle}>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={handlePrint}
+                disabled={loading || currentRowCount === 0 || selectedPrintRowCount === 0}
+              >
+                선택 항목 인쇄 / PDF 저장
+              </button>
+            </div>
           </div>
         )}
 
@@ -2446,84 +2804,6 @@ export default function ReportsPage() {
           진급 인증서는 초급, 2급, 1급, 별, 무궁화 인증서만 출력하며 범스카우트는 제외합니다.
         </p>
       </section>
-
-      {loading && <div style={emptyStateStyle}>보고서 정보를 불러오는 중입니다...</div>}
-
-      {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
-
-      {!loading && !errorMessage && currentRowCount === 0 && (
-        <EmptyState title="출력 대상이 없습니다" description="보고서 종류, 기간, 소속대 및 대상 조건을 다시 확인하세요." />
-      )}
-
-      {!loading && !errorMessage && currentRowCount > 0 && selectedPrintRowCount === 0 && (
-        <div style={emptyStateStyle}>출력할 대상을 선택하세요.</div>
-      )}
-
-      {!loading && !errorMessage && selectedPrintRowCount > 0 && (
-        <section style={previewCardStyle}>
-          <div style={previewHeaderStyle}>
-            <div>
-              <h2 style={sectionTitleStyle}>미리보기</h2>
-              <p style={sectionDescriptionStyle}>
-아래 미리보기 영역에는 체크된 출력 대상만 표시됩니다. 인쇄창에서 “PDF로 저장”을 선택하면 PDF 파일로 저장할 수 있습니다.
-              </p>
-            </div>
-          </div>
-
-          <div id="report-print-area" style={printAreaStyle}>
-            {reportType === "rank_approval" &&
-              rankReportPages.map((pageRows, pageIndex) => (
-                <RankApprovalReportPage
-                  key={`rank-page-${pageIndex}`}
-                  rows={pageRows}
-                  pageIndex={pageIndex}
-                  organizationName={selectedOrganizationName}
-                  startDate={startDate}
-                  endDate={endDate}
-                  reportFooterSettings={reportFooterSettings}
-                />
-              ))}
-
-            {reportType === "badge_approval" &&
-              badgeReportPages.map((pageRows, pageIndex) => (
-                <BadgeApprovalReportPage
-                  key={`badge-page-${pageIndex}`}
-                  rows={pageRows}
-                  pageIndex={pageIndex}
-                  organizationName={selectedOrganizationName}
-                  startDate={startDate}
-                  endDate={endDate}
-                  reportFooterSettings={reportFooterSettings}
-                />
-              ))}
-
-            {reportType === "rank_history" &&
-              rankHistoryReportPages.map((pageRows, pageIndex) => (
-                <RankHistoryReportPage
-                  key={`rank-history-page-${pageIndex}`}
-                  rows={pageRows}
-                  ranks={sortedRanks}
-                  pageIndex={pageIndex}
-                  organizationName={selectedOrganizationName}
-                  reportFooterSettings={reportFooterSettings}
-                />
-              ))}
-
-            {reportType === "rank_certificate" &&
-              rankCertificatePages.map((row) => (
-                <RankCertificatePage
-                  key={`rank-certificate-${row.id}`}
-                  row={row}
-                  leaderName={reportFooterSettings.leaderName}
-                />
-              ))}
-
-            {reportType === "beom_application" && selectedBeomApplicationDataForPrint && (
-              <BeomApplicationReportPage data={selectedBeomApplicationDataForPrint} />
-            )}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
@@ -2533,6 +2813,8 @@ function BeomApplicationInputPanel({
   onChange,
   onPhotoChange,
   onReset,
+  onPrint,
+  printDisabled,
 }: {
   data: BeomApplicationData;
   onChange: <K extends keyof BeomApplicationManualFields>(
@@ -2541,6 +2823,8 @@ function BeomApplicationInputPanel({
   ) => void;
   onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onReset: () => void;
+  onPrint: () => void;
+  printDisabled: boolean;
 }) {
   const manual = data.manual;
 
@@ -2680,15 +2964,41 @@ function BeomApplicationInputPanel({
           placeholder="주소"
         />
       </label>
+
+      <div style={footerPrintActionStyle}>
+        <button
+          type="button"
+          style={primaryButtonStyle}
+          onClick={onPrint}
+          disabled={printDisabled}
+        >
+          선택 항목 인쇄 / PDF 저장
+        </button>
+      </div>
     </div>
   );
 }
 
-function OfficialApprovalReportHeader({ title }: { title: string }) {
+function OfficialApprovalReportHeader({
+  title,
+  variant = "rank",
+}: {
+  title: string;
+  variant?: "rank" | "badge";
+}) {
+  const isBadge = variant === "badge";
+
   return (
-    <div style={officialApprovalHeaderStyle}>
-      <img src={SCOUT_SYMBOL_IMAGE_SRC} alt="스카우트 휘장" style={officialApprovalSymbolStyle} />
-      <h2 style={officialApprovalTitleStyle}>{title}</h2>
+    <div
+      className="official-approval-header"
+      style={isBadge ? badgeApprovalHeaderStyle : rankApprovalHeaderStyle}
+    >
+      <img
+        src={SCOUT_SYMBOL_IMAGE_SRC}
+        alt="스카우트 휘장"
+        style={isBadge ? badgeApprovalSymbolStyle : rankApprovalSymbolStyle}
+      />
+      <h2 style={isBadge ? badgeApprovalTitleStyle : rankApprovalTitleStyle}>{title}</h2>
     </div>
   );
 }
@@ -2709,15 +3019,32 @@ function ReportHeader({
   startDate,
   endDate,
   periodText,
+  variant = "default",
 }: {
   title: string;
   organizationName: string;
   startDate: string;
   endDate: string;
   periodText?: string;
+  variant?: "default" | "rank_history";
 }) {
+  if (variant === "rank_history") {
+    return (
+      <div className="report-header" style={rankHistoryHeaderStyle}>
+        <h2 style={rankHistoryTitleStyle}>{title}</h2>
+        <div style={rankHistoryMetaGridStyle}>
+          <div style={rankHistoryMetaOrgStyle}>소속: {organizationName}</div>
+          <div style={rankHistoryMetaPeriodStyle}>
+            조회범위: {periodText ?? "선택 소속 및 검색 결과"}
+          </div>
+          <div style={rankHistoryMetaDateStyle}>작성일: {getTodayText()}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={reportHeaderStyle}>
+    <div className="report-header" style={reportHeaderStyle}>
       <h2 style={reportTitleStyle}>{title}</h2>
       <div style={reportMetaGridStyle}>
         <div>소속: {organizationName}</div>
@@ -2731,26 +3058,36 @@ function ReportHeader({
 function ReportFooter({
   reportType,
   footerSettings,
+  style,
+  textStyle,
+  dateStyle,
 }: {
   reportType: ReportType;
   footerSettings: ReportFooterSettings;
+  style?: CSSProperties;
+  textStyle?: CSSProperties;
+  dateStyle?: CSSProperties;
 }) {
+  const lineStyle = { ...reportFooterTextStyle, ...textStyle };
+  const dateLineStyle = { ...reportFooterDateStyle, ...dateStyle };
+
   return (
-    <div style={reportFooterStyle}>
-      <p style={reportFooterTextStyle}>
+    <div className="report-print-footer" style={{ ...reportFooterStyle, ...style }}>
+      <p style={{ ...lineStyle, marginTop: 0 }}>
         위와 같이 {getReportFooterActionText(reportType)} 보고합니다.
       </p>
       <p
-        style={reportFooterDateStyle}
+        className="report-footer-date"
+        style={dateLineStyle}
         dangerouslySetInnerHTML={{ __html: formatReportDate(footerSettings.reportDate) }}
       />
       <p
-        style={reportFooterTextStyle}
+        style={lineStyle}
         dangerouslySetInnerHTML={{
           __html: getReportFooterSignatureLine(footerSettings),
         }}
       />
-      <p style={reportFooterTextStyle}>
+      <p style={lineStyle}>
         {getReportFooterFederationLine(footerSettings)}
       </p>
     </div>
@@ -2760,9 +3097,6 @@ function ReportFooter({
 function RankApprovalReportPage({
   rows,
   pageIndex,
-  //organizationName,
-  //startDate,
-  //endDate,
   reportFooterSettings,
 }: {
   rows: RankReportRow[];
@@ -2773,50 +3107,64 @@ function RankApprovalReportPage({
   reportFooterSettings: ReportFooterSettings;
 }) {
   return (
-    <div className="report-page" style={reportPageStyle}>
-      <OfficialApprovalReportHeader title="진급 인가 보고서" />
+    <div className="report-page rank-approval-page" style={rankApprovalPageStyle}>
+      <div className="report-content-frame" style={rankApprovalContentFrameStyle}>
+        <div className="report-header" style={rankApprovalHeaderAreaStyle}>
+          <OfficialApprovalReportHeader title="진급 인가 보고서" variant="rank" />
+        </div>
 
-      <table style={reportTableStyle}>
-        <thead>
-          <tr>
-            <th style={reportThNarrowStyle}>순</th>
-            <th style={reportThStyle}>성명</th>
-            <th style={reportThStyle}>현급위</th>
-            <th style={reportThStyle}>급위</th>
-            <th style={reportThStyle}>인가일</th>
-            <th style={reportThNarrowStyle}>순</th>
-            <th style={reportThStyle}>성명</th>
-            <th style={reportThStyle}>현급위</th>
-            <th style={reportThStyle}>급위</th>
-            <th style={reportThStyle}>인가일</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: 20 }).map((_, index) => {
-            const left = rows[index] ?? null;
-            const right = rows[index + 20] ?? null;
-            const leftNo = pageIndex * 40 + index + 1;
-            const rightNo = pageIndex * 40 + index + 21;
-
-            return (
-              <tr key={`rank-row-${pageIndex}-${index}`}>
-                <td style={reportTdCenterStyle}>{leftNo}</td>
-                <td style={reportTdStyle}>{left?.scoutName ?? ""}</td>
-                <td style={reportTdStyle}>{left?.previousRankName ?? ""}</td>
-                <td style={reportTdStyle}>{left?.approvedRankName ?? ""}</td>
-                <td style={reportTdCenterStyle}>{left?.approvedAt ?? ""}</td>
-                <td style={reportTdCenterStyle}>{rightNo}</td>
-                <td style={reportTdStyle}>{right?.scoutName ?? ""}</td>
-                <td style={reportTdStyle}>{right?.previousRankName ?? ""}</td>
-                <td style={reportTdStyle}>{right?.approvedRankName ?? ""}</td>
-                <td style={reportTdCenterStyle}>{right?.approvedAt ?? ""}</td>
+        <div className="report-table" style={rankApprovalTableAreaStyle}>
+          <table style={rankApprovalTableStyle}>
+            <thead>
+              <tr>
+                <th style={rankApprovalThNarrowStyle}>순</th>
+                <th style={rankApprovalThStyle}>성명</th>
+                <th style={rankApprovalThStyle}>현급위</th>
+                <th style={rankApprovalThStyle}>급위</th>
+                <th style={rankApprovalThStyle}>인가일</th>
+                <th style={rankApprovalThNarrowStyle}>순</th>
+                <th style={rankApprovalThStyle}>성명</th>
+                <th style={rankApprovalThStyle}>현급위</th>
+                <th style={rankApprovalThStyle}>급위</th>
+                <th style={rankApprovalThStyle}>인가일</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {Array.from({ length: APPROVAL_TABLE_ROW_COUNT }).map((_, index) => {
+                const left = rows[index] ?? null;
+                const right = rows[index + APPROVAL_TABLE_ROW_COUNT] ?? null;
+                const leftNo = pageIndex * RANK_APPROVAL_PAGE_SIZE + index + 1;
+                const rightNo = pageIndex * RANK_APPROVAL_PAGE_SIZE + index + APPROVAL_TABLE_ROW_COUNT + 1;
 
-      <ReportFooter reportType="rank_approval" footerSettings={reportFooterSettings} />
+                return (
+                  <tr key={`rank-row-${pageIndex}-${index}`}>
+                    <td style={rankApprovalTdCenterStyle}>{leftNo}</td>
+                    <td style={rankApprovalTdStyle}>{left?.scoutName ?? ""}</td>
+                    <td style={rankApprovalTdStyle}>{left?.previousRankName ?? ""}</td>
+                    <td style={rankApprovalTdStyle}>{left?.approvedRankName ?? ""}</td>
+                    <td style={rankApprovalTdCenterStyle}>{left?.approvedAt ?? ""}</td>
+                    <td style={rankApprovalTdCenterStyle}>{rightNo}</td>
+                    <td style={rankApprovalTdStyle}>{right?.scoutName ?? ""}</td>
+                    <td style={rankApprovalTdStyle}>{right?.previousRankName ?? ""}</td>
+                    <td style={rankApprovalTdStyle}>{right?.approvedRankName ?? ""}</td>
+                    <td style={rankApprovalTdCenterStyle}>{right?.approvedAt ?? ""}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="report-footer" style={rankApprovalFooterAreaStyle}>
+          <ReportFooter
+            reportType="rank_approval"
+            footerSettings={reportFooterSettings}
+            style={rankApprovalFooterStyle}
+            textStyle={rankApprovalFooterTextStyle}
+            dateStyle={rankApprovalFooterDateStyle}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -2835,58 +3183,75 @@ function RankHistoryReportPage({
   reportFooterSettings: ReportFooterSettings;
 }) {
   return (
-    <div className="report-page" style={reportPageStyle}>
-      <ReportHeader
-        title="대원별 진급 이력표"
-        organizationName={organizationName}
-        startDate=""
-        endDate=""
-        periodText="선택한 소속과 검색어에 맞는 대원"
-      />
+    <div className="report-page rank-history-page" style={rankHistoryPageStyle}>
+      <div className="report-content-frame" style={rankHistoryContentFrameStyle}>
+        <div className="report-header" style={rankHistoryHeaderAreaStyle}>
+          <ReportHeader
+            title="대원별 진급 이력표"
+            organizationName={organizationName}
+            startDate=""
+            endDate=""
+            periodText="선택 소속 및 검색 결과"
+            variant="rank_history"
+          />
+        </div>
 
-      <table style={rankHistoryReportTableStyle}>
-        <thead>
-          <tr>
-            <th style={reportThNarrowStyle}>순</th>
-            <th style={reportThStyle}>대원번호</th>
-            <th style={reportThStyle}>성명</th>
-            <th style={reportThStyle}>학교/학년</th>
-            <th style={reportThStyle}>입단일</th>
-            <th style={reportThStyle}>현재급위</th>
-            {ranks.map((rank) => (
-              <th key={rank.id} style={reportThStyle}>{rank.rank_name}</th>
-            ))}
-            <th style={reportThStyle}>상태</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: 24 }).map((_, index) => {
-            const row = rows[index] ?? null;
-            const rowNo = pageIndex * 24 + index + 1;
-
-            return (
-              <tr key={`rank-history-row-${pageIndex}-${index}`}>
-                <td style={reportTdCenterStyle}>{rowNo}</td>
-                <td style={reportTdCenterStyle}>{row?.memberNo ?? ""}</td>
-                <td style={reportTdStyle}>{row?.scoutName ?? ""}</td>
-                <td style={reportTdStyle}>
-                  {row ? [row.schoolName, row.grade].filter((value) => value !== "-").join(" / ") || "-" : ""}
-                </td>
-                <td style={reportTdCenterStyle}>{row?.joinedAt ?? ""}</td>
-                <td style={reportTdCenterStyle}>{row?.currentRankName ?? ""}</td>
+        <div className="report-table" style={rankHistoryTableAreaStyle}>
+          <table style={rankHistoryTableStyle}>
+            <thead>
+              <tr>
+                <th style={rankHistoryThNarrowStyle}>순</th>
+                <th style={rankHistoryThStyle}>대원번호</th>
+                <th style={rankHistoryThStyle}>성명</th>
+                <th style={rankHistoryThStyle}>학교/학년</th>
+                <th style={rankHistoryThStyle}>입단일</th>
+                <th style={rankHistoryThStyle}>현재급위</th>
                 {ranks.map((rank) => (
-                  <td key={`${row?.id ?? "empty"}-${rank.id}`} style={reportTdCenterStyle}>
-                    {row?.rankApprovedAtByRankId[rank.id] ?? ""}
-                  </td>
+                  <th key={rank.id} style={rankHistoryThStyle}>{rank.rank_name}</th>
                 ))}
-                <td style={reportTdCenterStyle}>{row?.statusLabel ?? ""}</td>
+                <th style={rankHistoryThStyle}>상태</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {Array.from({ length: RANK_HISTORY_PAGE_SIZE }).map((_, index) => {
+                const row = rows[index] ?? null;
+                const rowNo = pageIndex * RANK_HISTORY_PAGE_SIZE + index + 1;
 
-      <ReportFooter reportType="rank_history" footerSettings={reportFooterSettings} />
+                return (
+                  <tr key={`rank-history-row-${pageIndex}-${index}`}>
+                  <td style={rankHistoryTdCenterStyle}>{rowNo}</td>
+                  <td style={rankHistoryTdCenterStyle}>{row?.memberNo ?? ""}</td>
+                  <td style={rankHistoryTdStyle}>{row?.scoutName ?? ""}</td>
+                  <td style={rankHistoryTdSchoolStyle}>
+                    {row
+                      ? [row.schoolName, row.grade].filter((value) => value !== "-").join(" / ") || "-"
+                      : ""}
+                  </td>
+                    <td style={rankHistoryTdCenterStyle}>{row?.joinedAt ?? ""}</td>
+                    <td style={rankHistoryTdCenterStyle}>{row?.currentRankName ?? ""}</td>
+                    {ranks.map((rank) => (
+                      <td key={`${row?.id ?? "empty"}-${rank.id}`} style={rankHistoryTdCenterStyle}>
+                        {row?.rankApprovedAtByRankId[rank.id] ?? ""}
+                      </td>
+                    ))}
+                    <td style={rankHistoryTdCenterStyle}>{row?.statusLabel ?? ""}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="report-footer" style={rankHistoryFooterAreaStyle}>
+          <ReportFooter
+            reportType="rank_history"
+            footerSettings={reportFooterSettings}
+            style={rankHistoryFooterStyle}
+            textStyle={rankHistoryFooterTextStyle}
+            dateStyle={rankHistoryFooterDateStyle}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -2894,9 +3259,6 @@ function RankHistoryReportPage({
 function BadgeApprovalReportPage({
   rows,
   pageIndex,
-  //organizationName,
-  //startDate,
-  //endDate,
   reportFooterSettings,
 }: {
   rows: BadgeReportRow[];
@@ -2907,50 +3269,64 @@ function BadgeApprovalReportPage({
   reportFooterSettings: ReportFooterSettings;
 }) {
   return (
-    <div className="report-page" style={reportPageStyle}>
-      <OfficialApprovalReportHeader title="기능장 인가 보고서" />
+    <div className="report-page badge-approval-page" style={badgeApprovalPageStyle}>
+      <div className="report-content-frame" style={badgeApprovalContentFrameStyle}>
+        <div className="report-header" style={badgeApprovalHeaderAreaStyle}>
+          <OfficialApprovalReportHeader title="기능장 인가 보고서" variant="badge" />
+        </div>
 
-      <table style={reportTableStyle}>
-        <thead>
-          <tr>
-            <th style={reportThNarrowStyle}>순</th>
-            <th style={reportThStyle}>성명</th>
-            <th style={reportThStyle}>현급위</th>
-            <th style={reportThStyle}>기능장명</th>
-            <th style={reportThStyle}>인가일</th>
-            <th style={reportThNarrowStyle}>순</th>
-            <th style={reportThStyle}>성명</th>
-            <th style={reportThStyle}>현급위</th>
-            <th style={reportThStyle}>기능장명</th>
-            <th style={reportThStyle}>인가일</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: 10 }).map((_, index) => {
-            const left = rows[index] ?? null;
-            const right = rows[index + 10] ?? null;
-            const leftNo = pageIndex * 20 + index + 1;
-            const rightNo = pageIndex * 20 + index + 11;
-
-            return (
-              <tr key={`badge-row-${pageIndex}-${index}`}>
-                <td style={reportTdCenterStyle}>{leftNo}</td>
-                <td style={reportTdStyle}>{left?.scoutName ?? ""}</td>
-                <td style={reportTdStyle}>{left?.currentRankName ?? ""}</td>
-                <td style={reportTdStyle}>{left?.badgeName ?? ""}</td>
-                <td style={reportTdCenterStyle}>{left?.approvedAt ?? ""}</td>
-                <td style={reportTdCenterStyle}>{rightNo}</td>
-                <td style={reportTdStyle}>{right?.scoutName ?? ""}</td>
-                <td style={reportTdStyle}>{right?.currentRankName ?? ""}</td>
-                <td style={reportTdStyle}>{right?.badgeName ?? ""}</td>
-                <td style={reportTdCenterStyle}>{right?.approvedAt ?? ""}</td>
+        <div className="report-table" style={badgeApprovalTableAreaStyle}>
+          <table style={badgeApprovalTableStyle}>
+            <thead>
+              <tr>
+                <th style={badgeApprovalThNarrowStyle}>순</th>
+                <th style={badgeApprovalThStyle}>성명</th>
+                <th style={badgeApprovalThStyle}>현급위</th>
+                <th style={badgeApprovalThStyle}>기능장명</th>
+                <th style={badgeApprovalThStyle}>인가일</th>
+                <th style={badgeApprovalThNarrowStyle}>순</th>
+                <th style={badgeApprovalThStyle}>성명</th>
+                <th style={badgeApprovalThStyle}>현급위</th>
+                <th style={badgeApprovalThStyle}>기능장명</th>
+                <th style={badgeApprovalThStyle}>인가일</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {Array.from({ length: APPROVAL_TABLE_ROW_COUNT }).map((_, index) => {
+                const left = rows[index] ?? null;
+                const right = rows[index + APPROVAL_TABLE_ROW_COUNT] ?? null;
+                const leftNo = pageIndex * BADGE_APPROVAL_PAGE_SIZE + index + 1;
+                const rightNo = pageIndex * BADGE_APPROVAL_PAGE_SIZE + index + APPROVAL_TABLE_ROW_COUNT + 1;
 
-      <ReportFooter reportType="badge_approval" footerSettings={reportFooterSettings} />
+                return (
+                  <tr key={`badge-row-${pageIndex}-${index}`}>
+                    <td style={badgeApprovalTdCenterStyle}>{leftNo}</td>
+                    <td style={badgeApprovalTdStyle}>{left?.scoutName ?? ""}</td>
+                    <td style={badgeApprovalTdStyle}>{left?.currentRankName ?? ""}</td>
+                    <td style={badgeApprovalTdStyle}>{left?.badgeName ?? ""}</td>
+                    <td style={badgeApprovalTdCenterStyle}>{left?.approvedAt ?? ""}</td>
+                    <td style={badgeApprovalTdCenterStyle}>{rightNo}</td>
+                    <td style={badgeApprovalTdStyle}>{right?.scoutName ?? ""}</td>
+                    <td style={badgeApprovalTdStyle}>{right?.currentRankName ?? ""}</td>
+                    <td style={badgeApprovalTdStyle}>{right?.badgeName ?? ""}</td>
+                    <td style={badgeApprovalTdCenterStyle}>{right?.approvedAt ?? ""}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="report-footer" style={badgeApprovalFooterAreaStyle}>
+          <ReportFooter
+            reportType="badge_approval"
+            footerSettings={reportFooterSettings}
+            style={badgeApprovalFooterStyle}
+            textStyle={badgeApprovalFooterTextStyle}
+            dateStyle={badgeApprovalFooterDateStyle}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -3373,6 +3749,10 @@ const contentCardStyle: CSSProperties = {
   padding: "20px",
   backgroundColor: "#ffffff",
   marginBottom: "24px",
+  boxSizing: "border-box",
+  width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
 };
 
 const previewCardStyle: CSSProperties = {
@@ -3416,47 +3796,52 @@ const sectionDescriptionStyle: CSSProperties = {
 };
 
 const reportGuideBoxStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) auto",
-  gap: "10px 20px",
-  marginBottom: "16px",
-  padding: "16px",
+  display: "flex",
+  flexWrap: "wrap",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "10px 24px",
+  marginBottom: "14px",
+  padding: "12px 14px",
   border: "1px solid #dbeafe",
   borderRadius: "12px",
   backgroundColor: "#f8fbff",
+  boxSizing: "border-box",
+  width: "100%",
+  minWidth: 0,
+};
+
+const reportGuideMainStyle: CSSProperties = {
+  flex: "1 1 240px",
+  minWidth: 0,
 };
 
 const reportGuideTitleStyle: CSSProperties = {
+  display: "block",
   color: "#0f172a",
-  fontSize: "17px",
-};
-
-const reportGuideTextStyle: CSSProperties = {
-  margin: "6px 0 0",
-  color: "#475569",
-  fontSize: "13px",
-  lineHeight: 1.6,
+  fontSize: "16px",
+  fontWeight: 800,
 };
 
 const reportGuideMetaStyle: CSSProperties = {
   display: "flex",
-  flexWrap: "wrap",
-  justifyContent: "flex-end",
-  alignItems: "center",
-  gap: "6px 12px",
+  flexDirection: "column",
+  flex: "0 1 220px",
+  alignItems: "flex-start",
+  gap: "4px",
+  minWidth: 0,
   color: "#334155",
-  fontSize: "12px",
+  fontSize: "12.5px",
   fontWeight: 700,
+  lineHeight: 1.45,
 };
 
 const reportGuideRuleStyle: CSSProperties = {
-  gridColumn: "1 / -1",
-  margin: 0,
-  paddingTop: "10px",
-  borderTop: "1px solid #dbeafe",
-  color: "#1d4ed8",
+  margin: "6px 0 0",
+  color: "#475569",
   fontSize: "13px",
-  fontWeight: 700,
+  fontWeight: 500,
+  lineHeight: 1.45,
 };
 
 const reviewWarningBoxStyle: CSSProperties = {
@@ -3474,6 +3859,124 @@ const filterGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: "14px",
+};
+
+const reportSearchPanelStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "12px",
+  padding: "10px 12px",
+  borderRadius: "12px",
+  border: "1px solid #e5e7eb",
+  backgroundColor: "#f8fafc",
+  boxSizing: "border-box",
+  width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
+};
+
+const reportSearchFiltersRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
+  gap: "10px 12px",
+  alignItems: "end",
+  width: "100%",
+  minWidth: 0,
+};
+
+const reportSearchActionsRowStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "10px 12px",
+  alignItems: "center",
+  width: "100%",
+  minWidth: 0,
+};
+
+const reportSearchFieldStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px",
+  width: "100%",
+  minWidth: 0,
+  maxWidth: "100%",
+  boxSizing: "border-box",
+  color: "#334155",
+  fontSize: "12.5px",
+  fontWeight: 800,
+};
+
+const reportSearchSelectStyle: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  maxWidth: "100%",
+  boxSizing: "border-box",
+  padding: "8px 10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "13.5px",
+  backgroundColor: "#ffffff",
+};
+
+const reportSearchInputStyle: CSSProperties = {
+  flex: "1 1 280px",
+  width: "100%",
+  maxWidth: "520px",
+  minWidth: 0,
+  boxSizing: "border-box",
+  padding: "8px 10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  backgroundColor: "#ffffff",
+};
+
+const reportSearchResetButtonStyle: CSSProperties = {
+  flex: "0 0 auto",
+  padding: 0,
+  border: "none",
+  backgroundColor: "transparent",
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 600,
+  cursor: "pointer",
+  textDecoration: "underline",
+  textUnderlineOffset: "2px",
+  whiteSpace: "nowrap",
+};
+
+const reportSearchCountStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "baseline",
+  gap: "4px 6px",
+  flex: "0 1 auto",
+  minWidth: 0,
+  margin: 0,
+  padding: 0,
+  border: "none",
+  backgroundColor: "transparent",
+  color: "#64748b",
+  fontSize: "13px",
+  fontWeight: 500,
+  lineHeight: 1.4,
+  cursor: "default",
+  userSelect: "none",
+};
+
+const reportSearchCountLabelStyle: CSSProperties = {
+  color: "#94a3b8",
+  fontWeight: 500,
+};
+
+const reportSearchCountNumberStyle: CSSProperties = {
+  color: "#0f172a",
+  fontWeight: 700,
+};
+
+const reportSearchCountTotalStyle: CSSProperties = {
+  color: "#94a3b8",
+  fontWeight: 500,
 };
 
 const fieldLabelStyle: CSSProperties = {
@@ -3527,10 +4030,10 @@ const smallSecondaryButtonStyle: CSSProperties = {
 const printCheckBoxStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr)",
-  gap: "10px",
-  marginTop: "18px",
-  padding: "16px",
-  borderRadius: "12px",
+  gap: "8px",
+  marginTop: "12px",
+  padding: "10px 12px",
+  borderRadius: "10px",
   border: "1px solid #bbf7d0",
   backgroundColor: "#f0fdf4",
 };
@@ -3538,12 +4041,18 @@ const printCheckBoxStyle: CSSProperties = {
 const printCheckHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: "16px",
+  alignItems: "center",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const printCheckTextStyle: CSSProperties = {
+  flex: "1 1 240px",
+  minWidth: 0,
 };
 
 const targetPreviewOpenButtonStyle: CSSProperties = {
-  padding: "9px 12px",
+  padding: "8px 12px",
   borderRadius: "8px",
   border: "1px solid #86efac",
   backgroundColor: "#ffffff",
@@ -3556,32 +4065,35 @@ const targetPreviewOpenButtonStyle: CSSProperties = {
 
 const printCheckTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "18px",
+  fontSize: "15px",
   fontWeight: 800,
   color: "#14532d",
 };
 
 const printCheckDescriptionStyle: CSSProperties = {
-  marginTop: "6px",
+  marginTop: "4px",
   marginBottom: 0,
   color: "#166534",
   fontSize: "13px",
-  lineHeight: 1.6,
+  lineHeight: 1.45,
+};
+
+const printCheckCountStrongStyle: CSSProperties = {
+  color: "#14532d",
+  fontWeight: 800,
 };
 
 const reprintNoticeStyle: CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: "10px",
-  border: "1px solid #bfdbfe",
-  backgroundColor: "#ffffff",
-  color: "#334155",
-  fontSize: "13px",
-  fontWeight: 700,
-  lineHeight: 1.6,
+  marginTop: "4px",
+  marginBottom: 0,
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 500,
+  lineHeight: 1.45,
 };
 
 const targetPreviewBoxStyle: CSSProperties = {
-  marginTop: "18px",
+  marginTop: "8px",
   padding: "16px",
   borderRadius: "12px",
   border: "1px solid #e5e7eb",
@@ -3699,11 +4211,26 @@ const targetPreviewUncheckedRowStyle: CSSProperties = {
 };
 
 const footerSettingsBoxStyle: CSSProperties = {
-  marginTop: "18px",
+  marginTop: 0,
   padding: "16px",
   borderRadius: "12px",
   border: "1px solid #bfdbfe",
   backgroundColor: "#eff6ff",
+  boxSizing: "border-box",
+  width: "100%",
+  minWidth: 0,
+};
+
+const footerPrintActionStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  gap: "8px",
+  marginTop: "16px",
+  width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
 };
 
 const footerSettingsHeaderStyle: CSSProperties = {
@@ -3712,6 +4239,21 @@ const footerSettingsHeaderStyle: CSSProperties = {
   alignItems: "flex-start",
   gap: "16px",
   marginBottom: "14px",
+  flexWrap: "wrap",
+};
+
+const footerSettingsHeaderTextStyle: CSSProperties = {
+  flex: "1 1 240px",
+  minWidth: 0,
+};
+
+const footerResetButtonStyle: CSSProperties = {
+  ...secondaryButtonStyle,
+  flexShrink: 0,
+  alignSelf: "flex-start",
+  whiteSpace: "nowrap",
+  minWidth: "88px",
+  width: "auto",
 };
 
 const footerSettingsTitleStyle: CSSProperties = {
@@ -3771,52 +4313,455 @@ const previewHeaderStyle: CSSProperties = {
   marginBottom: "16px",
 };
 
-const printAreaStyle: CSSProperties = {
-  maxWidth: "100%",
-  minWidth: 0,
-  position: "relative",
-  zIndex: 0,
-  backgroundColor: "#f8fafc",
-  padding: "18px",
+const printGuideTextStyle: CSSProperties = {
+  marginTop: "8px",
+  marginBottom: 0,
+  color: "#64748b",
+  fontSize: "12.5px",
+  lineHeight: 1.5,
 };
 
-const reportPageStyle: CSSProperties = {
+const previewScaleViewportStyle: CSSProperties = {
+  width: "100%",
+  overflow: "hidden",
+  backgroundColor: "#f8fafc",
+  borderRadius: "10px",
+  boxSizing: "border-box",
+  display: "flex",
+  justifyContent: "center",
+};
+
+const previewScaleWrapperStyle: CSSProperties = {
+  width: "210mm",
+  transformOrigin: "top center",
+  flexShrink: 0,
+};
+
+const printAreaStyle: CSSProperties = {
+  position: "relative",
+  zIndex: 0,
+  backgroundColor: "transparent",
+  padding: 0,
+  margin: 0,
+};
+
+const reportA4BaseStyle: CSSProperties = {
   width: "210mm",
   maxWidth: "210mm",
+  height: "297mm",
   minHeight: "297mm",
   margin: "0 auto 24px",
-  padding: "18mm",
   boxSizing: "border-box",
   backgroundColor: "#ffffff",
   color: "#111827",
   border: "1px solid #e5e7eb",
   boxShadow: "0 8px 24px rgba(15, 23, 42, 0.08)",
   fontFamily: "Arial, 'Noto Sans KR', sans-serif",
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
 };
 
-const officialApprovalHeaderStyle: CSSProperties = {
+/** 범·기타 공용 A4 (보고서 3종은 각자 전용 스타일 사용) */
+const reportPageStyle: CSSProperties = {
+  ...reportA4BaseStyle,
+  padding: "18mm",
+};
+
+/* ----- 진급 인가 보고서 (연속 content-frame, 표·글꼴 유지) -----
+ * CSS 설계값 합산(1mm≈3.78px 환산 포함):
+ * page inner = 297−17−16 = 264mm
+ * header ≈ 48px+8px+30px ≈ 22.8mm
+ * header–table = 8mm
+ * table = 21×8mm = 168mm
+ * table–footer = 12mm
+ * footer ≈ 28mm (문구+간격)
+ * frame total ≈ 238.8mm + frame margin-top 6mm
+ * footer bottom clearance ≈ 264−6−238.8 ≈ 19.2mm
+ */
+const rankApprovalPageStyle: CSSProperties = {
+  ...reportA4BaseStyle,
+  display: "block",
+  padding: "17mm 14mm 16mm",
+};
+
+const rankApprovalContentFrameStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "auto",
+  width: "100%",
+  marginTop: "6mm",
+};
+
+const rankApprovalHeaderAreaStyle: CSSProperties = {
+  flex: "0 0 auto",
+};
+
+const rankApprovalHeaderStyle: CSSProperties = {
   textAlign: "center",
-  marginBottom: "22px",
+  marginBottom: "8mm",
 };
 
-const officialApprovalSymbolStyle: CSSProperties = {
-  width: "51px",
-  height: "51px",
+const rankApprovalSymbolStyle: CSSProperties = {
+  width: "48px",
+  height: "48px",
   objectFit: "contain",
   display: "block",
-  margin: "0 auto 12px",
+  margin: "0 auto 8px",
 };
 
-const officialApprovalTitleStyle: CSSProperties = {
+const rankApprovalTitleStyle: CSSProperties = {
   display: "inline-block",
   margin: 0,
-  paddingBottom: "4px",
+  paddingBottom: "3px",
   borderBottom: "2px solid #111827",
   fontFamily: "'Noto Serif KR', 'Batang', serif",
-  fontSize: "32px",
+  fontSize: "30px",
   fontWeight: 900,
   letterSpacing: "5px",
   color: "#111827",
+};
+
+const rankApprovalTableAreaStyle: CSSProperties = {
+  flex: "0 0 auto",
+  width: "100%",
+};
+
+const rankApprovalTableStyle: CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  tableLayout: "fixed",
+  fontSize: "10.5px",
+};
+
+const rankApprovalThStyle: CSSProperties = {
+  border: "1px solid #111827",
+  padding: "2px 3px",
+  height: "8mm",
+  textAlign: "center",
+  backgroundColor: "#f3f4f6",
+  fontWeight: 900,
+  boxSizing: "border-box",
+  lineHeight: 1.15,
+};
+
+const rankApprovalThNarrowStyle: CSSProperties = {
+  ...rankApprovalThStyle,
+  width: "26px",
+};
+
+const rankApprovalTdStyle: CSSProperties = {
+  border: "1px solid #111827",
+  padding: "1px 3px",
+  height: "8mm",
+  maxHeight: "8mm",
+  verticalAlign: "middle",
+  wordBreak: "keep-all",
+  overflow: "hidden",
+  boxSizing: "border-box",
+  lineHeight: 1.15,
+};
+
+const rankApprovalTdCenterStyle: CSSProperties = {
+  ...rankApprovalTdStyle,
+  textAlign: "center",
+};
+
+const rankApprovalFooterAreaStyle: CSSProperties = {
+  flex: "0 0 auto",
+  marginTop: "12mm",
+};
+
+const rankApprovalFooterStyle: CSSProperties = {
+  marginTop: 0,
+  textAlign: "center",
+  fontSize: "12px",
+  color: "#111827",
+  lineHeight: 1.45,
+};
+
+const rankApprovalFooterTextStyle: CSSProperties = {
+  marginTop: "4.5mm",
+  marginBottom: 0,
+};
+
+const rankApprovalFooterDateStyle: CSSProperties = {
+  marginTop: "6mm",
+  marginBottom: 0,
+};
+
+/* ----- 기능장 인가 보고서 (기준 템플릿, 최소 미세 조정) -----
+ * page inner = 297−11−14 = 272mm
+ * header ≈ 50px+10px+30px ≈ 23.8mm
+ * header–table = 7mm
+ * table = 21×9mm = 189mm
+ * table–footer = 10mm
+ * footer ≈ 28mm
+ * frame total ≈ 257.8mm + frame margin-top 2mm
+ * footer bottom clearance ≈ 272−2−257.8 ≈ 12.2mm
+ */
+const badgeApprovalPageStyle: CSSProperties = {
+  ...reportA4BaseStyle,
+  display: "block",
+  padding: "11mm 12mm 14mm",
+};
+
+const badgeApprovalContentFrameStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "auto",
+  width: "100%",
+  marginTop: "2mm",
+};
+
+const badgeApprovalHeaderAreaStyle: CSSProperties = {
+  flex: "0 0 auto",
+};
+
+const badgeApprovalHeaderStyle: CSSProperties = {
+  textAlign: "center",
+  marginBottom: "7mm",
+};
+
+const badgeApprovalSymbolStyle: CSSProperties = {
+  width: "50px",
+  height: "50px",
+  objectFit: "contain",
+  display: "block",
+  margin: "0 auto 10px",
+};
+
+const badgeApprovalTitleStyle: CSSProperties = {
+  display: "inline-block",
+  margin: 0,
+  paddingBottom: "3px",
+  borderBottom: "2px solid #111827",
+  fontFamily: "'Noto Serif KR', 'Batang', serif",
+  fontSize: "30px",
+  fontWeight: 900,
+  letterSpacing: "5px",
+  color: "#111827",
+};
+
+const badgeApprovalTableAreaStyle: CSSProperties = {
+  flex: "0 0 auto",
+  width: "100%",
+};
+
+const badgeApprovalTableStyle: CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  tableLayout: "fixed",
+  fontSize: "11px",
+};
+
+const badgeApprovalThStyle: CSSProperties = {
+  border: "1px solid #111827",
+  padding: "3px 4px",
+  height: "9mm",
+  textAlign: "center",
+  backgroundColor: "#f3f4f6",
+  fontWeight: 900,
+  boxSizing: "border-box",
+  lineHeight: 1.2,
+};
+
+const badgeApprovalThNarrowStyle: CSSProperties = {
+  ...badgeApprovalThStyle,
+  width: "26px",
+};
+
+const badgeApprovalTdStyle: CSSProperties = {
+  border: "1px solid #111827",
+  padding: "2px 4px",
+  height: "9mm",
+  maxHeight: "9mm",
+  verticalAlign: "middle",
+  wordBreak: "keep-all",
+  overflow: "hidden",
+  boxSizing: "border-box",
+  lineHeight: 1.2,
+};
+
+const badgeApprovalTdCenterStyle: CSSProperties = {
+  ...badgeApprovalTdStyle,
+  textAlign: "center",
+};
+
+const badgeApprovalFooterAreaStyle: CSSProperties = {
+  flex: "0 0 auto",
+  marginTop: "10mm",
+};
+
+const badgeApprovalFooterStyle: CSSProperties = {
+  marginTop: 0,
+  textAlign: "center",
+  fontSize: "12px",
+  color: "#111827",
+  lineHeight: 1.45,
+};
+
+const badgeApprovalFooterTextStyle: CSSProperties = {
+  marginTop: "4.5mm",
+  marginBottom: 0,
+};
+
+const badgeApprovalFooterDateStyle: CSSProperties = {
+  marginTop: "6mm",
+  marginBottom: 0,
+};
+
+/* ----- 대원별 진급 이력표 (연속 content-frame, 20명/페이지) -----
+ * 행 9.0mm, table≈189mm, frame margin-top 14mm, table–footer 7mm
+ * page inner = 297−13−14 = 270mm
+ * header block ≈ 20.3mm
+ * table = 21×9.0mm = 189mm
+ * table–footer = 7mm
+ * footer ≈ 26mm
+ * frame total ≈ 242.3mm + frame margin-top 14mm
+ * footer bottom clearance ≈ 270−14−242.3 ≈ 13.7mm
+ */
+const rankHistoryPageStyle: CSSProperties = {
+  ...reportA4BaseStyle,
+  display: "block",
+  padding: "13mm 7mm 14mm",
+};
+
+const rankHistoryContentFrameStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "auto",
+  width: "100%",
+  marginTop: "14mm",
+};
+
+const rankHistoryHeaderAreaStyle: CSSProperties = {
+  flex: "0 0 auto",
+};
+
+const rankHistoryHeaderStyle: CSSProperties = {
+  marginBottom: "5.5mm",
+};
+
+const rankHistoryTitleStyle: CSSProperties = {
+  margin: 0,
+  textAlign: "center",
+  fontSize: "22px",
+  fontWeight: 900,
+  color: "#111827",
+};
+
+const rankHistoryMetaGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "30% 40% 30%",
+  gap: "0 6px",
+  marginTop: "5mm",
+  fontSize: "11px",
+  color: "#374151",
+  alignItems: "center",
+  width: "100%",
+};
+
+const rankHistoryMetaOrgStyle: CSSProperties = {
+  minWidth: 0,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+};
+
+const rankHistoryMetaPeriodStyle: CSSProperties = {
+  minWidth: 0,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textAlign: "center",
+};
+
+const rankHistoryMetaDateStyle: CSSProperties = {
+  minWidth: 0,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textAlign: "right",
+};
+
+const rankHistoryTableAreaStyle: CSSProperties = {
+  flex: "0 0 auto",
+  width: "100%",
+};
+
+const rankHistoryTableStyle: CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  tableLayout: "fixed",
+  fontSize: "8.5px",
+};
+
+const rankHistoryThStyle: CSSProperties = {
+  border: "1px solid #111827",
+  padding: "1px 2px",
+  height: "9mm",
+  maxHeight: "9mm",
+  minHeight: "9mm",
+  textAlign: "center",
+  backgroundColor: "#f3f4f6",
+  fontWeight: 900,
+  boxSizing: "border-box",
+  lineHeight: 1.1,
+  overflow: "hidden",
+  verticalAlign: "middle",
+};
+
+const rankHistoryThNarrowStyle: CSSProperties = {
+  ...rankHistoryThStyle,
+  width: "22px",
+};
+
+const rankHistoryTdStyle: CSSProperties = {
+  border: "1px solid #111827",
+  padding: "1px 2px",
+  height: "9mm",
+  maxHeight: "9mm",
+  minHeight: "9mm",
+  verticalAlign: "middle",
+  wordBreak: "keep-all",
+  overflow: "hidden",
+  boxSizing: "border-box",
+  lineHeight: 1.1,
+  whiteSpace: "nowrap",
+};
+
+const rankHistoryTdCenterStyle: CSSProperties = {
+  ...rankHistoryTdStyle,
+  textAlign: "center",
+};
+
+/** 학교/학년: 행 높이 안에서 최대 2줄까지 허용 */
+const rankHistoryTdSchoolStyle: CSSProperties = {
+  ...rankHistoryTdStyle,
+  whiteSpace: "normal",
+  wordBreak: "keep-all",
+  lineHeight: 1.15,
+};
+
+const rankHistoryFooterAreaStyle: CSSProperties = {
+  flex: "0 0 auto",
+  marginTop: "7mm",
+};
+
+const rankHistoryFooterStyle: CSSProperties = {
+  marginTop: 0,
+  textAlign: "center",
+  fontSize: "11.5px",
+  color: "#111827",
+  lineHeight: 1.4,
+};
+
+const rankHistoryFooterTextStyle: CSSProperties = {
+  marginTop: "4.5mm",
+  marginBottom: 0,
+};
+
+const rankHistoryFooterDateStyle: CSSProperties = {
+  marginTop: "6mm",
+  marginBottom: 0,
 };
 
 const officialBeomHeaderStyle: CSSProperties = {
@@ -3875,45 +4820,6 @@ const reportMetaGridStyle: CSSProperties = {
   marginTop: "16px",
   fontSize: "12px",
   color: "#374151",
-};
-
-const reportTableStyle: CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-  tableLayout: "fixed",
-  fontSize: "11px",
-};
-
-const rankHistoryReportTableStyle: CSSProperties = {
-  ...reportTableStyle,
-  fontSize: "9px",
-};
-
-const reportThStyle: CSSProperties = {
-  border: "1px solid #111827",
-  padding: "6px 4px",
-  textAlign: "center",
-  backgroundColor: "#f3f4f6",
-  fontWeight: 900,
-};
-
-const reportThNarrowStyle: CSSProperties = {
-  ...reportThStyle,
-  width: "26px",
-};
-
-const reportTdStyle: CSSProperties = {
-  border: "1px solid #111827",
-  padding: "6px 4px",
-  minHeight: "24px",
-  height: "24px",
-  verticalAlign: "middle",
-  wordBreak: "keep-all",
-};
-
-const reportTdCenterStyle: CSSProperties = {
-  ...reportTdStyle,
-  textAlign: "center",
 };
 
 const reportFooterStyle: CSSProperties = {
