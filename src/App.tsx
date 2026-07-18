@@ -2469,6 +2469,7 @@ function DashboardIssueCard({
   return (
     <button
       type="button"
+      className="dashboard-issue-card"
       onClick={onClick}
       style={{
         ...summaryCardButtonStyle,
@@ -2476,6 +2477,7 @@ function DashboardIssueCard({
         ...(selected ? summaryCardButtonSelectedStyle : {}),
       }}
       aria-pressed={selected}
+      aria-label={`${title} ${value}. ${selected ? "상세 접기" : "대상 대원 확인"}`}
     >
       <h2 style={summaryTitleStyle}>{title}</h2>
       <p style={summaryValueStyle}>{value}</p>
@@ -2489,7 +2491,9 @@ function DashboardIssueCard({
           ))}
         </ul>
       ) : null}
-      <div style={issueDetailButtonStyle}>{selected ? "상세 접기" : "상세 보기"}</div>
+      <div style={issueActionTextStyle}>
+        {selected ? "상세 접기 →" : "대상 대원 확인 →"}
+      </div>
     </button>
   );
 }
@@ -3131,6 +3135,27 @@ function AppLayout() {
           .app-side-menu-button:focus-visible {
             outline: 2px solid #93c5fd;
             outline-offset: 2px;
+          }
+
+          .dashboard-issue-card {
+            transition:
+              border-color 140ms ease,
+              box-shadow 140ms ease,
+              background-color 140ms ease;
+          }
+
+          .dashboard-issue-card:hover {
+            box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+            filter: brightness(0.99);
+          }
+
+          .dashboard-issue-card:focus-visible {
+            outline: 2px solid #2563eb;
+            outline-offset: 2px;
+          }
+
+          .dashboard-issue-card:active {
+            transform: translateY(1px);
           }
 
           .app-sidebar-collapse-button {
@@ -4589,21 +4614,14 @@ const issueSampleItemStyle: CSSProperties = {
   backgroundColor: "rgba(255, 255, 255, 0.72)",
 };
 
-const issueDetailButtonStyle: CSSProperties = {
+const issueActionTextStyle: CSSProperties = {
   marginTop: "auto",
   paddingTop: "10px",
-  minHeight: "34px",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  alignSelf: "flex-start",
-  padding: "6px 12px",
-  borderRadius: "8px",
-  border: "1px solid #2563eb",
-  backgroundColor: "#2563eb",
-  color: "#ffffff",
+  color: "#2563eb",
   fontSize: "12px",
   fontWeight: 800,
+  whiteSpace: "nowrap",
+  alignSelf: "flex-start",
 };
 
 const dashboardCompactSectionStyle: CSSProperties = {
