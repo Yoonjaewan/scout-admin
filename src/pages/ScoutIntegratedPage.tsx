@@ -2071,7 +2071,33 @@ export default function ScoutIntegratedPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>대원 통합관리</h1><PageHelpButton title="대원 통합관리" description="대원별 진급 준비상태와 활동기록을 한 화면에서 확인합니다." sections={[{ title: "사용 순서", content: "왼쪽에서 대원을 선택하고 종합현황을 확인한 뒤 필요한 탭으로 이동합니다." },{ title: "주의사항", content: "판정 결과보다 현재 실제 기능장·프로그램·출석 기록을 우선 확인합니다." }]} /></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <h1 style={pageTitleStyle}>대원 통합관리</h1>
+            <PageHelpButton
+              title="대원 통합관리"
+              description="대원의 현재 급위, 진급 준비 상태, 기능장, 프로그램 이수 및 출석 현황을 한 화면에서 확인합니다."
+              sections={[
+                {
+                  title: "사용 순서",
+                  items: [
+                    "왼쪽 대원 목록에서 확인할 대원을 선택합니다.",
+                    "기본정보와 현재 급위를 확인합니다.",
+                    "진급 조건별 충족 여부와 부족 항목을 확인합니다.",
+                    "기능장, 프로그램 이수, 집회·출석 현황을 각 탭에서 확인합니다.",
+                    "필요한 업무 화면으로 이동하여 누락된 내용을 등록하거나 수정합니다.",
+                  ],
+                },
+                {
+                  title: "주의사항",
+                  items: [
+                    "진급 가능 여부는 현재 등록된 실제 기록을 기준으로 판단합니다.",
+                    "저장된 과거 판정 결과보다 현재 기능장·프로그램·출석 기록이 우선합니다.",
+                    "비활동 대원은 일부 업무 대상에서 제외될 수 있습니다.",
+                  ],
+                },
+              ]}
+            />
+          </div>
           <p style={pageDescriptionStyle}>
             대원을 선택해 현재 진급 상태를 확인하고, 필요한 기록을 탭별로 관리합니다.
           </p>

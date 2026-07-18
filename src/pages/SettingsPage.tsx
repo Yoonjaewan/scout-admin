@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ChangeEvent, FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { FeedbackToast, PageHelpButton } from "../components/common/CommonFeedback";
 import { supabase } from "../lib/supabase";
@@ -7,6 +8,7 @@ import { supabase } from "../lib/supabase";
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
 type OrganizationType = "local" | "school";
 type LogoColumnMode = "url_and_path" | "url_only" | "none";
+type RegisteredScoutCountStatus = "loading" | "ready" | "error";
 
 type OrganizationForm = {
   type: OrganizationType;
@@ -194,6 +196,7 @@ async function fetchOrganizationInfo(organizationId: string): Promise<Organizati
 }
 
 export default function SettingsPage() {
+  const navigate = useNavigate();
   const [role, setRole] = useState<UserRole | null>(null);
   const [organization, setOrganization] = useState<OrganizationInfo | null>(null);
   const [form, setForm] = useState<OrganizationForm>({
@@ -204,6 +207,9 @@ export default function SettingsPage() {
     description: "",
     beomAttendanceRequired: false,
   });
+  const [registeredScoutCount, setRegisteredScoutCount] = useState<number | null>(null);
+  const [registeredScoutCountStatus, setRegisteredScoutCountStatus] =
+    useState<RegisteredScoutCountStatus>("loading");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -220,28 +226,26 @@ export default function SettingsPage() {
   const setupIncomplete = organization
     ? !organization.unitNumber?.trim() || !organization.name.trim()
     : false;
+  const hasLogo = Boolean(organization?.logoUrl?.trim() || organization?.logoPath?.trim());
 
-  const settingsComplete = Boolean(
-    organization?.unitNumber?.trim() && organization?.name.trim(),
-  );
+  const registeredScoutCountLabel = useMemo(() => {
+    if (registeredScoutCountStatus === "loading") return "확인 중";
+    if (registeredScoutCountStatus === "error") return "확인 필요";
+    return `${registeredScoutCount ?? 0}명`;
+  }, [registeredScoutCount, registeredScoutCountStatus]);
 
-  const formatUpdatedAt = (value: string | null) => {
-    if (!value) return "-";
+  const nextStepText = useMemo(() => {
+    if (registeredScoutCountStatus === "ready" && (registeredScoutCount ?? 0) > 0) {
+      return "대원 관리에서 등록된 대원을 확인하거나 추가 등록하세요.";
+    }
 
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-
-    return new Intl.DateTimeFormat("ko-KR", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(date);
-  };
+    return "환경설정을 완료했다면 대원 관리에서 첫 번째 대원을 등록하세요.";
+  }, [registeredScoutCount, registeredScoutCountStatus]);
 
   const loadSettings = async () => {
     setLoading(true);
+    setRegisteredScoutCountStatus("loading");
+    setRegisteredScoutCount(null);
     setErrorMessage("");
     setSuccessMessage("");
 
@@ -252,6 +256,7 @@ export default function SettingsPage() {
 
     if (userError || !user) {
       setErrorMessage("로그인 정보를 확인하지 못했습니다. 다시 로그인해 주세요.");
+      setRegisteredScoutCountStatus("error");
       setLoading(false);
       return;
     }
@@ -266,12 +271,14 @@ export default function SettingsPage() {
     if (profileError || !profile) {
       console.error("환경설정 사용자 확인 오류:", profileError);
       setErrorMessage("사용자 정보를 확인하지 못했습니다.");
+      setRegisteredScoutCountStatus("error");
       setLoading(false);
       return;
     }
 
     if (!isUserRole(profile.role)) {
       setErrorMessage("사용자 권한을 확인하지 못했습니다.");
+      setRegisteredScoutCountStatus("error");
       setLoading(false);
       return;
     }
@@ -283,6 +290,8 @@ export default function SettingsPage() {
 
     if (!organizationId) {
       setOrganization(null);
+      setRegisteredScoutCount(null);
+      setRegisteredScoutCountStatus("error");
       setErrorMessage("연결된 소속대 정보가 없습니다.");
       setLoading(false);
       return;
@@ -293,6 +302,8 @@ export default function SettingsPage() {
 
       if (!loadedOrganization) {
         setOrganization(null);
+        setRegisteredScoutCount(null);
+        setRegisteredScoutCountStatus("error");
         setErrorMessage("소속대 정보를 찾지 못했습니다.");
         setLoading(false);
         return;
@@ -300,9 +311,26 @@ export default function SettingsPage() {
 
       setOrganization(loadedOrganization);
       setForm(buildFormFromOrganization(loadedOrganization));
+
+      // 대원관리 전체 대원과 동일: 비삭제 전체 (status 무관)
+      const { count, error: scoutCountError } = await supabase
+        .from("scouts")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .is("deleted_at", null);
+
+      if (scoutCountError) {
+        console.error("등록 대원 수 조회 오류:", scoutCountError.message);
+        setRegisteredScoutCount(null);
+        setRegisteredScoutCountStatus("error");
+      } else {
+        setRegisteredScoutCount(count ?? 0);
+        setRegisteredScoutCountStatus("ready");
+      }
     } catch (error) {
       console.error("소속대 정보 조회 오류:", error);
       setErrorMessage("소속대 정보를 불러오지 못했습니다.");
+      setRegisteredScoutCountStatus("error");
     } finally {
       setLoading(false);
     }
@@ -622,9 +650,37 @@ export default function SettingsPage() {
     <div>
       <header style={pageHeaderStyle}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>환경설정</h1><PageHelpButton title="환경설정" description="소속대 정보, 로고, 범 진급 출석률 운영 기준을 관리합니다." sections={[{ title: "사용 순서", content: "필수정보를 저장한 뒤 운영 기준과 로고를 확인합니다." },{ title: "주의사항", content: "범 진급 출석률 설정은 진급관리·통합관리·출석 화면과 동일해야 합니다." }]} /></div>
+          <div style={titleRowStyle}>
+            <h1 style={pageTitleStyle}>환경설정</h1>
+            <PageHelpButton
+              title="환경설정"
+              description="프로그램 운영에 필요한 소속대 정보, 진급 운영 기준 및 로고를 설정합니다."
+              sections={[
+                {
+                  title: "사용 순서",
+                  items: [
+                    "소속 구분과 대번호를 입력합니다.",
+                    "소속 대명, 지역 및 설명을 입력하고 소속대 정보를 저장합니다.",
+                    "범 진급 판정에 출석률을 적용할지 선택하고 운영 기준을 저장합니다.",
+                    "필요한 경우 소속대 로고를 등록합니다.",
+                    "설정을 완료한 뒤 대원 관리로 이동하여 대원을 등록합니다.",
+                  ],
+                },
+                {
+                  title: "주의사항",
+                  items: [
+                    "대번호와 소속 대명은 필수입니다.",
+                    "대번호는 학교대·지역대 구분 없이 중복 사용할 수 없습니다.",
+                    "소속대 정보와 운영 기준은 각각 별도로 저장합니다.",
+                    "로고 선택 또는 삭제는 즉시 반영됩니다.",
+                    "등록 대원 카드는 현재 소속대의 비삭제 전체 등록 대원 수를 표시합니다.",
+                  ],
+                },
+              ]}
+            />
+          </div>
           <p style={pageDescriptionStyle}>
-            소속대 정보와 사이드 메뉴에 표시할 로고를 관리합니다.
+            프로그램 운영에 필요한 기본 정보를 설정합니다.
           </p>
         </div>
 
@@ -656,35 +712,29 @@ export default function SettingsPage() {
           </section>
 
           <section style={summaryCardStyle}>
-            <h2 style={summaryTitleStyle}>범 진급 출석률</h2>
+            <h2 style={summaryTitleStyle}>운영 기준</h2>
             <p style={summaryValueStyle}>
-              {organization.beomAttendanceRequired ? "판정에 적용" : "계산·표시만"}
+              {form.beomAttendanceRequired ? "범 진급 출석률 적용" : "범 진급 출석률 미적용"}
             </p>
             <p style={summaryDescriptionStyle}>
-              {organization.beomAttendanceRequired
-                ? "범 진급 판정에서 출석률 조건을 필수로 확인합니다."
-                : "출석률을 확인하되 진급 판정에서는 제외합니다."}
+              {form.beomAttendanceRequired
+                ? "범 진급 판정에 출석률을 반영합니다."
+                : "출석률을 판정에 반영하지 않습니다."}
             </p>
           </section>
 
           <section style={summaryCardStyle}>
-            <h2 style={summaryTitleStyle}>설정 상태</h2>
-            <p style={summaryValueStyle}>{settingsComplete ? "정상" : "확인 필요"}</p>
+            <h2 style={summaryTitleStyle}>소속대 로고</h2>
+            <p style={summaryValueStyle}>{hasLogo ? "등록 완료" : "미등록"}</p>
             <p style={summaryDescriptionStyle}>
-              {settingsComplete
-                ? "필수 소속대 정보가 등록되어 있습니다."
-                : "대번호와 소속 대명을 확인하세요."}
+              {hasLogo ? "사이드 메뉴에 표시됩니다." : "아직 등록되지 않았습니다."}
             </p>
           </section>
 
           <section style={summaryCardStyle}>
-            <h2 style={summaryTitleStyle}>최근 저장</h2>
-            <p style={{ ...summaryValueStyle, fontSize: "17px" }}>
-              {formatUpdatedAt(organization.updatedAt)}
-            </p>
-            <p style={summaryDescriptionStyle}>
-              현재 저장된 소속대 설정의 최근 변경 시각입니다.
-            </p>
+            <h2 style={summaryTitleStyle}>등록 대원</h2>
+            <p style={summaryValueStyle}>{registeredScoutCountLabel}</p>
+            <p style={summaryDescriptionStyle}>현재 소속대에 등록된 전체 대원 수입니다.</p>
           </section>
         </div>
       ) : null}
@@ -703,92 +753,102 @@ export default function SettingsPage() {
 
       {organization ? (
         <div style={settingsGridStyle}>
-          <section style={cardStyle}>
+          <section style={settingsCardStyle}>
             <div style={sectionHeaderStyle}>
               <h2 style={sectionTitleStyle}>소속대 정보</h2>
               <p style={sectionDescriptionStyle}>
                 {canEdit
-                  ? "대번호와 소속 대명은 필수 입력 항목입니다. 대원번호 자동 발번과 보고서 출력에 사용됩니다."
+                  ? "대번호와 소속 대명을 입력한 뒤 저장하세요."
                   : "현재 계정은 소속대 정보를 조회할 수 있습니다."}
               </p>
+              <p style={saveUnitHintStyle}>이 카드의 소속대 정보만 저장됩니다.</p>
             </div>
 
-            <form data-organization-settings-form="true" onSubmit={handleSave}>
-              <div style={formGridStyle}>
+            <form
+              data-organization-settings-form="true"
+              onSubmit={handleSave}
+              style={cardBodyFormStyle}
+            >
+              <div style={cardFieldsStyle}>
+                <div style={formGridStyle}>
+                  <label style={labelStyle}>
+                    소속 구분
+                    <select
+                      value={form.type}
+                      onChange={handleChange("type")}
+                      disabled={!canEdit || saving}
+                      style={inputStyle}
+                    >
+                      <option value="school">학교대</option>
+                      <option value="local">지역대</option>
+                    </select>
+                  </label>
+
+                  <label style={labelStyle}>
+                    <span style={requiredLabelStyle}>
+                      대번호 <span style={requiredMarkStyle}>*</span>
+                    </span>
+                    <input
+                      type="text"
+                      value={form.unitNumber}
+                      onChange={handleChange("unitNumber")}
+                      disabled={!canEdit || saving}
+                      placeholder="예: 404"
+                      style={inputStyle}
+                      required
+                    />
+                  </label>
+                </div>
+
+                <p style={formGuideTextStyle}>
+                  대번호와 소속 대명은 필수입니다. 대번호는 학교대·지역대 구분 없이 중복 사용할 수
+                  없습니다.
+                </p>
+
                 <label style={labelStyle}>
-                  소속 구분
-                  <select
-                    value={form.type}
-                    onChange={handleChange("type")}
-                    disabled={!canEdit || saving}
-                    style={inputStyle}
-                  >
-                    <option value="school">학교대</option>
-                    <option value="local">지역대</option>
-                  </select>
+                  권한
+                  <div style={roleValueBoxStyle}>{role ? ROLE_LABELS[role] : "-"}</div>
                 </label>
 
                 <label style={labelStyle}>
-                  <span style={requiredLabelStyle}>대번호 <span style={requiredMarkStyle}>*</span></span>
+                  <span style={requiredLabelStyle}>
+                    소속 대명 <span style={requiredMarkStyle}>*</span>
+                  </span>
                   <input
                     type="text"
-                    value={form.unitNumber}
-                    onChange={handleChange("unitNumber")}
+                    value={form.name}
+                    onChange={handleChange("name")}
                     disabled={!canEdit || saving}
-                    placeholder="예: 404"
+                    placeholder="예: 테스트학교대"
                     style={inputStyle}
                     required
                   />
                 </label>
+
+                <label style={labelStyle}>
+                  지역
+                  <input
+                    type="text"
+                    value={form.region}
+                    onChange={handleChange("region")}
+                    disabled={!canEdit || saving}
+                    placeholder="예: 서울, 경기, 부산"
+                    style={inputStyle}
+                  />
+                </label>
+
+                <label style={{ ...labelStyle, marginBottom: 0 }}>
+                  설명
+                  <textarea
+                    value={form.description}
+                    onChange={handleChange("description")}
+                    disabled={!canEdit || saving}
+                    placeholder="소속대 소개나 참고사항을 입력하세요."
+                    rows={3}
+                    style={textareaStyle}
+                  />
+                </label>
               </div>
-
-              <div style={formGuideBoxStyle}>
-                대번호와 소속 대명은 필수입니다. 대번호가 없으면 대원번호 자동 발번, 보고서 출력, 소속대 구분에 문제가 생길 수 있습니다.
-              </div>
-
-              <label style={labelStyle}>
-                권한
-                <div style={roleValueBoxStyle}>
-                  {role ? ROLE_LABELS[role] : "-"}
-                </div>
-              </label>
-
-              <label style={labelStyle}>
-                <span style={requiredLabelStyle}>소속 대명 <span style={requiredMarkStyle}>*</span></span>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={handleChange("name")}
-                  disabled={!canEdit || saving}
-                  placeholder="예: 테스트학교대"
-                  style={inputStyle}
-                  required
-                />
-              </label>
-
-              <label style={labelStyle}>
-                지역
-                <input
-                  type="text"
-                  value={form.region}
-                  onChange={handleChange("region")}
-                  disabled={!canEdit || saving}
-                  placeholder="예: 서울, 경기, 부산"
-                  style={inputStyle}
-                />
-              </label>
-
-              <label style={labelStyle}>
-                설명
-                <textarea
-                  value={form.description}
-                  onChange={handleChange("description")}
-                  disabled={!canEdit || saving}
-                  placeholder="소속대 소개나 참고사항을 입력하세요."
-                  rows={4}
-                  style={textareaStyle}
-                />
-              </label>
 
               <div style={formActionStyle}>
                 <button
@@ -806,190 +866,193 @@ export default function SettingsPage() {
             </form>
           </section>
 
-          <section style={cardStyle}>
+          <section style={settingsCardStyle}>
             <div style={sectionHeaderStyle}>
               <h2 style={sectionTitleStyle}>진급 운영 기준</h2>
               <p style={sectionDescriptionStyle}>
-                범스카우트 진급 판정에서 출석률을 필수 조건으로 적용할지 설정합니다.
+                범스카우트 진급 판정에 출석률을 적용할지 설정합니다.
               </p>
+              <p style={saveUnitHintStyle}>이 카드의 진급 운영 기준만 저장됩니다.</p>
             </div>
 
-            <label style={settingToggleStyle}>
-              <input
-                type="checkbox"
-                checked={form.beomAttendanceRequired}
-                onChange={handleChange("beomAttendanceRequired")}
-                disabled={!canEdit || saving}
-                style={settingCheckboxStyle}
-              />
-              <span>
-                <strong style={settingToggleTitleStyle}>범 진급 출석률을 판정에 적용</strong>
-                <span style={settingToggleDescriptionStyle}>
-                  활성화하면 무궁화에서 범으로 진급할 때 출석률 조건을 반드시 충족해야 합니다.
-                </span>
-              </span>
-            </label>
+            <div style={cardBodyStyle}>
+              <div style={cardFieldsStyle}>
+                <label style={settingToggleStyle}>
+                  <input
+                    type="checkbox"
+                    checked={form.beomAttendanceRequired}
+                    onChange={handleChange("beomAttendanceRequired")}
+                    disabled={!canEdit || saving}
+                    style={settingCheckboxStyle}
+                  />
+                  <span>
+                    <strong style={settingToggleTitleStyle}>범 진급 출석률을 판정에 적용</strong>
+                    <span style={settingToggleDescriptionStyle}>
+                      무궁화에서 범으로 진급할 때 출석률 조건을 적용합니다.
+                    </span>
+                  </span>
+                </label>
 
-            <div
-              style={
-                form.beomAttendanceRequired
-                  ? operationEnabledBoxStyle
-                  : operationDisabledBoxStyle
-              }
-            >
-              <strong>
-                현재 설정: {form.beomAttendanceRequired ? "운영 기준 적용" : "체험 기준"}
-              </strong>
-              <span>
-                {form.beomAttendanceRequired
-                  ? "출석률이 범 진급 판정 결과에 반영됩니다."
-                  : "출석률은 계산·표시하지만 범 진급 판정에서는 제외됩니다."}
-              </span>
-            </div>
+                <div
+                  style={
+                    form.beomAttendanceRequired
+                      ? operationEnabledBoxStyle
+                      : operationDisabledBoxStyle
+                  }
+                >
+                  <strong>
+                    현재 설정: {form.beomAttendanceRequired ? "운영 기준 적용" : "체험 기준"}
+                  </strong>
+                  <span>
+                    {form.beomAttendanceRequired
+                      ? "출석률이 범 진급 판정에 반영됩니다."
+                      : "출석률은 표시만 하고 판정에는 반영하지 않습니다."}
+                  </span>
+                </div>
 
-            <div style={impactBoxStyle}>
-              <strong style={impactTitleStyle}>이 설정이 적용되는 화면</strong>
-              <div style={impactGridStyle}>
-                <span>진급 관리</span>
-                <span>대원 통합관리</span>
-                <span>집회/출석 관리</span>
-                <span>범 진급 신청서</span>
+                <p style={impactLineStyle}>
+                  <span style={impactLabelStyle}>적용 화면</span>
+                  진급 관리 · 대원 통합관리 · 집회/출석 관리 · 범 진급 신청서
+                </p>
               </div>
-            </div>
 
-            <div style={formActionStyle}>
-              <button
-                type="button"
-                onClick={() => {
-                  const formElement = document.querySelector<HTMLFormElement>(
-                    'form[data-organization-settings-form="true"]',
-                  );
-                  formElement?.requestSubmit();
-                }}
-                disabled={!canEdit || saving}
-                style={{
-                  ...primaryButtonStyle,
-                  opacity: !canEdit || saving ? 0.65 : 1,
-                  cursor: !canEdit || saving ? "not-allowed" : "pointer",
-                }}
-              >
-                {saving ? "저장 중..." : "운영 기준 저장"}
-              </button>
+              <div style={formActionStyle}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const formElement = document.querySelector<HTMLFormElement>(
+                      'form[data-organization-settings-form="true"]',
+                    );
+                    formElement?.requestSubmit();
+                  }}
+                  disabled={!canEdit || saving}
+                  style={{
+                    ...primaryButtonStyle,
+                    opacity: !canEdit || saving ? 0.65 : 1,
+                    cursor: !canEdit || saving ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {saving ? "저장 중..." : "운영 기준 저장"}
+                </button>
+              </div>
             </div>
           </section>
 
-          <section style={cardStyle}>
+          <section style={settingsCardStyle}>
             <div style={sectionHeaderStyle}>
               <h2 style={sectionTitleStyle}>소속대 로고</h2>
-              <p style={sectionDescriptionStyle}>
-                등록한 로고는 사이드 메뉴 상단에 표시됩니다.
-              </p>
+              <p style={sectionDescriptionStyle}>등록한 로고는 사이드 메뉴 상단에 표시됩니다.</p>
+              <p style={saveUnitHintStyle}>로고 선택 또는 삭제 시 즉시 반영됩니다.</p>
             </div>
 
-            <div style={logoPreviewBoxStyle}>
-              {organization.logoUrl ? (
-                <img
-                  src={organization.logoUrl}
-                  alt={`${organization.name} 로고`}
-                  style={logoPreviewImageStyle}
-                />
-              ) : (
-                <div style={logoEmptyStyle}>등록된 로고 없음</div>
-              )}
-            </div>
+            <div style={cardBodyStyle}>
+              <div style={cardFieldsStyle}>
+                <div style={logoPreviewBoxStyle}>
+                  {organization.logoUrl ? (
+                    <img
+                      src={organization.logoUrl}
+                      alt={`${organization.name} 로고`}
+                      style={logoPreviewImageStyle}
+                    />
+                  ) : (
+                    <div style={logoEmptyStyle}>등록된 로고 없음</div>
+                  )}
+                </div>
 
-            <div style={menuPreviewStyle}>
-              <div style={menuPreviewBrandStyle}>
-                {organization.logoUrl ? (
-                  <img
-                    src={organization.logoUrl}
-                    alt=""
-                    style={menuPreviewLogoStyle}
-                  />
-                ) : (
-                  <strong style={menuPreviewScoutStyle}>Scout</strong>
-                )}
+                <div style={menuPreviewStyle}>
+                  <div style={menuPreviewBrandStyle}>
+                    {organization.logoUrl ? (
+                      <img
+                        src={organization.logoUrl}
+                        alt=""
+                        style={menuPreviewLogoStyle}
+                      />
+                    ) : (
+                      <strong style={menuPreviewScoutStyle}>Scout</strong>
+                    )}
+                  </div>
+                  <div style={menuPreviewNameStyle}>{organization.name}</div>
+                  <div style={menuPreviewMetaStyle}>
+                    {ORGANIZATION_TYPE_LABELS[organization.type]}
+                    {organization.unitNumber ? ` · 대번호 ${organization.unitNumber}` : ""}
+                  </div>
+                </div>
+
+                {!logoReady ? (
+                  <div style={warningBoxStyle}>
+                    로고 등록을 사용하려면 소속대 로고 저장 준비가 필요합니다.
+                  </div>
+                ) : null}
+
+                <div style={logoButtonGridStyle}>
+                  <label
+                    style={{
+                      ...uploadButtonStyle,
+                      opacity:
+                        !canEdit || uploadingLogo || deletingLogo || !logoReady ? 0.65 : 1,
+                      cursor:
+                        !canEdit || uploadingLogo || deletingLogo || !logoReady
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                  >
+                    {uploadingLogo
+                      ? "로고 등록 중..."
+                      : organization.logoUrl
+                        ? "로고 이미지 변경"
+                        : "로고 이미지 선택"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      onChange={handleLogoUpload}
+                      disabled={!canEdit || uploadingLogo || deletingLogo || !logoReady}
+                      style={hiddenFileInputStyle}
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleDeleteLogo}
+                    disabled={
+                      !canEdit ||
+                      uploadingLogo ||
+                      deletingLogo ||
+                      !logoReady ||
+                      (!organization.logoUrl && !organization.logoPath)
+                    }
+                    style={{
+                      ...deleteLogoButtonStyle,
+                      opacity:
+                        !canEdit ||
+                        uploadingLogo ||
+                        deletingLogo ||
+                        !logoReady ||
+                        (!organization.logoUrl && !organization.logoPath)
+                          ? 0.65
+                          : 1,
+                      cursor:
+                        !canEdit ||
+                        uploadingLogo ||
+                        deletingLogo ||
+                        !logoReady ||
+                        (!organization.logoUrl && !organization.logoPath)
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                  >
+                    {deletingLogo ? "삭제 중..." : "로고 이미지 삭제"}
+                  </button>
+                </div>
+
+                <p style={smallGuideTextStyle}>권장 형식: PNG, JPG, WEBP, SVG / 최대 2MB</p>
+
+                {!canEdit ? (
+                  <p style={readonlyGuideTextStyle}>
+                    지도자와 조회전용 계정은 소속대 로고를 변경할 수 없습니다.
+                  </p>
+                ) : null}
               </div>
-              <div style={menuPreviewNameStyle}>{organization.name}</div>
-              <div style={menuPreviewMetaStyle}>
-                {ORGANIZATION_TYPE_LABELS[organization.type]}
-                {organization.unitNumber ? ` · 대번호 ${organization.unitNumber}` : ""}
-              </div>
             </div>
-
-            {!logoReady ? (
-              <div style={warningBoxStyle}>
-                로고 등록을 사용하려면 소속대 로고 저장 준비가 필요합니다.
-                준비 작업을 완료한 뒤 이 화면에서 이미지를 등록하세요.
-              </div>
-            ) : null}
-
-            <div style={logoButtonGridStyle}>
-              <label
-                style={{
-                  ...uploadButtonStyle,
-                  opacity: !canEdit || uploadingLogo || deletingLogo || !logoReady ? 0.65 : 1,
-                  cursor:
-                    !canEdit || uploadingLogo || deletingLogo || !logoReady ? "not-allowed" : "pointer",
-                }}
-              >
-                {uploadingLogo
-                  ? "로고 등록 중..."
-                  : organization.logoUrl
-                    ? "로고 이미지 변경"
-                    : "로고 이미지 선택"}
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                  onChange={handleLogoUpload}
-                  disabled={!canEdit || uploadingLogo || deletingLogo || !logoReady}
-                  style={hiddenFileInputStyle}
-                />
-              </label>
-
-              <button
-                type="button"
-                onClick={handleDeleteLogo}
-                disabled={
-                  !canEdit ||
-                  uploadingLogo ||
-                  deletingLogo ||
-                  !logoReady ||
-                  (!organization.logoUrl && !organization.logoPath)
-                }
-                style={{
-                  ...deleteLogoButtonStyle,
-                  opacity:
-                    !canEdit ||
-                    uploadingLogo ||
-                    deletingLogo ||
-                    !logoReady ||
-                    (!organization.logoUrl && !organization.logoPath)
-                      ? 0.65
-                      : 1,
-                  cursor:
-                    !canEdit ||
-                    uploadingLogo ||
-                    deletingLogo ||
-                    !logoReady ||
-                    (!organization.logoUrl && !organization.logoPath)
-                      ? "not-allowed"
-                      : "pointer",
-                }}
-              >
-                {deletingLogo ? "삭제 중..." : "로고 이미지 삭제"}
-              </button>
-            </div>
-
-            <p style={smallGuideTextStyle}>
-              권장 형식: PNG, JPG, WEBP, SVG / 최대 2MB
-            </p>
-
-            {!canEdit ? (
-              <p style={readonlyGuideTextStyle}>
-                지도자와 조회전용 계정은 소속대 로고를 변경할 수 없습니다.
-              </p>
-            ) : null}
           </section>
         </div>
       ) : (
@@ -997,6 +1060,25 @@ export default function SettingsPage() {
           <p style={emptyTextStyle}>표시할 소속대 정보가 없습니다.</p>
         </section>
       )}
+
+      {organization ? (
+        <section style={nextStepBoxStyle}>
+          <div>
+            <h2 style={nextStepTitleStyle}>다음 단계</h2>
+            <p style={nextStepTextStyle}>{nextStepText}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/scouts")}
+            style={{
+              ...primaryButtonStyle,
+              cursor: "pointer",
+            }}
+          >
+            대원 관리로 이동
+          </button>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -1005,8 +1087,15 @@ const pageHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
-  gap: "24px",
-  marginBottom: "24px",
+  gap: "20px",
+  marginBottom: "20px",
+  flexWrap: "wrap",
+};
+
+const titleRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
 };
 
 const headerActionStyle: CSSProperties = {
@@ -1026,6 +1115,7 @@ const guideButtonStyle: CSSProperties = {
   color: "#1d4ed8",
   fontWeight: 800,
   cursor: "pointer",
+  whiteSpace: "nowrap",
 };
 
 const pageTitleStyle: CSSProperties = {
@@ -1033,48 +1123,54 @@ const pageTitleStyle: CSSProperties = {
   fontSize: "30px",
   fontWeight: 800,
   color: "#0f172a",
+  lineHeight: 1.2,
 };
 
 const pageDescriptionStyle: CSSProperties = {
   marginTop: "8px",
   marginBottom: 0,
   color: "#475569",
-  lineHeight: 1.6,
+  lineHeight: 1.55,
+  fontSize: "14px",
 };
 
 const summaryGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
   gap: "14px",
-  marginBottom: "20px",
+  marginBottom: "18px",
 };
 
 const summaryCardStyle: CSSProperties = {
   border: "1px solid #e5e7eb",
   borderRadius: "14px",
-  padding: "18px",
+  padding: "16px 18px",
   backgroundColor: "#ffffff",
+  minHeight: "118px",
+  height: "100%",
+  boxSizing: "border-box",
 };
 
 const summaryTitleStyle: CSSProperties = {
   margin: 0,
   color: "#64748b",
-  fontSize: "14px",
+  fontSize: "13px",
   fontWeight: 800,
 };
 
 const summaryValueStyle: CSSProperties = {
-  margin: "10px 0 0",
+  margin: "8px 0 0",
   color: "#0f172a",
-  fontSize: "22px",
+  fontSize: "20px",
   fontWeight: 900,
+  lineHeight: 1.3,
 };
 
 const summaryDescriptionStyle: CSSProperties = {
-  margin: "7px 0 0",
+  margin: "6px 0 0",
   color: "#64748b",
   fontSize: "13px",
-  lineHeight: 1.5,
+  lineHeight: 1.45,
 };
 
 const settingToggleStyle: CSSProperties = {
@@ -1082,7 +1178,7 @@ const settingToggleStyle: CSSProperties = {
   gridTemplateColumns: "auto minmax(0, 1fr)",
   gap: "12px",
   alignItems: "flex-start",
-  padding: "16px",
+  padding: "14px",
   border: "1px solid #cbd5e1",
   borderRadius: "12px",
   backgroundColor: "#ffffff",
@@ -1090,8 +1186,8 @@ const settingToggleStyle: CSSProperties = {
 };
 
 const settingCheckboxStyle: CSSProperties = {
-  width: "20px",
-  height: "20px",
+  width: "18px",
+  height: "18px",
   marginTop: "2px",
 };
 
@@ -1104,24 +1200,23 @@ const settingToggleTitleStyle: CSSProperties = {
 
 const settingToggleDescriptionStyle: CSSProperties = {
   display: "block",
-  marginTop: "5px",
+  marginTop: "4px",
   color: "#64748b",
   fontSize: "13px",
-  lineHeight: 1.5,
+  lineHeight: 1.45,
 };
 
 const operationEnabledBoxStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "5px",
-  marginTop: "14px",
-  padding: "14px",
+  gap: "4px",
+  padding: "12px 14px",
   border: "1px solid #86efac",
   borderRadius: "12px",
   backgroundColor: "#f0fdf4",
   color: "#166534",
   fontSize: "13px",
-  lineHeight: 1.5,
+  lineHeight: 1.45,
 };
 
 const operationDisabledBoxStyle: CSSProperties = {
@@ -1131,70 +1226,59 @@ const operationDisabledBoxStyle: CSSProperties = {
   color: "#9a3412",
 };
 
-const impactBoxStyle: CSSProperties = {
-  marginTop: "14px",
-  padding: "14px",
-  border: "1px solid #dbeafe",
-  borderRadius: "12px",
-  backgroundColor: "#f8fbff",
+const impactLineStyle: CSSProperties = {
+  margin: 0,
+  color: "#475569",
+  fontSize: "13px",
+  lineHeight: 1.5,
+  fontWeight: 600,
 };
 
-const impactTitleStyle: CSSProperties = {
-  display: "block",
-  marginBottom: "10px",
+const impactLabelStyle: CSSProperties = {
+  display: "inline-block",
+  marginRight: "8px",
   color: "#1e3a8a",
-  fontSize: "13px",
-  fontWeight: 900,
-};
-
-const impactGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: "8px",
-  color: "#334155",
-  fontSize: "13px",
-  fontWeight: 700,
+  fontWeight: 800,
 };
 
 const menuPreviewStyle: CSSProperties = {
-  padding: "16px",
-  borderRadius: "14px",
+  padding: "12px",
+  borderRadius: "12px",
   backgroundColor: "#0f172a",
   color: "#ffffff",
   textAlign: "center",
-  marginBottom: "16px",
 };
 
 const menuPreviewBrandStyle: CSSProperties = {
-  minHeight: "72px",
+  minHeight: "52px",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  padding: "10px",
+  padding: "8px",
   borderRadius: "10px",
   backgroundColor: "#ffffff",
 };
 
 const menuPreviewLogoStyle: CSSProperties = {
   maxWidth: "100%",
-  maxHeight: "56px",
+  maxHeight: "40px",
   objectFit: "contain",
 };
 
 const menuPreviewScoutStyle: CSSProperties = {
   color: "#0f172a",
-  fontSize: "22px",
+  fontSize: "18px",
   fontWeight: 900,
 };
 
 const menuPreviewNameStyle: CSSProperties = {
-  marginTop: "12px",
-  fontSize: "15px",
+  marginTop: "10px",
+  fontSize: "14px",
   fontWeight: 900,
 };
 
 const menuPreviewMetaStyle: CSSProperties = {
-  marginTop: "4px",
+  marginTop: "3px",
   color: "#cbd5e1",
   fontSize: "12px",
   fontWeight: 700,
@@ -1202,25 +1286,32 @@ const menuPreviewMetaStyle: CSSProperties = {
 
 const settingsGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-  gap: "20px",
-  alignItems: "start",
+  gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+  gap: "18px",
+  alignItems: "stretch",
 };
 
 const cardStyle: CSSProperties = {
   border: "1px solid #e5e7eb",
   borderRadius: "16px",
-  padding: "24px",
+  padding: "20px",
   backgroundColor: "#ffffff",
 };
 
+const settingsCardStyle: CSSProperties = {
+  ...cardStyle,
+  display: "flex",
+  flexDirection: "column",
+  minWidth: 0,
+};
+
 const sectionHeaderStyle: CSSProperties = {
-  marginBottom: "18px",
+  marginBottom: "14px",
 };
 
 const sectionTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: "22px",
+  fontSize: "20px",
   fontWeight: 800,
   color: "#0f172a",
 };
@@ -1229,23 +1320,54 @@ const sectionDescriptionStyle: CSSProperties = {
   marginTop: "6px",
   marginBottom: 0,
   color: "#64748b",
+  fontSize: "13px",
   lineHeight: 1.5,
+};
+
+const saveUnitHintStyle: CSSProperties = {
+  marginTop: "6px",
+  marginBottom: 0,
+  color: "#94a3b8",
+  fontSize: "12px",
+  lineHeight: 1.45,
+  fontWeight: 600,
+};
+
+const cardBodyFormStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  flex: 1,
+  minHeight: 0,
+};
+
+const cardBodyStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  flex: 1,
+  minHeight: 0,
+};
+
+const cardFieldsStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "12px",
+  flex: 1,
 };
 
 const formGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: "16px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "12px",
 };
 
 const labelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "8px",
-  fontSize: "14px",
+  gap: "6px",
+  fontSize: "13px",
   fontWeight: 800,
   color: "#334155",
-  marginBottom: "16px",
+  marginBottom: 0,
 };
 
 const requiredLabelStyle: CSSProperties = {
@@ -1259,20 +1381,16 @@ const requiredMarkStyle: CSSProperties = {
   fontWeight: 900,
 };
 
-const formGuideBoxStyle: CSSProperties = {
-  padding: "10px 12px",
-  marginBottom: "16px",
-  borderRadius: "10px",
-  border: "1px solid #bfdbfe",
-  backgroundColor: "#eff6ff",
-  color: "#1e3a8a",
-  fontSize: "13px",
-  lineHeight: 1.5,
-  fontWeight: 700,
+const formGuideTextStyle: CSSProperties = {
+  margin: 0,
+  color: "#64748b",
+  fontSize: "12px",
+  lineHeight: 1.45,
+  fontWeight: 600,
 };
 
 const inputStyle: CSSProperties = {
-  height: "44px",
+  height: "40px",
   borderRadius: "10px",
   border: "1px solid #cbd5e1",
   padding: "0 12px",
@@ -1280,10 +1398,11 @@ const inputStyle: CSSProperties = {
   outline: "none",
   boxSizing: "border-box",
   backgroundColor: "#ffffff",
+  width: "100%",
 };
 
 const roleValueBoxStyle: CSSProperties = {
-  minHeight: "44px",
+  height: "36px",
   borderRadius: "10px",
   border: "1px solid #e2e8f0",
   padding: "0 12px",
@@ -1291,28 +1410,31 @@ const roleValueBoxStyle: CSSProperties = {
   alignItems: "center",
   boxSizing: "border-box",
   backgroundColor: "#f8fafc",
-  color: "#334155",
-  fontSize: "14px",
-  fontWeight: 800,
+  color: "#475569",
+  fontSize: "13px",
+  fontWeight: 700,
 };
 
 const textareaStyle: CSSProperties = {
-  minHeight: "108px",
+  minHeight: "72px",
   borderRadius: "10px",
   border: "1px solid #cbd5e1",
-  padding: "12px",
+  padding: "10px 12px",
   fontSize: "14px",
   outline: "none",
   resize: "vertical",
   boxSizing: "border-box",
   fontFamily: "inherit",
   backgroundColor: "#ffffff",
+  width: "100%",
 };
 
 const formActionStyle: CSSProperties = {
   display: "flex",
   justifyContent: "flex-end",
-  marginTop: "8px",
+  marginTop: "auto",
+  paddingTop: "14px",
+  flexShrink: 0,
 };
 
 const primaryButtonStyle: CSSProperties = {
@@ -1323,6 +1445,7 @@ const primaryButtonStyle: CSSProperties = {
   backgroundColor: "#2563eb",
   color: "#ffffff",
   fontWeight: 800,
+  whiteSpace: "nowrap",
 };
 
 const secondaryButtonStyle: CSSProperties = {
@@ -1334,6 +1457,7 @@ const secondaryButtonStyle: CSSProperties = {
   color: "#334155",
   fontWeight: 800,
   cursor: "pointer",
+  whiteSpace: "nowrap",
 };
 
 const errorBoxStyle: CSSProperties = {
@@ -1347,16 +1471,14 @@ const errorBoxStyle: CSSProperties = {
   marginBottom: "16px",
 };
 
-
 const warningBoxStyle: CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: "12px",
+  padding: "10px 12px",
+  borderRadius: "10px",
   backgroundColor: "#fffbeb",
   color: "#92400e",
   border: "1px solid #fde68a",
-  fontSize: "14px",
-  lineHeight: 1.5,
-  marginBottom: "16px",
+  fontSize: "13px",
+  lineHeight: 1.45,
 };
 
 const setupGuideBoxStyle: CSSProperties = {
@@ -1380,41 +1502,37 @@ const emptyTextStyle: CSSProperties = {
 };
 
 const logoPreviewBoxStyle: CSSProperties = {
-  height: "150px",
-  borderRadius: "16px",
+  height: "110px",
+  borderRadius: "12px",
   border: "1px dashed #cbd5e1",
   backgroundColor: "#f8fafc",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  marginBottom: "16px",
   overflow: "hidden",
 };
 
 const logoPreviewImageStyle: CSSProperties = {
-  maxWidth: "92%",
-  maxHeight: "118px",
+  maxWidth: "90%",
+  maxHeight: "86px",
   objectFit: "contain",
 };
 
 const logoEmptyStyle: CSSProperties = {
   color: "#94a3b8",
-  fontSize: "14px",
+  fontSize: "13px",
   fontWeight: 800,
 };
 
-
-
-
 const logoButtonGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
   gap: "10px",
 };
 
 const uploadButtonStyle: CSSProperties = {
   width: "100%",
-  height: "44px",
+  height: "42px",
   borderRadius: "10px",
   border: "none",
   backgroundColor: "#0f172a",
@@ -1423,17 +1541,21 @@ const uploadButtonStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+  whiteSpace: "nowrap",
+  boxSizing: "border-box",
 };
 
 const deleteLogoButtonStyle: CSSProperties = {
   width: "100%",
-  height: "44px",
+  height: "42px",
   borderRadius: "10px",
   border: "1px solid #fecaca",
   backgroundColor: "#fff1f2",
   color: "#be123c",
   fontWeight: 800,
   fontFamily: "inherit",
+  whiteSpace: "nowrap",
+  boxSizing: "border-box",
 };
 
 const hiddenFileInputStyle: CSSProperties = {
@@ -1441,17 +1563,42 @@ const hiddenFileInputStyle: CSSProperties = {
 };
 
 const smallGuideTextStyle: CSSProperties = {
-  marginTop: "12px",
-  marginBottom: 0,
+  margin: 0,
   color: "#64748b",
+  fontSize: "12px",
+  lineHeight: 1.45,
+};
+
+const readonlyGuideTextStyle: CSSProperties = {
+  margin: 0,
+  color: "#475569",
   fontSize: "13px",
   lineHeight: 1.5,
 };
 
-const readonlyGuideTextStyle: CSSProperties = {
-  marginTop: "12px",
-  marginBottom: 0,
-  color: "#475569",
+const nextStepBoxStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "16px",
+  flexWrap: "wrap",
+  marginTop: "18px",
+  padding: "16px 18px",
+  border: "1px solid #e5e7eb",
+  borderRadius: "14px",
+  backgroundColor: "#ffffff",
+};
+
+const nextStepTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "16px",
+  fontWeight: 800,
+  color: "#0f172a",
+};
+
+const nextStepTextStyle: CSSProperties = {
+  margin: "6px 0 0",
+  color: "#64748b",
   fontSize: "13px",
   lineHeight: 1.5,
 };

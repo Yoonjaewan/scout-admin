@@ -1308,7 +1308,34 @@ export default function ProgramCompletionsPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>프로그램 이수 관리</h1><PageHelpButton title="프로그램 이수 관리" description="WSEP·MoP 이수와 승인 상태를 관리합니다." sections={[{ title: "사용 순서", content: "범 진급 대상과 미이수·승인 필요 대원을 우선 확인합니다." },{ title: "주의사항", content: "이수일, 수료증 번호, 승인일을 실제 증빙과 일치하게 입력합니다." }]} /></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <h1 style={pageTitleStyle}>프로그램 이수 관리</h1>
+            <PageHelpButton
+              title="프로그램 이수 관리"
+              description="진급과 활동에 필요한 프로그램 이수 기록을 대원별로 등록하고 확인합니다."
+              sections={[
+                {
+                  title: "사용 순서",
+                  items: [
+                    "대원을 선택합니다.",
+                    "프로그램 종류와 이수 여부를 확인합니다.",
+                    "이수일, 승인일 또는 관련 정보를 입력합니다.",
+                    "저장 후 대원별 이수 현황을 확인합니다.",
+                    "진급 대상 대원은 필수 프로그램 누락 여부를 점검합니다.",
+                  ],
+                },
+                {
+                  title: "주의사항",
+                  items: [
+                    "진급 단계별로 요구되는 프로그램이 다를 수 있습니다.",
+                    "범 진급 대상자는 WSEP, MoP 등 필수 프로그램 조건을 반드시 확인합니다.",
+                    "실제 수료·승인 자료를 기준으로 기록합니다.",
+                    "중복 이수 기록을 등록하지 않도록 기존 내역을 확인합니다.",
+                  ],
+                },
+              ]}
+            />
+          </div>
           <p style={pageDescriptionStyle}>
             대원의 현재 급위와 다음 급위를 기준으로 WSEP·MoP 이수 여부와 범 진급 영향을 관리합니다.
           </p>

@@ -1444,7 +1444,34 @@ export default function MeetingsPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>집회/출석 관리</h1><PageHelpButton title="집회/출석 관리" description="집회를 등록하고 활동 대원의 출석을 입력합니다." sections={[{ title: "사용 순서", content: "집회를 선택한 뒤 미입력 대원을 확인하고 개별 또는 일괄 저장합니다." },{ title: "주의사항", content: "출석 대상은 활동 상태 대원만 적용됩니다." }]} /></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <h1 style={pageTitleStyle}>집회/출석 관리</h1>
+            <PageHelpButton
+              title="집회/출석 관리"
+              description="집회를 등록하고 활동 대원의 출석 상태와 출석률을 관리합니다."
+              sections={[
+                {
+                  title: "사용 순서",
+                  items: [
+                    "집회 일자와 집회 정보를 등록합니다.",
+                    "현재 활동 중인 대상 대원을 확인합니다.",
+                    "출석, 결석, 인정결석 또는 미입력 상태를 기록합니다.",
+                    "저장 후 집회별 출석 현황을 확인합니다.",
+                    "범 진급 대상자의 출석률 부족 여부를 확인합니다.",
+                  ],
+                },
+                {
+                  title: "주의사항",
+                  items: [
+                    "출석 대상은 현재 활동 상태의 대원을 기준으로 합니다.",
+                    "미입력 상태는 출석 또는 결석으로 확정된 기록이 아닙니다.",
+                    "범 진급 판정에 출석률을 적용하도록 설정한 경우 출석 기록이 진급 결과에 반영됩니다.",
+                    "집회 대상과 출석 상태를 저장 전에 다시 확인합니다.",
+                  ],
+                },
+              ]}
+            />
+          </div>
           <p style={pageDescriptionStyle}>
             집회별 출석 입력 누락과 결석 현황을 우선 확인하고, 활동 대원의 출석 기록을 관리합니다.
           </p>

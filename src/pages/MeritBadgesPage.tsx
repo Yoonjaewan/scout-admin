@@ -1646,7 +1646,34 @@ export default function MeritBadgesPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>기능장 관리</h1><PageHelpButton title="기능장 관리" description="대원별 기능장 취득·인가 기록을 관리합니다." sections={[{ title: "사용 순서", content: "대원을 선택한 뒤 기능장을 등록하고 지도자 확인과 인가일을 점검합니다." },{ title: "주의사항", content: "이미 진급 인가에 사용된 기록은 수정·삭제가 제한될 수 있습니다." }]} /></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <h1 style={pageTitleStyle}>기능장 관리</h1>
+            <PageHelpButton
+              title="기능장 관리"
+              description="대원별 기능장 취득 기록을 등록하고 진급에 필요한 기능장 충족 여부를 관리합니다."
+              sections={[
+                {
+                  title: "사용 순서",
+                  items: [
+                    "대원을 선택합니다.",
+                    "취득한 기능장을 검색하거나 분류별로 확인합니다.",
+                    "취득일과 인가 정보를 입력합니다.",
+                    "저장 후 대원별 보유 기능장과 진급 충족 현황을 확인합니다.",
+                    "잘못 등록된 기록은 실제 인가 자료를 확인한 뒤 수정합니다.",
+                  ],
+                },
+                {
+                  title: "주의사항",
+                  items: [
+                    "생존장을 제외한 기능장은 현재 급위와 관계없이 취득할 수 있습니다.",
+                    "생존장은 무궁화급 진급 후에만 취득할 수 있습니다.",
+                    "필수 기능장과 일반 기능장은 진급 단계별 요구조건이 다릅니다.",
+                    "진급 판정에는 현재 실제 기능장 기록이 반영됩니다.",
+                  ],
+                },
+              ]}
+            />
+          </div>
           <p style={pageDescriptionStyle}>
             대원별 필수 기능장과 일반 기능장 취득 현황을 조회하고 등록·수정·삭제 처리합니다.
           </p>

@@ -4076,7 +4076,34 @@ export default function ScoutsPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>대원 관리</h1><PageHelpButton title="대원 관리" description="대원 등록·기본정보 수정·상태 변경을 처리하는 화면입니다." sections={[{ title: "사용 순서", content: "대원을 등록하거나 엑셀로 일괄 입력한 뒤 기본정보와 활동 상태를 관리합니다." },{ title: "주의사항", content: "진급·기능장·프로그램·출석의 종합 확인은 대원 통합관리를 사용합니다." }]} /></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <h1 style={pageTitleStyle}>대원 관리</h1>
+            <PageHelpButton
+              title="대원 관리"
+              description="대원을 등록하고 기본정보, 소속, 상태 및 입단·급위 정보를 관리합니다."
+              sections={[
+                {
+                  title: "사용 순서",
+                  items: [
+                    "대원 등록 또는 엑셀 등록을 선택합니다.",
+                    "필수 기본정보를 입력합니다.",
+                    "소속, 입단일, 현재 상태와 급위 정보를 확인합니다.",
+                    "저장 후 대원 목록에서 등록 결과를 확인합니다.",
+                    "필요 시 대원 정보를 수정하거나 상태를 변경합니다.",
+                  ],
+                },
+                {
+                  title: "주의사항",
+                  items: [
+                    "대원번호는 시스템 기준에 따라 관리됩니다.",
+                    "같은 대원을 중복 등록하지 않도록 이름, 생년월일 및 기존 대원정보를 확인합니다.",
+                    "활동, 비활동, 전출, 졸업 상태를 실제 운영 상태에 맞게 지정합니다.",
+                    "삭제된 대원은 일반 업무 대상에서 제외됩니다.",
+                  ],
+                },
+              ]}
+            />
+          </div>
           <p style={pageDescriptionStyle}>
             소속대의 대원 정보를 등록하고 관리합니다.
           </p>

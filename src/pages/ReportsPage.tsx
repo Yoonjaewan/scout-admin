@@ -2152,7 +2152,35 @@ export default function ReportsPage() {
 
       <div className="no-print-section" style={pageHeaderStyle}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>보고서 출력</h1><PageHelpButton title="보고서 출력" description="진급·기능장 보고서와 신청서·인증서를 출력합니다." sections={[{ title: "사용 순서", content: "보고서 종류와 조회 조건을 선택한 뒤 출력 대상을 확인하고 인쇄합니다." },{ title: "주의사항", content: "별도 출력 이력은 저장되지 않으므로 동일 조건으로 재출력할 수 있습니다." }]} /></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <h1 style={pageTitleStyle}>보고서 출력</h1>
+            <PageHelpButton
+              title="보고서 출력"
+              description="진급·기능장 인가 보고서, 진급 이력표, 범 진급 신청서 및 인증서를 조회하고 출력합니다."
+              sections={[
+                {
+                  title: "사용 순서",
+                  items: [
+                    "출력할 보고서 종류를 선택합니다.",
+                    "기간, 급위, 대원 또는 기능장 조건을 설정합니다.",
+                    "출력 대상을 조회하고 필요한 항목을 선택합니다.",
+                    "미리보기에서 내용과 보고서 하단 정보를 확인합니다.",
+                    "선택 항목 인쇄 또는 PDF 저장을 실행합니다.",
+                  ],
+                },
+                {
+                  title: "주의사항",
+                  items: [
+                    "미리보기와 실제 인쇄 대상이 일치하는지 확인합니다.",
+                    "인쇄창에서 A4, 배율 100%, 여백 없음, 머리글·바닥글 해제를 권장합니다.",
+                    "보고서별 출력 대상과 페이지 분할 방식이 다를 수 있습니다.",
+                    "범스카우트 진급 인증서는 출력 대상에서 제외되며 진급 신청서를 사용합니다.",
+                    "출력 이력은 별도로 저장되지 않을 수 있습니다.",
+                  ],
+                },
+              ]}
+            />
+          </div>
           <p style={pageDescriptionStyle}>
             진급 인가 보고서, 기능장 인가 보고서, 대원별 진급 이력표, 범스카우트 진급 신청서, 진급 인증서를 확인하고 인쇄 또는 PDF로 저장합니다.
           </p>

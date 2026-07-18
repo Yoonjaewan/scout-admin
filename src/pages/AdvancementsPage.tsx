@@ -2328,7 +2328,34 @@ export default function AdvancementsPage() {
     <div>
       <div style={pageHeaderStyle}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><h1 style={pageTitleStyle}>진급 관리</h1><PageHelpButton title="진급 관리" description="진급 판정과 진급 인가를 처리하는 핵심 업무 화면입니다." sections={[{ title: "사용 순서", content: "대원을 선택하고 조건을 확인한 뒤 판정, 보완, 인가 순으로 진행합니다." },{ title: "주의사항", content: "필수 기능장과 일반 기능장 조건은 모두 충족해야 합니다." }]} /></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <h1 style={pageTitleStyle}>진급 관리</h1>
+            <PageHelpButton
+              title="진급 관리"
+              description="대원의 진급 조건을 판정하고, 조건을 충족한 대원의 진급을 인가합니다."
+              sections={[
+                {
+                  title: "사용 순서",
+                  items: [
+                    "검색과 필터로 진급 대상 대원을 조회합니다.",
+                    "현재 급위와 다음 급위를 확인합니다.",
+                    "기간, 기능장, 프로그램 및 출석 조건을 확인합니다.",
+                    "필요한 대원을 선택하여 진급 판정을 실행합니다.",
+                    "모든 조건을 충족한 대원만 진급 인가를 진행합니다.",
+                  ],
+                },
+                {
+                  title: "주의사항",
+                  items: [
+                    "진급에는 해당 단계의 필수 기능장과 일반 기능장 조건을 모두 충족해야 합니다.",
+                    "무궁화에서 범 진급 시 출석률과 지정 프로그램 조건을 확인합니다.",
+                    "현재 실제 취득·인가 기록이 미충족이면 과거 판정 결과와 관계없이 진급할 수 없습니다.",
+                    "진급 인가 전 대상 대원과 인가일을 다시 확인합니다.",
+                  ],
+                },
+              ]}
+            />
+          </div>
           <p style={pageDescriptionStyle}>
             컵스카우트는 학년에 따른 자동 급위를 확인하고, 스카우트 이상은 진급 판정과 인가 기록을 관리합니다.
           </p>

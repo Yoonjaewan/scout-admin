@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties, ReactNode } from "react";
 
 type ToastTone = "success" | "warning" | "error" | "info";
 
-type HelpSection = {
+export type HelpSection = {
   title: string;
-  content: ReactNode;
+  items?: string[];
+  content?: ReactNode;
 };
 
 export function PageHelpButton({
@@ -18,56 +20,110 @@ export function PageHelpButton({
   sections: HelpSection[];
 }) {
   const [open, setOpen] = useState(false);
+  const titleId = useId();
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const triggerButton = triggerRef.current;
+    document.body.style.overflow = "hidden";
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
+
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    closeButtonRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+      triggerButton?.focus();
+    };
   }, [open]);
+
+  const dialogTitle = `${title} 도움말`;
+
+  const modal = open ? (
+    <div
+      style={overlayStyle}
+      role="presentation"
+      onClick={() => setOpen(false)}
+    >
+      <section
+        style={dialogStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div style={dialogHeaderStyle}>
+          <div>
+            <h2 id={titleId} style={dialogTitleStyle}>
+              {dialogTitle}
+            </h2>
+            <p style={dialogDescriptionStyle}>{description}</p>
+          </div>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="도움말 닫기"
+            style={closeButtonStyle}
+          >
+            닫기
+          </button>
+        </div>
+        <div style={sectionListStyle}>
+          {sections.map((section) => (
+            <div key={section.title} style={helpSectionStyle}>
+              <strong style={helpSectionTitleStyle}>{section.title}</strong>
+              {section.items && section.items.length > 0 ? (
+                section.title.includes("사용 순서") ? (
+                  <ol style={helpOrderedListStyle}>
+                    {section.items.map((item) => (
+                      <li key={item} style={helpListItemStyle}>
+                        {item}
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <ul style={helpUnorderedListStyle}>
+                    {section.items.map((item) => (
+                      <li key={item} style={helpListItemStyle}>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : (
+                <div style={helpSectionContentStyle}>{section.content}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  ) : null;
 
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
-        aria-label={`${title} 도움말`}
+        aria-label={dialogTitle}
         title="사용 방법 보기"
         style={helpButtonStyle}
       >
         ?
       </button>
-      {open ? (
-        <div style={overlayStyle} role="presentation" onClick={() => setOpen(false)}>
-          <section
-            style={dialogStyle}
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${title} 도움말`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div style={dialogHeaderStyle}>
-              <div>
-                <h2 style={dialogTitleStyle}>{title} 도움말</h2>
-                <p style={dialogDescriptionStyle}>{description}</p>
-              </div>
-              <button type="button" onClick={() => setOpen(false)} style={closeButtonStyle}>
-                닫기
-              </button>
-            </div>
-            <div style={sectionListStyle}>
-              {sections.map((section) => (
-                <div key={section.title} style={helpSectionStyle}>
-                  <strong style={helpSectionTitleStyle}>{section.title}</strong>
-                  <div style={helpSectionContentStyle}>{section.content}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-      ) : null}
+      {modal && typeof document !== "undefined"
+        ? createPortal(modal, document.body)
+        : null}
     </>
   );
 }
@@ -147,38 +203,114 @@ const helpButtonStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+  flexShrink: 0,
 };
 
 const overlayStyle: CSSProperties = {
   position: "fixed",
   inset: 0,
+  width: "100vw",
+  height: "100dvh",
   zIndex: 2147483647,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: "24px",
+  boxSizing: "border-box",
   backgroundColor: "rgba(15, 23, 42, 0.5)",
 };
 
 const dialogStyle: CSSProperties = {
-  width: "min(680px, 100%)",
-  maxHeight: "82vh",
+  width: "min(760px, calc(100vw - 48px))",
+  maxHeight: "calc(100dvh - 48px)",
   overflowY: "auto",
   borderRadius: "18px",
   border: "1px solid #e2e8f0",
   backgroundColor: "#ffffff",
   boxShadow: "0 24px 60px rgba(15, 23, 42, 0.25)",
   padding: "22px",
+  boxSizing: "border-box",
 };
 
-const dialogHeaderStyle: CSSProperties = { display: "flex", justifyContent: "space-between", gap: "20px", alignItems: "flex-start" };
-const dialogTitleStyle: CSSProperties = { margin: 0, color: "#0f172a", fontSize: "22px", fontWeight: 900 };
-const dialogDescriptionStyle: CSSProperties = { margin: "8px 0 0", color: "#64748b", lineHeight: 1.6 };
-const closeButtonStyle: CSSProperties = { padding: "8px 12px", borderRadius: "9px", border: "1px solid #cbd5e1", backgroundColor: "#ffffff", color: "#334155", fontWeight: 800, cursor: "pointer" };
-const sectionListStyle: CSSProperties = { display: "grid", gap: "12px", marginTop: "20px" };
-const helpSectionStyle: CSSProperties = { padding: "14px 16px", borderRadius: "12px", border: "1px solid #e2e8f0", backgroundColor: "#f8fafc" };
-const helpSectionTitleStyle: CSSProperties = { display: "block", color: "#0f172a", marginBottom: "6px" };
-const helpSectionContentStyle: CSSProperties = { color: "#475569", lineHeight: 1.65, fontSize: "14px" };
+const dialogHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "20px",
+  alignItems: "flex-start",
+};
+
+const dialogTitleStyle: CSSProperties = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: "22px",
+  fontWeight: 900,
+};
+
+const dialogDescriptionStyle: CSSProperties = {
+  margin: "8px 0 0",
+  color: "#64748b",
+  lineHeight: 1.6,
+  fontSize: "14px",
+};
+
+const closeButtonStyle: CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: "9px",
+  border: "1px solid #cbd5e1",
+  backgroundColor: "#ffffff",
+  color: "#334155",
+  fontWeight: 800,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+  flexShrink: 0,
+};
+
+const sectionListStyle: CSSProperties = {
+  display: "grid",
+  gap: "12px",
+  marginTop: "20px",
+};
+
+const helpSectionStyle: CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: "12px",
+  border: "1px solid #e2e8f0",
+  backgroundColor: "#f8fafc",
+};
+
+const helpSectionTitleStyle: CSSProperties = {
+  display: "block",
+  color: "#0f172a",
+  marginBottom: "8px",
+  fontSize: "14px",
+  fontWeight: 900,
+};
+
+const helpSectionContentStyle: CSSProperties = {
+  color: "#475569",
+  lineHeight: 1.65,
+  fontSize: "14px",
+};
+
+const helpOrderedListStyle: CSSProperties = {
+  margin: 0,
+  paddingLeft: "20px",
+  color: "#475569",
+  fontSize: "14px",
+  lineHeight: 1.65,
+};
+
+const helpUnorderedListStyle: CSSProperties = {
+  margin: 0,
+  paddingLeft: "18px",
+  color: "#475569",
+  fontSize: "14px",
+  lineHeight: 1.65,
+};
+
+const helpListItemStyle: CSSProperties = {
+  marginBottom: "6px",
+};
 
 const toastStyle: CSSProperties = {
   position: "fixed",
@@ -196,12 +328,75 @@ const toastStyle: CSSProperties = {
   borderRadius: "12px",
   boxShadow: "0 14px 34px rgba(15, 23, 42, 0.16)",
 };
-const toastMarkStyle: CSSProperties = { width: "24px", height: "24px", borderRadius: "999px", border: "1px solid currentColor", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 900 };
-const toastMessageStyle: CSSProperties = { fontSize: "14px", fontWeight: 800, lineHeight: 1.5 };
-const toastCloseStyle: CSSProperties = { border: "none", background: "transparent", fontWeight: 800, cursor: "pointer" };
 
-const emptyStateStyle: CSSProperties = { padding: "34px 20px", borderRadius: "14px", border: "1px dashed #cbd5e1", backgroundColor: "#f8fafc", textAlign: "center" };
-const emptyIconStyle: CSSProperties = { width: "42px", height: "42px", margin: "0 auto 12px", borderRadius: "999px", backgroundColor: "#dbeafe", color: "#1d4ed8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", fontWeight: 900 };
-const emptyTitleStyle: CSSProperties = { margin: 0, color: "#0f172a", fontSize: "17px", fontWeight: 900 };
-const emptyDescriptionStyle: CSSProperties = { margin: "8px auto 0", maxWidth: "520px", color: "#64748b", lineHeight: 1.65 };
-const emptyActionStyle: CSSProperties = { marginTop: "16px", minHeight: "40px", padding: "0 16px", borderRadius: "10px", border: "none", backgroundColor: "#2563eb", color: "#ffffff", fontWeight: 800, cursor: "pointer" };
+const toastMarkStyle: CSSProperties = {
+  width: "24px",
+  height: "24px",
+  borderRadius: "999px",
+  border: "1px solid currentColor",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: 900,
+};
+
+const toastMessageStyle: CSSProperties = {
+  fontSize: "14px",
+  fontWeight: 800,
+  lineHeight: 1.5,
+};
+
+const toastCloseStyle: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const emptyStateStyle: CSSProperties = {
+  padding: "34px 20px",
+  borderRadius: "14px",
+  border: "1px dashed #cbd5e1",
+  backgroundColor: "#f8fafc",
+  textAlign: "center",
+};
+
+const emptyIconStyle: CSSProperties = {
+  width: "42px",
+  height: "42px",
+  margin: "0 auto 12px",
+  borderRadius: "999px",
+  backgroundColor: "#dbeafe",
+  color: "#1d4ed8",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "24px",
+  fontWeight: 900,
+};
+
+const emptyTitleStyle: CSSProperties = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: "17px",
+  fontWeight: 900,
+};
+
+const emptyDescriptionStyle: CSSProperties = {
+  margin: "8px auto 0",
+  maxWidth: "520px",
+  color: "#64748b",
+  lineHeight: 1.65,
+};
+
+const emptyActionStyle: CSSProperties = {
+  marginTop: "16px",
+  minHeight: "40px",
+  padding: "0 16px",
+  borderRadius: "10px",
+  border: "none",
+  backgroundColor: "#2563eb",
+  color: "#ffffff",
+  fontWeight: 800,
+  cursor: "pointer",
+};
