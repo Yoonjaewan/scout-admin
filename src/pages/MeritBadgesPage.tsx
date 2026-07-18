@@ -158,6 +158,10 @@ type MeritBadgeSortConfig = {
   direction: SortDirection;
 };
 
+type MeritBadgeListRow =
+  | { kind: "record"; scout: Scout; scoutBadge: ScoutBadge }
+  | { kind: "empty"; scout: Scout };
+
 const DEFAULT_MERIT_BADGE_SORT: MeritBadgeSortConfig = {
   key: "acquired_at",
   direction: "desc",
@@ -893,17 +897,47 @@ export default function MeritBadgesPage() {
     );
   }).length;
 
-  const filteredScoutBadges = useMemo(() => {
+  const filteredMeritBadgeListRows = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
 
-    return scoutBadges.filter((scoutBadge) => {
-      const scout = scoutMap.get(scoutBadge.scout_id) ?? null;
-      if (
-        statusFilter !== "all" &&
-        (!scout || scout.status !== statusFilter)
-      ) {
+    const matchesRecordFilters = (scoutBadge: ScoutBadge) => {
+      const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
+
+      if (selectedCategoryId && badge?.category_id !== selectedCategoryId) {
         return false;
       }
+
+      if (badgeWorkFilter === "unconfirmed" && scoutBadge.leader_confirmed) {
+        return false;
+      }
+
+      if (badgeWorkFilter === "unapproved" && scoutBadge.approved_at) {
+        return false;
+      }
+
+      return true;
+    };
+
+    const scoutMatchesKeyword = (scout: Scout) => {
+      if (!normalizedKeyword) return true;
+
+      const scoutText = [
+        scout.member_no,
+        scout.name,
+        scout.school_name,
+        scout.grade,
+        SCOUT_STATUS_LABELS[scout.status],
+        organizationNameMap.get(scout.organization_id),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return scoutText.includes(normalizedKeyword);
+    };
+
+    const recordMatchesKeyword = (scout: Scout, scoutBadge: ScoutBadge) => {
+      if (!normalizedKeyword) return true;
 
       const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
       const category = badge ? categoryMap.get(badge.category_id) ?? null : null;
@@ -913,35 +947,16 @@ export default function MeritBadgesPage() {
         usedScoutBadgeIdSet,
       );
 
-      if (selectedScoutId && scoutBadge.scout_id !== selectedScoutId) {
-        return false;
-      }
-
-      if (selectedCategoryId && badge?.category_id !== selectedCategoryId) {
-        return false;
-      }
-
-      const progress = scout ? scoutProgressMap.get(scout.id) : null;
-      if (badgeWorkFilter === "support" && !progress?.needsSupport) return false;
-      if (badgeWorkFilter === "required" && !(progress?.requiredMissing && progress.requiredMissing > 0)) return false;
-      if (badgeWorkFilter === "general" && !(progress?.generalMissing && progress.generalMissing > 0)) return false;
-      if (badgeWorkFilter === "unconfirmed" && scoutBadge.leader_confirmed) return false;
-      if (badgeWorkFilter === "unapproved" && scoutBadge.approved_at) return false;
-
-      if (!normalizedKeyword) {
-        return true;
-      }
-
       const targetText = [
-        scout?.member_no,
-        scout?.name,
-        scout?.school_name,
-        scout?.grade,
-        scout ? SCOUT_STATUS_LABELS[scout.status] : "",
+        scout.member_no,
+        scout.name,
+        scout.school_name,
+        scout.grade,
+        SCOUT_STATUS_LABELS[scout.status],
         badge?.name,
         badge ? getBadgeTypeLabel(badge) : "",
         category?.name,
-        scout ? organizationNameMap.get(scout.organization_id) : "",
+        organizationNameMap.get(scout.organization_id),
         scoutBadge.instructor_name,
         scoutBadge.note,
         reflection ? `${reflection.label} 진급반영` : "미반영",
@@ -951,28 +966,92 @@ export default function MeritBadgesPage() {
         .toLowerCase();
 
       return targetText.includes(normalizedKeyword);
-    });
+    };
+
+    const rows: MeritBadgeListRow[] = [];
+
+    for (const scout of scouts) {
+      if (statusFilter !== "all" && scout.status !== statusFilter) {
+        continue;
+      }
+
+      if (selectedScoutId && scout.id !== selectedScoutId) {
+        continue;
+      }
+
+      const progress = scoutProgressMap.get(scout.id);
+      if (badgeWorkFilter === "support" && !progress?.needsSupport) continue;
+      if (
+        badgeWorkFilter === "required" &&
+        !(progress?.requiredMissing && progress.requiredMissing > 0)
+      ) {
+        continue;
+      }
+      if (
+        badgeWorkFilter === "general" &&
+        !(progress?.generalMissing && progress.generalMissing > 0)
+      ) {
+        continue;
+      }
+
+      const baseRecords = scoutBadges.filter(
+        (scoutBadge) =>
+          scoutBadge.scout_id === scout.id && matchesRecordFilters(scoutBadge),
+      );
+
+      const scoutMatched = scoutMatchesKeyword(scout);
+      const keywordMatchedRecords = normalizedKeyword
+        ? baseRecords.filter((scoutBadge) => recordMatchesKeyword(scout, scoutBadge))
+        : baseRecords;
+
+      if (normalizedKeyword && !scoutMatched && keywordMatchedRecords.length === 0) {
+        continue;
+      }
+
+      const displayRecords = scoutMatched && normalizedKeyword
+        ? baseRecords
+        : keywordMatchedRecords;
+
+      if (displayRecords.length === 0) {
+        rows.push({ kind: "empty", scout });
+      } else {
+        for (const scoutBadge of displayRecords) {
+          rows.push({ kind: "record", scout, scoutBadge });
+        }
+      }
+    }
+
+    return rows;
   }, [
-    keyword,
-    selectedScoutId,
-    selectedCategoryId,
-    scoutBadges,
-    scoutMap,
     badgeMap,
+    badgeWorkFilter,
     categoryMap,
+    keyword,
     organizationNameMap,
     promotionReflectionMap,
-    usedScoutBadgeIdSet,
-    badgeWorkFilter,
+    scoutBadges,
     scoutProgressMap,
+    scouts,
+    selectedCategoryId,
+    selectedScoutId,
     statusFilter,
+    usedScoutBadgeIdSet,
   ]);
 
-  const handleOpenCreateForm = () => {
+  const filteredTargetScoutCount = useMemo(() => {
+    return new Set(filteredMeritBadgeListRows.map((row) => row.scout.id)).size;
+  }, [filteredMeritBadgeListRows]);
+
+  const filteredRecordCount = useMemo(() => {
+    return filteredMeritBadgeListRows.filter((row) => row.kind === "record").length;
+  }, [filteredMeritBadgeListRows]);
+
+  const handleOpenCreateForm = (scoutIdOverride?: string) => {
     if (!canManageBadges) return;
 
-    const selectedCreateScout = selectedScoutId
-      ? scoutMap.get(selectedScoutId) ?? null
+    const targetScoutId = scoutIdOverride || selectedScoutId;
+    const selectedCreateScout = targetScoutId
+      ? scoutMap.get(targetScoutId) ?? null
       : null;
     if (selectedCreateScout && selectedCreateScout.status !== "active") {
       setEditErrorMessage(
@@ -983,7 +1062,7 @@ export default function MeritBadgesPage() {
 
     setCreateForm({
       ...getEmptyBadgeForm(),
-      scout_id: selectedScoutId,
+      scout_id: targetScoutId,
     });
     setFormErrorMessage("");
     setEditErrorMessage("");
@@ -1339,12 +1418,44 @@ export default function MeritBadgesPage() {
     });
   };
 
-  const sortedScoutBadges = useMemo(() => {
-    return filteredScoutBadges
-      .map((scoutBadge, index) => ({ scoutBadge, index }))
+  const getEmptyRowSortValue = useCallback(
+    (scout: Scout, key: MeritBadgeSortKey): string | number => {
+      switch (key) {
+        case "member_no":
+          return scout.member_no ?? "";
+        case "name":
+          return scout.name;
+        case "organization":
+          return organizationNameMap.get(scout.organization_id) ?? "";
+        case "acquired_at":
+        case "approved_at":
+        case "usage":
+        case "note":
+        case "category":
+        case "badge":
+        case "badge_type":
+          return "";
+        case "leader_confirmed":
+          return 0;
+        default:
+          return scout.name;
+      }
+    },
+    [organizationNameMap],
+  );
+
+  const sortedMeritBadgeListRows = useMemo(() => {
+    return filteredMeritBadgeListRows
+      .map((row, index) => ({ row, index }))
       .sort((left, right) => {
-        const leftValue = getScoutBadgeSortValue(left.scoutBadge, sortConfig.key);
-        const rightValue = getScoutBadgeSortValue(right.scoutBadge, sortConfig.key);
+        const leftValue =
+          left.row.kind === "record"
+            ? getScoutBadgeSortValue(left.row.scoutBadge, sortConfig.key)
+            : getEmptyRowSortValue(left.row.scout, sortConfig.key);
+        const rightValue =
+          right.row.kind === "record"
+            ? getScoutBadgeSortValue(right.row.scoutBadge, sortConfig.key)
+            : getEmptyRowSortValue(right.row.scout, sortConfig.key);
         const directionMultiplier = sortConfig.direction === "asc" ? 1 : -1;
         const primaryCompare = compareSortValues(leftValue, rightValue);
 
@@ -1352,11 +1463,18 @@ export default function MeritBadgesPage() {
           return primaryCompare * directionMultiplier;
         }
 
+        const nameCompare = left.row.scout.name.localeCompare(
+          right.row.scout.name,
+          "ko",
+        );
+        if (nameCompare !== 0) return nameCompare;
+
         return left.index - right.index;
       })
-      .map(({ scoutBadge }) => scoutBadge);
+      .map(({ row }) => row);
   }, [
-    filteredScoutBadges,
+    filteredMeritBadgeListRows,
+    getEmptyRowSortValue,
     getScoutBadgeSortValue,
     sortConfig,
   ]);
@@ -1908,7 +2026,7 @@ export default function MeritBadgesPage() {
               <button
                 type="button"
                 style={primaryButtonStyle}
-                onClick={handleOpenCreateForm}
+                onClick={() => handleOpenCreateForm()}
                 disabled={
                   Boolean(selectedScoutId) &&
                   scoutMap.get(selectedScoutId)?.status !== "active"
@@ -2036,8 +2154,11 @@ export default function MeritBadgesPage() {
             </button>
 
             <div style={listCountInfoStyle}>
-              조회 결과{" "}
-              <span style={listCountNumberStyle}>{filteredScoutBadges.length}</span>건
+              대상 대원{" "}
+              <span style={listCountNumberStyle}>{filteredTargetScoutCount}</span>명
+              {" · "}
+              기능장 기록{" "}
+              <span style={listCountNumberStyle}>{filteredRecordCount}</span>건
             </div>
           </div>
         </div>
@@ -2159,24 +2280,20 @@ export default function MeritBadgesPage() {
 
         {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
-        {!loading && !errorMessage && filteredScoutBadges.length === 0 && (
+        {!loading && !errorMessage && filteredTargetScoutCount === 0 && (
           <EmptyState
             title={
               keyword.trim()
                 ? "검색 조건에 맞는 대원이 없습니다."
                 : statusFilter === "active"
                   ? "현재 활동 중인 대원이 없습니다."
-                  : statusFilter === "inactive"
-                    ? "비활동 대원이 없습니다."
-                    : statusFilter === "graduated"
-                      ? "졸업 대원이 없습니다."
-                      : "조건에 맞는 대원이 없습니다."
+                  : "현재 조건에 맞는 대원이 없습니다."
             }
-            description="검색 조건이나 대원 상태를 변경해 기존 기능장 기록을 확인해 주세요."
+            description="검색 조건이나 대원 상태를 변경해 다시 확인해 주세요."
           />
         )}
 
-        {!loading && !errorMessage && filteredScoutBadges.length > 0 && (
+        {!loading && !errorMessage && filteredTargetScoutCount > 0 && (
           <div style={tableWrapStyle}>
             <table style={tableStyle}>
               <thead>
@@ -2199,8 +2316,59 @@ export default function MeritBadgesPage() {
               </thead>
 
               <tbody>
-                {sortedScoutBadges.map((scoutBadge) => {
-                  const scout = scoutMap.get(scoutBadge.scout_id) ?? null;
+                {sortedMeritBadgeListRows.map((row) => {
+                  if (row.kind === "empty") {
+                    const { scout } = row;
+                    const progress = scoutProgressMap.get(scout.id);
+
+                    return (
+                      <tr key={`empty-${scout.id}`} style={trStyle}>
+                        <td style={tdStyle}>{scout.member_no ?? "-"}</td>
+                        <td style={strongTdStyle}>{scout.name}</td>
+                        {isSuperAdmin && (
+                          <td style={tdStyle}>
+                            {getOrganizationName(scout.organization_id)}
+                          </td>
+                        )}
+                        <td style={tdStyle}>
+                          {progress?.currentRank?.rank_name ?? "미등록"}
+                        </td>
+                        <td style={tdStyle}>
+                          {progress?.nextRank?.rank_name ?? "최종급위"}
+                        </td>
+                        <td style={tdStyle} colSpan={8}>
+                          <span style={emptyRecordHintStyle}>
+                            등록된 기능장 기록이 없습니다.
+                          </span>
+                        </td>
+                        {canManageBadges && (
+                          <td style={tdStyle}>
+                            <div style={rowActionStyle}>
+                              <button
+                                type="button"
+                                style={smallButtonStyle}
+                                onClick={() => handleOpenCreateForm(scout.id)}
+                                disabled={
+                                  scout.status !== "active" ||
+                                  submitting ||
+                                  deletingId !== ""
+                                }
+                                title={
+                                  scout.status !== "active"
+                                    ? "비활동 또는 졸업 대원에게는 새 기능장을 등록할 수 없습니다."
+                                    : "기능장 등록"
+                                }
+                              >
+                                기능장 등록
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  }
+
+                  const { scout, scoutBadge } = row;
                   const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
                   const isSelected = selectedScoutBadgeId === scoutBadge.id;
                   const isUsed = usedScoutBadgeIdSet.has(scoutBadge.id);
@@ -2220,17 +2388,27 @@ export default function MeritBadgesPage() {
                         )
                       }
                     >
-                      <td style={tdStyle}>{scout?.member_no ?? "-"}</td>
-                      <td style={strongTdStyle}>{scout?.name ?? "-"}</td>
+                      <td style={tdStyle}>{scout.member_no ?? "-"}</td>
+                      <td style={strongTdStyle}>{scout.name}</td>
                       {isSuperAdmin && (
                         <td style={tdStyle}>
-                          {scout ? getOrganizationName(scout.organization_id) : "-"}
+                          {getOrganizationName(scout.organization_id)}
                         </td>
                       )}
-                      <td style={tdStyle}>{scout ? scoutProgressMap.get(scout.id)?.currentRank?.rank_name ?? "미등록" : "-"}</td>
-                      <td style={tdStyle}>{scout ? scoutProgressMap.get(scout.id)?.nextRank?.rank_name ?? "최종급위" : "-"}</td>
-                      <td style={tdStyle}>{getBadgeCategoryName(scoutBadge.badge_id)}</td>
-                      <td style={strongTdStyle}>{getBadgeName(scoutBadge.badge_id)}</td>
+                      <td style={tdStyle}>
+                        {scoutProgressMap.get(scout.id)?.currentRank?.rank_name ??
+                          "미등록"}
+                      </td>
+                      <td style={tdStyle}>
+                        {scoutProgressMap.get(scout.id)?.nextRank?.rank_name ??
+                          "최종급위"}
+                      </td>
+                      <td style={tdStyle}>
+                        {getBadgeCategoryName(scoutBadge.badge_id)}
+                      </td>
+                      <td style={strongTdStyle}>
+                        {getBadgeName(scoutBadge.badge_id)}
+                      </td>
                       <td style={tdStyle}>
                         <span style={getBadgeTypeBadgeStyle(badge)}>
                           {getBadgeTypeLabel(badge)}
@@ -3347,6 +3525,8 @@ const strongTdStyle: CSSProperties = {
   fontWeight: 800,
 };
 
+const trStyle: CSSProperties = {};
+
 const clickableTrStyle: CSSProperties = {
   cursor: "pointer",
 };
@@ -3354,6 +3534,12 @@ const clickableTrStyle: CSSProperties = {
 const selectedTrStyle: CSSProperties = {
   cursor: "pointer",
   backgroundColor: "#eff6ff",
+};
+
+const emptyRecordHintStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: "13px",
+  fontWeight: 700,
 };
 
 const rowActionStyle: CSSProperties = {
