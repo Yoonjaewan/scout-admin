@@ -59,6 +59,22 @@ function isOrganizationType(value: unknown): value is OrganizationType {
   return value === "local" || value === "school";
 }
 
+function isUnitNumberUniqueViolation(error: {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+}) {
+  if (error.code !== "23505") return false;
+
+  const haystack = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
+
+  return (
+    haystack.includes("unit_number") ||
+    haystack.includes("organizations_unit_number_active_uidx")
+  );
+}
+
 function getFileExtension(fileName: string, mimeType: string) {
   const nameExtension = fileName.split(".").pop()?.toLowerCase();
 
@@ -338,12 +354,12 @@ export default function SettingsPage() {
       return;
     }
 
-    const cleanUnitNumber = form.unitNumber.trim();
+    const normalizedUnitNumber = form.unitNumber.trim();
     const cleanName = form.name.trim();
     const cleanRegion = form.region.trim();
     const cleanDescription = form.description.trim();
 
-    if (!cleanUnitNumber) {
+    if (!normalizedUnitNumber) {
       setErrorMessage("대번호를 입력하세요.");
       return;
     }
@@ -357,11 +373,32 @@ export default function SettingsPage() {
     setErrorMessage("");
     setSuccessMessage("");
 
+    const { data: duplicateRows, error: duplicateCheckError } = await supabase
+      .from("organizations")
+      .select("id")
+      .is("deleted_at", null)
+      .neq("id", organization.id)
+      .eq("unit_number", normalizedUnitNumber)
+      .limit(1);
+
+    if (duplicateCheckError) {
+      console.error("대번호 중복 검사 오류:", duplicateCheckError.message);
+      setErrorMessage("소속대 정보를 저장하지 못했습니다.");
+      setSaving(false);
+      return;
+    }
+
+    if (duplicateRows && duplicateRows.length > 0) {
+      setErrorMessage("이미 다른 소속대에서 사용 중인 대번호입니다.");
+      setSaving(false);
+      return;
+    }
+
     const { error } = await supabase
       .from("organizations")
       .update({
         type: form.type,
-        unit_number: cleanUnitNumber,
+        unit_number: normalizedUnitNumber,
         name: cleanName,
         region: cleanRegion || null,
         description: cleanDescription || null,
@@ -373,7 +410,11 @@ export default function SettingsPage() {
 
     if (error) {
       console.error("소속대 정보 저장 오류:", error.message);
-      setErrorMessage("소속대 정보를 저장하지 못했습니다.");
+      if (isUnitNumberUniqueViolation(error)) {
+        setErrorMessage("이미 다른 소속대에서 사용 중인 대번호입니다.");
+      } else {
+        setErrorMessage("소속대 정보를 저장하지 못했습니다.");
+      }
       setSaving(false);
       return;
     }
@@ -381,7 +422,7 @@ export default function SettingsPage() {
     const updatedOrganization: OrganizationInfo = {
       ...organization,
       type: form.type,
-      unitNumber: cleanUnitNumber,
+      unitNumber: normalizedUnitNumber,
       name: cleanName,
       region: cleanRegion || null,
       description: cleanDescription || null,
@@ -751,14 +792,6 @@ export default function SettingsPage() {
 
               <div style={formActionStyle}>
                 <button
-                  type="button"
-                  onClick={() => setForm(buildFormFromOrganization(organization))}
-                  disabled={!canEdit || saving}
-                  style={secondaryButtonStyle}
-                >
-                  변경 취소
-                </button>
-                <button
                   type="submit"
                   disabled={!canEdit || saving}
                   style={{
@@ -825,14 +858,6 @@ export default function SettingsPage() {
             </div>
 
             <div style={formActionStyle}>
-              <button
-                type="button"
-                onClick={() => setForm(buildFormFromOrganization(organization))}
-                disabled={!canEdit || saving}
-                style={secondaryButtonStyle}
-              >
-                변경 취소
-              </button>
               <button
                 type="button"
                 onClick={() => {
