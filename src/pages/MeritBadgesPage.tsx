@@ -17,6 +17,7 @@ import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
 type ScoutStatus = "active" | "inactive" | "graduated";
+type ScoutStatusFilter = ScoutStatus | "all";
 type BadgeWorkFilter = "all" | "support" | "required" | "general" | "unconfirmed" | "unapproved";
 
 type UserProfile = {
@@ -275,6 +276,7 @@ export default function MeritBadgesPage() {
   const [rankHistories, setRankHistories] = useState<RankHistory[]>([]);
 
   const [keyword, setKeyword] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ScoutStatusFilter>("active");
   const [selectedScoutId, setSelectedScoutId] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [selectedScoutBadgeId, setSelectedScoutBadgeId] = useState("");
@@ -533,6 +535,16 @@ export default function MeritBadgesPage() {
     setSelectedScoutId(scoutIdFromUrl);
     setSelectedScoutBadgeId("");
   }, [searchParams]);
+
+  useEffect(() => {
+    const scoutIdFromUrl = searchParams.get("scoutId");
+    if (!scoutIdFromUrl) return;
+
+    const linkedScout = scouts.find((scout) => scout.id === scoutIdFromUrl);
+    if (linkedScout) {
+      setStatusFilter(linkedScout.status);
+    }
+  }, [scouts, searchParams]);
 
   const handleChangeSelectedScoutId = (value: string) => {
     const nextSearchParams = new URLSearchParams(searchParams);
@@ -842,8 +854,16 @@ export default function MeritBadgesPage() {
     return new Map(scouts.map((scout) => [scout.id, getScoutProgress(scout)]));
   }, [scouts, getScoutProgress]);
 
+  const statusFilteredScouts = useMemo(
+    () =>
+      scouts.filter(
+        (scout) => statusFilter === "all" || scout.status === statusFilter,
+      ),
+    [scouts, statusFilter],
+  );
+
   const sortedSummaryScouts = useMemo(() => {
-    return [...scouts].sort((a, b) => {
+    return [...statusFilteredScouts].sort((a, b) => {
       const aProgress = scoutProgressMap.get(a.id);
       const bProgress = scoutProgressMap.get(b.id);
       const score = (progress: ReturnType<typeof getScoutProgress> | undefined) => {
@@ -858,17 +878,33 @@ export default function MeritBadgesPage() {
       if (diff !== 0) return diff;
       return a.name.localeCompare(b.name, "ko");
     });
-  }, [scouts, scoutProgressMap]);
+  }, [scoutProgressMap, statusFilteredScouts]);
 
-  const requiredShortageScoutCount = scouts.filter((scout) => (scoutProgressMap.get(scout.id)?.requiredMissing ?? 0) > 0).length;
-  const generalShortageScoutCount = scouts.filter((scout) => (scoutProgressMap.get(scout.id)?.generalMissing ?? 0) > 0).length;
-  const unconfirmedRecordCount = scoutBadges.filter((row) => !row.leader_confirmed).length;
+  const requiredShortageScoutCount = statusFilteredScouts.filter((scout) => (scoutProgressMap.get(scout.id)?.requiredMissing ?? 0) > 0).length;
+  const generalShortageScoutCount = statusFilteredScouts.filter((scout) => (scoutProgressMap.get(scout.id)?.generalMissing ?? 0) > 0).length;
+  const unconfirmedRecordCount = scoutBadges.filter((row) => {
+    const scout = scoutMap.get(row.scout_id);
+    return (
+      !row.leader_confirmed &&
+      Boolean(
+        scout &&
+          (statusFilter === "all" || scout.status === statusFilter),
+      )
+    );
+  }).length;
 
   const filteredScoutBadges = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
 
     return scoutBadges.filter((scoutBadge) => {
       const scout = scoutMap.get(scoutBadge.scout_id) ?? null;
+      if (
+        statusFilter !== "all" &&
+        (!scout || scout.status !== statusFilter)
+      ) {
+        return false;
+      }
+
       const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
       const category = badge ? categoryMap.get(badge.category_id) ?? null : null;
       const reflection = getBadgePromotionDisplay(
@@ -929,10 +965,21 @@ export default function MeritBadgesPage() {
     usedScoutBadgeIdSet,
     badgeWorkFilter,
     scoutProgressMap,
+    statusFilter,
   ]);
 
   const handleOpenCreateForm = () => {
     if (!canManageBadges) return;
+
+    const selectedCreateScout = selectedScoutId
+      ? scoutMap.get(selectedScoutId) ?? null
+      : null;
+    if (selectedCreateScout && selectedCreateScout.status !== "active") {
+      setEditErrorMessage(
+        "비활동 또는 졸업 대원에게는 새 기능장을 등록할 수 없습니다.",
+      );
+      return;
+    }
 
     setCreateForm({
       ...getEmptyBadgeForm(),
@@ -1054,6 +1101,14 @@ export default function MeritBadgesPage() {
 
     if (!canManageBadges) {
       setFormErrorMessage("기능장 등록 권한이 없습니다.");
+      return;
+    }
+
+    const createTargetScout = scoutMap.get(createForm.scout_id) ?? null;
+    if (!createTargetScout || createTargetScout.status !== "active") {
+      setFormErrorMessage(
+        "비활동 또는 졸업 대원에게는 새 기능장을 등록할 수 없습니다.",
+      );
       return;
     }
 
@@ -1602,8 +1657,8 @@ export default function MeritBadgesPage() {
 
       <div style={summaryGridStyle}>
         <section style={neutralSummaryCardStyle}>
-          <div style={summaryCardHeaderStyle}><h2 style={summaryTitleStyle}>전체 대원</h2><span style={neutralSummaryChipStyle}>대상</span></div>
-          <p style={summaryValueStyle}>{scouts.length}명</p><p style={summaryDescriptionStyle}>현재 기능장 관리 대상</p>
+          <div style={summaryCardHeaderStyle}><h2 style={summaryTitleStyle}>조회 대원</h2><span style={neutralSummaryChipStyle}>대상</span></div>
+          <p style={summaryValueStyle}>{statusFilteredScouts.length}명</p><p style={summaryDescriptionStyle}>선택한 상태의 기능장 관리 대상</p>
         </section>
         <section style={requiredSummaryCardStyle}>
           <div style={summaryCardHeaderStyle}><h2 style={summaryTitleStyle}>필수 기능장 부족</h2><span style={requiredSummaryChipStyle}>보완</span></div>
@@ -1823,71 +1878,110 @@ export default function MeritBadgesPage() {
         </div>
 
         <div style={listToolPanelStyle}>
-          <label style={listToolFieldStyle}>
-            대원 필터
-            <select
-              style={listToolSelectStyle}
-              value={selectedScoutId}
-              onChange={(event) => handleChangeSelectedScoutId(event.target.value)}
-            >
-              <option value="">전체 대원</option>
-              {scouts.map((scout) => (
-                <option key={scout.id} value={scout.id}>
-                  {scout.member_no ?? "번호없음"} · {scout.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label style={listToolFieldStyle}>
-            기능장 분류
-            <select
-              style={listToolSelectStyle}
-              value={selectedCategoryId}
-              onChange={(event) => setSelectedCategoryId(event.target.value)}
-            >
-              <option value="">전체 분류</option>
-              {badgeCategories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label style={listToolFieldStyle}>
-            업무 필터
-            <select style={listToolSelectStyle} value={badgeWorkFilter} onChange={(event) => setBadgeWorkFilter(event.target.value as BadgeWorkFilter)}>
-              <option value="all">전체 기록</option>
-              <option value="support">보완 필요 대원</option>
-              <option value="required">필수 기능장 부족</option>
-              <option value="general">일반 기능장 부족</option>
-              <option value="unconfirmed">지도자 미확인</option>
-              <option value="unapproved">인가일 미등록</option>
-            </select>
-          </label>
-
-          <input
-            style={listToolSearchInputStyle}
-            type="search"
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-            placeholder="대원번호, 이름, 기능장명 검색"
-          />
-
-          <div style={listToolActionsStyle}>
-            {canManageBadges && (
-              <button
-                type="button"
-                style={primaryButtonStyle}
-                onClick={handleOpenCreateForm}
+          <div style={listToolFiltersRowStyle}>
+            <label style={listToolFieldStyle}>
+              대원 상태
+              <select
+                style={listToolSelectStyle}
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as ScoutStatusFilter);
+                  handleChangeSelectedScoutId("");
+                  setSelectedScoutBadgeId("");
+                  setSelectedSummaryScoutId("");
+                  setEditErrorMessage("");
+                }}
               >
-                기능장 등록
-              </button>
-            )}
+                <option value="active">활동</option>
+                <option value="inactive">비활동</option>
+                <option value="graduated">졸업</option>
+                <option value="all">전체</option>
+              </select>
+            </label>
 
-            <button type="button" style={secondaryButtonStyle} onClick={loadData}>새로고침</button>
-            <div style={listCountBadgeStyle}>현재 {filteredScoutBadges.length}건</div>
+            <label style={listToolFieldStyle}>
+              대원 필터
+              <select
+                style={listToolSelectStyle}
+                value={selectedScoutId}
+                onChange={(event) => handleChangeSelectedScoutId(event.target.value)}
+              >
+                <option value="">전체 대원</option>
+                {scouts
+                  .filter(
+                    (scout) =>
+                      statusFilter === "all" || scout.status === statusFilter,
+                  )
+                  .map((scout) => (
+                  <option key={scout.id} value={scout.id}>
+                    {scout.member_no ?? "번호없음"} · {scout.name}
+                  </option>
+                  ))}
+              </select>
+            </label>
+
+            <label style={listToolFieldStyle}>
+              기능장 분류
+              <select
+                style={listToolSelectStyle}
+                value={selectedCategoryId}
+                onChange={(event) => setSelectedCategoryId(event.target.value)}
+              >
+                <option value="">전체 분류</option>
+                {badgeCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={listToolFieldStyle}>
+              업무 필터
+              <select style={listToolSelectStyle} value={badgeWorkFilter} onChange={(event) => setBadgeWorkFilter(event.target.value as BadgeWorkFilter)}>
+                <option value="all">전체 기록</option>
+                <option value="support">보완 필요 대원</option>
+                <option value="required">필수 기능장 부족</option>
+                <option value="general">일반 기능장 부족</option>
+                <option value="unconfirmed">지도자 미확인</option>
+                <option value="unapproved">인가일 미등록</option>
+              </select>
+            </label>
+          </div>
+
+          <div style={listToolActionsRowStyle}>
+            <input
+              style={listToolSearchInputStyle}
+              type="search"
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder="대원번호, 이름, 기능장명 검색"
+            />
+
+            <div style={listToolActionsStyle}>
+              {canManageBadges && (
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={handleOpenCreateForm}
+                  disabled={
+                    Boolean(selectedScoutId) &&
+                    scoutMap.get(selectedScoutId)?.status !== "active"
+                  }
+                  title={
+                    selectedScoutId &&
+                    scoutMap.get(selectedScoutId)?.status !== "active"
+                      ? "비활동 또는 졸업 대원에게는 새 기능장을 등록할 수 없습니다."
+                      : "기능장 등록"
+                  }
+                >
+                  기능장 등록
+                </button>
+              )}
+
+              <button type="button" style={secondaryButtonStyle} onClick={loadData}>새로고침</button>
+              <div style={listCountBadgeStyle}>현재 {filteredScoutBadges.length}건</div>
+            </div>
           </div>
         </div>
 
@@ -2009,7 +2103,20 @@ export default function MeritBadgesPage() {
         {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
         {!loading && !errorMessage && filteredScoutBadges.length === 0 && (
-          <EmptyState title="기능장 취득 기록이 없습니다" description="대원을 선택한 뒤 기능장 취득 기록을 등록하세요." />
+          <EmptyState
+            title={
+              keyword.trim()
+                ? "검색 조건에 맞는 대원이 없습니다."
+                : statusFilter === "active"
+                  ? "현재 활동 중인 대원이 없습니다."
+                  : statusFilter === "inactive"
+                    ? "비활동 대원이 없습니다."
+                    : statusFilter === "graduated"
+                      ? "졸업 대원이 없습니다."
+                      : "조건에 맞는 대원이 없습니다."
+            }
+            description="검색 조건이나 대원 상태를 변경해 기존 기능장 기록을 확인해 주세요."
+          />
         )}
 
         {!loading && !errorMessage && filteredScoutBadges.length > 0 && (
@@ -2247,7 +2354,7 @@ export default function MeritBadgesPage() {
                       required
                     >
                       <option value="">대원 선택</option>
-                      {scouts.map((scout) => (
+                      {scouts.filter((scout) => scout.status === "active").map((scout) => (
                         <option key={scout.id} value={scout.id}>
                           {scout.member_no ?? "번호없음"} · {scout.name}
                         </option>
@@ -2978,15 +3085,28 @@ const inputStyle: CSSProperties = {
 };
 
 const listToolPanelStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(180px, 1fr) minmax(180px, 1fr) minmax(180px, 1fr) minmax(240px, 1.2fr) auto",
+  display: "flex",
+  flexDirection: "column",
   gap: "10px",
-  alignItems: "end",
   padding: "10px 12px",
   borderRadius: "12px",
   border: "1px solid #e5e7eb",
   backgroundColor: "#f8fafc",
   marginBottom: "12px",
+};
+
+const listToolFiltersRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: "10px",
+  alignItems: "end",
+};
+
+const listToolActionsRowStyle: CSSProperties = {
+  display: "flex",
+  gap: "10px",
+  alignItems: "center",
+  flexWrap: "wrap",
 };
 
 const listToolFieldStyle: CSSProperties = {
@@ -2996,6 +3116,7 @@ const listToolFieldStyle: CSSProperties = {
   color: "#334155",
   fontSize: "12.5px",
   fontWeight: 800,
+  minWidth: 0,
 };
 
 const listToolSelectStyle: CSSProperties = {
@@ -3008,8 +3129,9 @@ const listToolSelectStyle: CSSProperties = {
 
 const listToolSearchInputStyle: CSSProperties = {
   ...searchInputStyle,
-  width: "100%",
-  minWidth: 0,
+  flex: "1 1 220px",
+  width: "auto",
+  minWidth: "180px",
   padding: "8px 10px",
   fontSize: "13.5px",
 };
@@ -3019,7 +3141,8 @@ const listToolActionsStyle: CSSProperties = {
   alignItems: "center",
   justifyContent: "flex-end",
   gap: "8px",
-  flexWrap: "wrap",
+  flex: "0 0 auto",
+  flexWrap: "nowrap",
 };
 
 const listCountBadgeStyle: CSSProperties = {

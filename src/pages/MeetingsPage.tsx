@@ -462,19 +462,23 @@ export default function MeetingsPage() {
     return map;
   }, [attendanceRecords]);
 
-  const activeScoutCountByOrganizationMap = useMemo(() => {
-    const map = new Map<string, number>();
+  const activeScoutIdsByOrganizationMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
 
     scouts.forEach((scout) => {
       if (scout.status !== "active") return;
-      map.set(
-        scout.organization_id,
-        (map.get(scout.organization_id) ?? 0) + 1,
-      );
+      const scoutIds = map.get(scout.organization_id) ?? new Set<string>();
+      scoutIds.add(scout.id);
+      map.set(scout.organization_id, scoutIds);
     });
 
     return map;
   }, [scouts]);
+
+  const availableScoutIdSet = useMemo(
+    () => new Set(scouts.map((scout) => scout.id)),
+    [scouts],
+  );
 
   const meetingAttendanceSummaryMap = useMemo(() => {
     const map = new Map<
@@ -490,11 +494,16 @@ export default function MeetingsPage() {
     >();
 
     meetings.forEach((meeting) => {
-      const totalCount =
-        activeScoutCountByOrganizationMap.get(meeting.organization_id) ?? 0;
       const records = attendanceRecords.filter(
-        (attendance) => attendance.meeting_id === meeting.id,
+        (attendance) =>
+          attendance.meeting_id === meeting.id &&
+          availableScoutIdSet.has(attendance.scout_id),
       );
+      const targetScoutIds = new Set(
+        activeScoutIdsByOrganizationMap.get(meeting.organization_id) ?? [],
+      );
+      records.forEach((attendance) => targetScoutIds.add(attendance.scout_id));
+      const totalCount = targetScoutIds.size;
       const enteredRecords = records.filter(
         (attendance) => attendance.status !== "not_entered",
       );
@@ -531,7 +540,8 @@ export default function MeetingsPage() {
 
     return map;
   }, [
-    activeScoutCountByOrganizationMap,
+    activeScoutIdsByOrganizationMap,
+    availableScoutIdSet,
     attendanceRecords,
     meetings,
   ]);
@@ -567,9 +577,13 @@ export default function MeetingsPage() {
       .filter(
         (scout) =>
           scout.organization_id === selectedMeeting.organization_id &&
-          scout.status === "active",
+          (scout.status === "active" ||
+            selectedMeetingAttendanceMap.has(scout.id)),
       )
       .sort((a, b) => {
+        if (a.status === "active" && b.status !== "active") return -1;
+        if (a.status !== "active" && b.status === "active") return 1;
+
         const aMemberNo = a.member_no ?? "";
         const bMemberNo = b.member_no ?? "";
         const memberCompare = compareText(aMemberNo, bMemberNo);
@@ -577,7 +591,7 @@ export default function MeetingsPage() {
         if (memberCompare !== 0) return memberCompare;
         return compareText(a.name, b.name);
       });
-  }, [scouts, selectedMeeting]);
+  }, [scouts, selectedMeeting, selectedMeetingAttendanceMap]);
 
   useEffect(() => {
     setSelectedAttendanceScoutIds([]);
@@ -726,6 +740,8 @@ export default function MeetingsPage() {
     return new Set(selectedAttendanceScoutIds);
   }, [selectedAttendanceScoutIds]);
 
+  const visibleSelectedMeetingScouts = selectedMeetingScouts;
+
   const selectedAttendanceScoutCount = useMemo(() => {
     return selectedMeetingScouts.filter((scout) =>
       selectedAttendanceScoutIdSet.has(scout.id),
@@ -735,7 +751,10 @@ export default function MeetingsPage() {
   const sortedSelectedMeetingScouts = useMemo(() => {
     const directionFactor = attendanceSort.direction === "asc" ? 1 : -1;
 
-    return [...selectedMeetingScouts].sort((a, b) => {
+    return [...visibleSelectedMeetingScouts].sort((a, b) => {
+      if (a.status === "active" && b.status !== "active") return -1;
+      if (a.status !== "active" && b.status === "active") return 1;
+
       let result = 0;
 
       if (attendanceSort.key === "member_no") {
@@ -762,11 +781,13 @@ export default function MeetingsPage() {
       if (result !== 0) return result * directionFactor;
       return compareText(a.member_no ?? "", b.member_no ?? "");
     });
-  }, [attendanceDrafts, attendanceSort, selectedMeetingScouts]);
+  }, [attendanceDrafts, attendanceSort, visibleSelectedMeetingScouts]);
 
   const isAllAttendanceScoutsSelected =
-    selectedMeetingScouts.length > 0 &&
-    selectedMeetingScouts.every((scout) => selectedAttendanceScoutIdSet.has(scout.id));
+    visibleSelectedMeetingScouts.length > 0 &&
+    visibleSelectedMeetingScouts.every((scout) =>
+      selectedAttendanceScoutIdSet.has(scout.id),
+    );
 
   const getOrganizationName = (organizationId: string) => {
     return organizationNameMap.get(organizationId) ?? "-";
@@ -1066,7 +1087,14 @@ export default function MeetingsPage() {
   };
 
   const handleSelectAllAttendanceScouts = () => {
-    setSelectedAttendanceScoutIds(selectedMeetingScouts.map((scout) => scout.id));
+    setSelectedAttendanceScoutIds((previous) =>
+      Array.from(
+        new Set([
+          ...previous,
+          ...visibleSelectedMeetingScouts.map((scout) => scout.id),
+        ]),
+      ),
+    );
     setAttendanceErrorMessage("");
   };
 
@@ -1589,7 +1617,7 @@ export default function MeetingsPage() {
           <div>
             <h2 style={{ ...sectionTitleStyle, fontSize: "20px" }}>출석 입력</h2>
             <p style={sectionDescriptionStyle}>
-              집회 목록에서 집회를 선택하면 해당 소속대의 활동 대원만 출석을 입력할 수 있습니다.
+              신규 출석 입력은 현재 활동 중인 대원만 가능합니다. 과거 출석 기록이 있는 비활동·졸업 대원은 목록에 그대로 표시됩니다.
             </p>
           </div>
         </div>
@@ -1642,6 +1670,14 @@ export default function MeetingsPage() {
               출석 인정에는 출석, 인정출석, 지각, 조퇴가 포함됩니다. 일반 진급에서는 참고 지표로 사용하고, 소속대 환경설정에서 범 진급 출석률 적용이 켜진 경우 무궁화 → 범 판정의 필수 조건으로 사용합니다.
             </p>
 
+            <div style={attendanceTargetInfoStyle}>
+              <div style={attendanceTargetLabelStyle}>출석 대상</div>
+              <div style={attendanceTargetValueStyle}>활동 대원</div>
+              <p style={attendanceTargetHintStyle}>
+                신규 출석 입력은 현재 활동 중인 대원만 가능합니다.
+              </p>
+            </div>
+
             {attendanceErrorMessage && <div style={errorBoxStyle}>{attendanceErrorMessage}</div>}
             <FeedbackToast message={attendanceSuccessMessage} tone="success" onClose={() => setAttendanceSuccessMessage("")} />
 
@@ -1656,7 +1692,8 @@ export default function MeetingsPage() {
                   </div>
 
                   <span style={selectedCountBadgeStyle}>
-                    선택 {selectedAttendanceScoutCount}명 / 전체 {selectedMeetingScouts.length}명
+                    선택 {selectedAttendanceScoutCount}명 / 표시{" "}
+                    {visibleSelectedMeetingScouts.length}명
                   </span>
                 </div>
 
@@ -1740,7 +1777,15 @@ export default function MeetingsPage() {
               </div>
             )}
 
-            <div style={tableWrapStyle}>
+            {visibleSelectedMeetingScouts.length === 0 && (
+              <EmptyState
+                title="현재 활동 중인 대원이 없습니다."
+                description="신규 출석 입력은 활동 대원만 가능합니다. 대원 관리에서 활동 상태를 확인해 주세요."
+              />
+            )}
+
+            {visibleSelectedMeetingScouts.length > 0 && (
+              <div style={tableWrapStyle}>
               <table style={tableStyle}>
                 <thead>
                   <tr>
@@ -1755,7 +1800,10 @@ export default function MeetingsPage() {
                             handleClearAttendanceScoutSelection();
                           }
                         }}
-                        disabled={!canManageMeetings || selectedMeetingScouts.length === 0}
+                        disabled={
+                          !canManageMeetings ||
+                          visibleSelectedMeetingScouts.length === 0
+                        }
                         aria-label="전체 대원 선택"
                       />
                     </th>
@@ -1860,7 +1908,8 @@ export default function MeetingsPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+              </div>
+            )}
           </>
         )}
       </section>
@@ -2476,6 +2525,41 @@ const miniSummaryValueStyle: CSSProperties = {
 const attendanceGuideStyle: CSSProperties = {
   marginTop: 0,
   marginBottom: "10px",
+  color: "#64748b",
+  fontSize: "12px",
+  lineHeight: 1.4,
+};
+
+const attendanceTargetInfoStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "8px 12px",
+  marginBottom: "12px",
+  padding: "10px 12px",
+  borderRadius: "10px",
+  border: "1px solid #dbeafe",
+  backgroundColor: "#f8fbff",
+};
+
+const attendanceTargetLabelStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 700,
+};
+
+const attendanceTargetValueStyle: CSSProperties = {
+  padding: "4px 10px",
+  borderRadius: "999px",
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+  fontSize: "13px",
+  fontWeight: 800,
+};
+
+const attendanceTargetHintStyle: CSSProperties = {
+  margin: 0,
+  flex: "1 1 220px",
   color: "#64748b",
   fontSize: "12px",
   lineHeight: 1.4,

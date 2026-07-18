@@ -768,7 +768,7 @@ export default function ScoutsPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [keyword, setKeyword] = useState("");
   const [sectionFilter, setSectionFilter] = useState<ScoutSectionFilter>("all");
-  const [statusFilter, setStatusFilter] = useState<ScoutStatusFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<ScoutStatusFilter>("active");
   const [isExcelPanelOpen, setIsExcelPanelOpen] = useState(false);
   const [isExcelGuideOpen, setIsExcelGuideOpen] = useState(false);
   const [scoutSortConfig, setScoutSortConfig] = useState<ScoutSortConfig>({
@@ -2597,6 +2597,10 @@ export default function ScoutsPage() {
         .sort((a, b) => a.name.localeCompare(b.name)),
     );
 
+    if (statusFilter !== "all" && statusFilter !== nextStatus) {
+      setStatusFilter(nextStatus);
+    }
+
     setStatusUpdatingScoutId(null);
   };
 
@@ -4349,33 +4353,33 @@ export default function ScoutsPage() {
           </label>
 
           <label style={filterFieldLabelStyle}>
-            상태
+            대원 상태
             <select
               style={filterSelectStyle}
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as ScoutStatusFilter)}
             >
-              <option value="all">전체</option>
               {SCOUT_STATUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
+              <option value="all">전체</option>
             </select>
           </label>
 
           <div style={searchResultInfoStyle}>
-            현재 {filteredScouts.length}명이 표시됩니다.
+            표시 {filteredScouts.length}명 / 전체 {scouts.length}명
           </div>
 
-          {(keyword.trim().length > 0 || sectionFilter !== "all" || statusFilter !== "all") && (
+          {(keyword.trim().length > 0 || sectionFilter !== "all" || statusFilter !== "active") && (
             <button
               type="button"
               style={secondaryButtonStyle}
               onClick={() => {
                 setKeyword("");
                 setSectionFilter("all");
-                setStatusFilter("all");
+                setStatusFilter("active");
               }}
             >
               조건 초기화
@@ -6050,7 +6054,20 @@ export default function ScoutsPage() {
         )}
 
         {!loading && !errorMessage && filteredScouts.length === 0 && (
-          <EmptyState title="조회되는 대원이 없습니다" description="검색 조건을 초기화하거나 먼저 대원을 등록하세요." />
+          <EmptyState
+            title={
+              keyword.trim()
+                ? "검색 조건에 맞는 대원이 없습니다."
+                : statusFilter === "active"
+                  ? "현재 활동 중인 대원이 없습니다."
+                  : statusFilter === "inactive"
+                    ? "비활동 대원이 없습니다."
+                    : statusFilter === "graduated"
+                      ? "졸업 대원이 없습니다."
+                      : "조건에 맞는 대원이 없습니다."
+            }
+            description="검색 조건이나 대원 상태를 변경해 다시 확인해 주세요."
+          />
         )}
 
         {!loading && !errorMessage && filteredScouts.length > 0 && (

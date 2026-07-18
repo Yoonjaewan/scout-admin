@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
 type ScoutStatus = "active" | "inactive" | "graduated";
+type ScoutStatusFilter = ScoutStatus | "all";
 type ProgramType = "WSEP" | "MoP";
 type ProgressFilter =
   | "all"
@@ -253,6 +254,7 @@ export default function ProgramCompletionsPage() {
   const [programCompletions, setProgramCompletions] = useState<ProgramCompletion[]>([]);
 
   const [keyword, setKeyword] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ScoutStatusFilter>("active");
   const [selectedScoutId, setSelectedScoutId] = useState("");
   const [selectedProgramType, setSelectedProgramType] = useState<"" | ProgramType>("");
   const [progressFilter, setProgressFilter] = useState<ProgressFilter>("all");
@@ -434,6 +436,16 @@ export default function ProgramCompletionsPage() {
     setSelectedScoutIds([]);
   }, [searchParams]);
 
+  useEffect(() => {
+    const scoutIdFromUrl = searchParams.get("scoutId");
+    if (!scoutIdFromUrl) return;
+
+    const linkedScout = scouts.find((scout) => scout.id === scoutIdFromUrl);
+    if (linkedScout) {
+      setStatusFilter(linkedScout.status);
+    }
+  }, [scouts, searchParams]);
+
   const handleChangeSelectedScoutId = (value: string) => {
     const nextSearchParams = new URLSearchParams(searchParams);
 
@@ -603,6 +615,10 @@ export default function ProgramCompletionsPage() {
     const normalizedKeyword = keyword.trim().toLowerCase();
 
     return scouts.filter((scout) => {
+      if (statusFilter !== "all" && scout.status !== statusFilter) {
+        return false;
+      }
+
       if (selectedScoutId && scout.id !== selectedScoutId) {
         return false;
       }
@@ -687,6 +703,7 @@ export default function ProgramCompletionsPage() {
     scouts,
     selectedProgramType,
     selectedScoutId,
+    statusFilter,
   ]);
 
   const sortedFilteredScouts = useMemo(() => {
@@ -757,7 +774,10 @@ export default function ProgramCompletionsPage() {
   ]);
 
   const visibleScoutIds = useMemo(
-    () => sortedFilteredScouts.map((scout) => scout.id),
+    () =>
+      sortedFilteredScouts
+        .filter((scout) => scout.status === "active")
+        .map((scout) => scout.id),
     [sortedFilteredScouts],
   );
 
@@ -786,9 +806,18 @@ export default function ProgramCompletionsPage() {
   const handleOpenCreateForm = (scoutId?: string, programType?: ProgramType) => {
     if (!canManagePrograms) return;
 
+    const targetScoutId = scoutId ?? selectedScoutId;
+    const targetScout = scouts.find((scout) => scout.id === targetScoutId);
+    if (targetScoutId && targetScout?.status !== "active") {
+      setActionMessage(
+        "비활동 또는 졸업 대원에게는 새 프로그램 이수 기록을 등록할 수 없습니다.",
+      );
+      return;
+    }
+
     setCreateForm({
       ...getEmptyProgramForm(),
-      scout_id: scoutId ?? selectedScoutId,
+      scout_id: targetScoutId,
       program_type: programType ?? (selectedProgramType || "WSEP"),
     });
     setFormErrorMessage("");
@@ -894,6 +923,10 @@ export default function ProgramCompletionsPage() {
   };
 
   const handleToggleScoutSelection = (scoutId: string, checked: boolean) => {
+    if (scouts.find((scout) => scout.id === scoutId)?.status !== "active") {
+      return;
+    }
+
     setSelectedScoutIds((prev) => {
       if (checked) {
         return prev.includes(scoutId) ? prev : [...prev, scoutId];
@@ -904,13 +937,20 @@ export default function ProgramCompletionsPage() {
   };
 
   const handleToggleAllVisibleScouts = (checked: boolean) => {
+    const activeVisibleScoutIds = visibleScoutIds.filter(
+      (scoutId) =>
+        scouts.find((scout) => scout.id === scoutId)?.status === "active",
+    );
+
     if (checked) {
-      setSelectedScoutIds((prev) => Array.from(new Set([...prev, ...visibleScoutIds])));
+      setSelectedScoutIds((prev) =>
+        Array.from(new Set([...prev, ...activeVisibleScoutIds])),
+      );
       return;
     }
 
     setSelectedScoutIds((prev) =>
-      prev.filter((scoutId) => !visibleScoutIds.includes(scoutId)),
+      prev.filter((scoutId) => !activeVisibleScoutIds.includes(scoutId)),
     );
   };
 
@@ -930,7 +970,8 @@ export default function ProgramCompletionsPage() {
   };
 
   const handleClickScoutRow = (scoutId: string, latestCompletion?: ProgramCompletion) => {
-    if (canManagePrograms) {
+    const scout = scouts.find((item) => item.id === scoutId);
+    if (canManagePrograms && scout?.status === "active") {
       handleToggleScoutSelection(scoutId, !selectedScoutIds.includes(scoutId));
       return;
     }
@@ -952,6 +993,16 @@ export default function ProgramCompletionsPage() {
 
     if (!createForm.scout_id) {
       setFormErrorMessage("대원을 선택해야 합니다.");
+      return;
+    }
+
+    const createTargetScout = scouts.find(
+      (scout) => scout.id === createForm.scout_id,
+    );
+    if (!createTargetScout || createTargetScout.status !== "active") {
+      setFormErrorMessage(
+        "비활동 또는 졸업 대원에게는 새 프로그램 이수 기록을 등록할 수 없습니다.",
+      );
       return;
     }
 
@@ -1040,9 +1091,13 @@ export default function ProgramCompletionsPage() {
       return;
     }
 
-    const targetScoutIds = selectedScoutIds.filter(
-      (scoutId) => !existingProgramKeySet.has(`${scoutId}:${bulkForm.program_type}`),
-    );
+    const targetScoutIds = selectedScoutIds.filter((scoutId) => {
+      const scout = scouts.find((item) => item.id === scoutId);
+      return (
+        scout?.status === "active" &&
+        !existingProgramKeySet.has(`${scoutId}:${bulkForm.program_type}`)
+      );
+    });
 
     if (targetScoutIds.length === 0) {
       setFormErrorMessage("선택한 대원은 모두 해당 프로그램 이수 기록이 이미 있습니다.");
@@ -1296,77 +1351,117 @@ export default function ProgramCompletionsPage() {
               전체 대원을 기준으로 WSEP / MoP 이수 여부를 확인하고, 선택 대원은 일괄 등록할 수 있습니다.
             </p>
           </div>
+        </div>
 
-          <div style={toolbarRightStyle}>
-            <select
-              style={filterSelectStyle}
-              value={progressFilter}
-              onChange={(event) => {
-                setProgressFilter(event.target.value as ProgressFilter);
-                setSelectedScoutIds([]);
-              }}
-            >
-              <option value="all">전체 현황</option>
-              <option value="beomTarget">범 진급 대상</option>
-              <option value="programMissing">프로그램 부족</option>
-              <option value="wsepMissing">WSEP 미이수</option>
-              <option value="mopMissing">MoP 미이수</option>
-              <option value="approvalMissing">승인 필요</option>
-              <option value="completionMissing">수료증 확인</option>
-            </select>
+        <div style={listToolPanelStyle}>
+          <div style={listToolFiltersRowStyle}>
+            <label style={listToolFieldStyle}>
+              대원 상태
+              <select
+                style={listToolSelectStyle}
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as ScoutStatusFilter);
+                  setSelectedScoutIds([]);
+                  handleChangeSelectedScoutId("");
+                  setSelectedCompletionId("");
+                }}
+              >
+                <option value="active">활동</option>
+                <option value="inactive">비활동</option>
+                <option value="graduated">졸업</option>
+                <option value="all">전체</option>
+              </select>
+            </label>
 
-            <select
-              style={filterSelectStyle}
-              value={selectedScoutId}
-              onChange={(event) => handleChangeSelectedScoutId(event.target.value)}
-            >
-              <option value="">전체 대원</option>
-              {scouts.map((scout) => (
-                <option key={scout.id} value={scout.id}>
-                  {scout.name} {scout.member_no ? `(${scout.member_no})` : ""}
-                </option>
-              ))}
-            </select>
+            <label style={listToolFieldStyle}>
+              대원 필터
+              <select
+                style={listToolSelectStyle}
+                value={selectedScoutId}
+                onChange={(event) => handleChangeSelectedScoutId(event.target.value)}
+              >
+                <option value="">전체 대원</option>
+                {scouts
+                  .filter(
+                    (scout) =>
+                      statusFilter === "all" || scout.status === statusFilter,
+                  )
+                  .map((scout) => (
+                  <option key={scout.id} value={scout.id}>
+                    {scout.name} {scout.member_no ? `(${scout.member_no})` : ""}
+                  </option>
+                  ))}
+              </select>
+            </label>
 
-            <select
-              style={filterSelectStyle}
-              value={selectedProgramType}
-              onChange={(event) => {
-                setSelectedProgramType(event.target.value as "" | ProgramType);
-                setSelectedScoutIds([]);
-              }}
-            >
-              <option value="">전체 프로그램</option>
-              {PROGRAM_TYPE_OPTIONS.map((program) => (
-                <option key={program.value} value={program.value}>
-                  {program.label} 이수 대원
-                </option>
-              ))}
-            </select>
+            <label style={listToolFieldStyle}>
+              업무 필터
+              <select
+                style={listToolSelectStyle}
+                value={progressFilter}
+                onChange={(event) => {
+                  setProgressFilter(event.target.value as ProgressFilter);
+                  setSelectedScoutIds([]);
+                }}
+              >
+                <option value="all">전체 현황</option>
+                <option value="beomTarget">범 진급 대상</option>
+                <option value="programMissing">프로그램 부족</option>
+                <option value="wsepMissing">WSEP 미이수</option>
+                <option value="mopMissing">MoP 미이수</option>
+                <option value="approvalMissing">승인 필요</option>
+                <option value="completionMissing">수료증 확인</option>
+              </select>
+            </label>
 
+            <label style={listToolFieldStyle}>
+              프로그램 필터
+              <select
+                style={listToolSelectStyle}
+                value={selectedProgramType}
+                onChange={(event) => {
+                  setSelectedProgramType(event.target.value as "" | ProgramType);
+                  setSelectedScoutIds([]);
+                }}
+              >
+                <option value="">전체 프로그램</option>
+                {PROGRAM_TYPE_OPTIONS.map((program) => (
+                  <option key={program.value} value={program.value}>
+                    {program.label} 이수 대원
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div style={listToolActionsRowStyle}>
             <input
-              style={searchInputStyle}
+              style={listToolSearchInputStyle}
               type="search"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               placeholder="대원명, 대원번호, 수료증번호 검색"
             />
 
-            <button type="button" style={secondaryButtonStyle} onClick={loadData}>
-              새로고침
-            </button>
+            <div style={listToolActionsStyle}>
+              {canManagePrograms && (
+                <button
+                  type="button"
+                  style={selectedScoutIds.length > 0 ? bulkButtonStyle : disabledBulkButtonStyle}
+                  onClick={handleOpenBulkForm}
+                  disabled={selectedScoutIds.length === 0}
+                >
+                  선택 대원 일괄 등록
+                </button>
+              )}
 
-            {canManagePrograms && (
-              <button
-                type="button"
-                style={selectedScoutIds.length > 0 ? bulkButtonStyle : disabledBulkButtonStyle}
-                onClick={handleOpenBulkForm}
-                disabled={selectedScoutIds.length === 0}
-              >
-                선택 대원 일괄 등록
+              <button type="button" style={secondaryButtonStyle} onClick={loadData}>
+                새로고침
               </button>
-            )}
 
+              <div style={listCountBadgeStyle}>현재 {filteredScouts.length}건</div>
+            </div>
           </div>
         </div>
 
@@ -1381,7 +1476,20 @@ export default function ProgramCompletionsPage() {
         {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
         {!loading && !errorMessage && filteredScouts.length === 0 && (
-          <EmptyState title="조회되는 대원이 없습니다" description="검색 조건을 초기화하거나 먼저 대원을 등록하세요." />
+          <EmptyState
+            title={
+              keyword.trim()
+                ? "검색 조건에 맞는 대원이 없습니다."
+                : statusFilter === "active"
+                  ? "현재 활동 중인 대원이 없습니다."
+                  : statusFilter === "inactive"
+                    ? "비활동 대원이 없습니다."
+                    : statusFilter === "graduated"
+                      ? "졸업 대원이 없습니다."
+                      : "조건에 맞는 대원이 없습니다."
+            }
+            description="검색 조건이나 대원 상태를 변경해 다시 확인해 주세요."
+          />
         )}
 
         {!loading && !errorMessage && filteredScouts.length > 0 && (
@@ -1395,6 +1503,7 @@ export default function ProgramCompletionsPage() {
                         type="checkbox"
                         checked={allVisibleScoutsSelected}
                         onChange={(event) => handleToggleAllVisibleScouts(event.target.checked)}
+                        disabled={visibleScoutIds.length === 0}
                         aria-label="화면에 표시된 대원 전체 선택"
                       />
                     </th>
@@ -1523,6 +1632,12 @@ export default function ProgramCompletionsPage() {
                             onChange={(event) =>
                               handleToggleScoutSelection(scout.id, event.target.checked)
                             }
+                            disabled={scout.status !== "active"}
+                            title={
+                              scout.status === "active"
+                                ? "일괄 등록 대상 선택"
+                                : "비활동 또는 졸업 대원은 신규 등록 대상에서 제외됩니다."
+                            }
                             aria-label={`${getScoutDisplayName(scout.id)} 선택`}
                           />
                         </td>
@@ -1586,9 +1701,17 @@ export default function ProgramCompletionsPage() {
                             type="button"
                             style={smallSecondaryButtonStyle}
                             onClick={() => handleOpenCreateForm(scout.id, nextProgramType)}
-                            disabled={submitting || !canRegisterProgram}
+                            disabled={
+                              submitting ||
+                              !canRegisterProgram ||
+                              scout.status !== "active"
+                            }
                           >
-                            {canRegisterProgram ? "프로그램 등록" : "등록 완료"}
+                            {scout.status !== "active"
+                              ? "신규 등록 제한"
+                              : canRegisterProgram
+                                ? "프로그램 등록"
+                                : "등록 완료"}
                           </button>
                           {latestCompletion && (
                             <button
@@ -1778,7 +1901,7 @@ export default function ProgramCompletionsPage() {
                   required
                 >
                   <option value="">대원 선택</option>
-                  {scouts.map((scout) => (
+                  {scouts.filter((scout) => scout.status === "active").map((scout) => (
                     <option key={scout.id} value={scout.id}>
                       {scout.name} {scout.member_no ? `(${scout.member_no})` : ""}
                     </option>
@@ -2185,15 +2308,82 @@ const toolbarStyle: CSSProperties = {
   justifyContent: "space-between",
   alignItems: "flex-start",
   gap: "16px",
-  marginBottom: "20px",
+  marginBottom: "16px",
 };
 
-const toolbarRightStyle: CSSProperties = {
+const listToolPanelStyle: CSSProperties = {
   display: "flex",
+  flexDirection: "column",
+  gap: "10px",
+  padding: "10px 12px",
+  borderRadius: "12px",
+  border: "1px solid #e5e7eb",
+  backgroundColor: "#f8fafc",
+  marginBottom: "16px",
+};
+
+const listToolFiltersRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: "10px",
+  alignItems: "end",
+};
+
+const listToolActionsRowStyle: CSSProperties = {
+  display: "flex",
+  gap: "10px",
+  alignItems: "center",
   flexWrap: "wrap",
+};
+
+const listToolFieldStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "5px",
+  color: "#334155",
+  fontSize: "12.5px",
+  fontWeight: 800,
+  minWidth: 0,
+};
+
+const listToolSelectStyle: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  padding: "8px 10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "13.5px",
+  backgroundColor: "#ffffff",
+};
+
+const listToolSearchInputStyle: CSSProperties = {
+  flex: "1 1 220px",
+  width: "auto",
+  minWidth: "180px",
+  padding: "8px 10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "13.5px",
+  backgroundColor: "#ffffff",
+};
+
+const listToolActionsStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
   justifyContent: "flex-end",
   gap: "8px",
-  alignItems: "center",
+  flex: "0 0 auto",
+  flexWrap: "nowrap",
+};
+
+const listCountBadgeStyle: CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: "999px",
+  backgroundColor: "#eff6ff",
+  color: "#1d4ed8",
+  fontSize: "13px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
 };
 
 const sectionTitleStyle: CSSProperties = {
@@ -2207,23 +2397,6 @@ const sectionDescriptionStyle: CSSProperties = {
   marginTop: "6px",
   marginBottom: 0,
   color: "#64748b",
-};
-
-const filterSelectStyle: CSSProperties = {
-  minWidth: "160px",
-  padding: "10px 12px",
-  border: "1px solid #cbd5e1",
-  borderRadius: "8px",
-  fontSize: "14px",
-  backgroundColor: "#ffffff",
-};
-
-const searchInputStyle: CSSProperties = {
-  width: "280px",
-  padding: "10px 12px",
-  border: "1px solid #cbd5e1",
-  borderRadius: "8px",
-  fontSize: "14px",
 };
 
 const secondaryButtonStyle: CSSProperties = {

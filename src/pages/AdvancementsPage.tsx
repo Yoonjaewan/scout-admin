@@ -8,6 +8,7 @@ import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
 type ScoutStatus = "active" | "inactive" | "graduated";
+type ScoutStatusFilter = ScoutStatus | "all";
 type RankStepState =
   | "completed"
   | "current"
@@ -562,6 +563,7 @@ export default function AdvancementsPage() {
   const [promotionReviews, setPromotionReviews] = useState<PromotionReview[]>([]);
 
   const [keyword, setKeyword] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ScoutStatusFilter>("active");
   const [sortState, setSortState] = useState<AdvancementSortState>({
     key: "member_no",
     direction: "asc",
@@ -827,6 +829,15 @@ export default function AdvancementsPage() {
       return;
     }
 
+    const initialApprovalScout =
+      scouts.find((scout) => scout.id === initialApprovalScoutId) ?? null;
+    if (!initialApprovalScout || initialApprovalScout.status !== "active") {
+      setInitialApprovalErrorMessage(
+        "비활동 또는 졸업 대원은 신규 진급 판정 및 인가 대상에서 제외됩니다.",
+      );
+      return;
+    }
+
     if (!initialApprovalForm.approved_at) {
       setInitialApprovalErrorMessage("초급 인가일을 입력해야 합니다.");
       return;
@@ -908,6 +919,13 @@ export default function AdvancementsPage() {
       return;
     }
 
+    if (reviewTargetScout.status !== "active") {
+      setPromotionReviewErrorMessage(
+        "비활동 또는 졸업 대원은 신규 진급 판정 및 인가 대상에서 제외됩니다.",
+      );
+      return;
+    }
+
     if (!reviewTargetScout.current_rank_id) {
       setPromotionReviewErrorMessage("현재급위가 등록되어 있지 않아 진급 판정을 실행할 수 없습니다.");
       return;
@@ -969,6 +987,14 @@ export default function AdvancementsPage() {
   const handleOpenPromotionApproval = (review: PromotionReview) => {
     if (!canManageAdvancements || !isReviewPassedForApproval(review)) return;
 
+    const reviewScout = scouts.find((scout) => scout.id === review.scout_id);
+    if (!reviewScout || reviewScout.status !== "active") {
+      setPromotionApprovalErrorMessage(
+        "비활동 또는 졸업 대원은 신규 진급 판정 및 인가 대상에서 제외됩니다.",
+      );
+      return;
+    }
+
     setPromotionApprovalReviewId(review.id);
     setPromotionApprovalForm(getEmptyPromotionApprovalForm());
     setPromotionApprovalErrorMessage("");
@@ -1002,6 +1028,19 @@ export default function AdvancementsPage() {
 
     if (!promotionApprovalReviewId) {
       setPromotionApprovalErrorMessage("인가할 진급 판정 결과를 선택해야 합니다.");
+      return;
+    }
+
+    const approvalReview =
+      promotionReviews.find((review) => review.id === promotionApprovalReviewId) ??
+      null;
+    const approvalScout = approvalReview
+      ? scouts.find((scout) => scout.id === approvalReview.scout_id) ?? null
+      : null;
+    if (!approvalScout || approvalScout.status !== "active") {
+      setPromotionApprovalErrorMessage(
+        "비활동 또는 졸업 대원은 신규 진급 판정 및 인가 대상에서 제외됩니다.",
+      );
       return;
     }
 
@@ -1604,6 +1643,10 @@ export default function AdvancementsPage() {
   };
 
   const isBulkReviewSelectableScout = (scout: Scout) => {
+    if (scout.status !== "active") {
+      return false;
+    }
+
     if (isCubScoutByGrade(scout)) {
       return false;
     }
@@ -1790,22 +1833,30 @@ export default function AdvancementsPage() {
     ],
   );
 
+  const statusFilteredScouts = useMemo(
+    () =>
+      scouts.filter(
+        (scout) => statusFilter === "all" || scout.status === statusFilter,
+      ),
+    [scouts, statusFilter],
+  );
+
   const advancementFilterCounts = useMemo(() => {
     return ADVANCEMENT_FILTER_OPTIONS.reduce(
       (accumulator, option) => ({
         ...accumulator,
-        [option.value]: scouts.filter((scout) =>
+        [option.value]: statusFilteredScouts.filter((scout) =>
           isScoutMatchedAdvancementFilter(scout, option.value),
         ).length,
       }),
       {} as Record<AdvancementFilter, number>,
     );
-  }, [isScoutMatchedAdvancementFilter, scouts]);
+  }, [isScoutMatchedAdvancementFilter, statusFilteredScouts]);
 
   const filteredScouts = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
 
-    return scouts
+    return statusFilteredScouts
       .filter((scout) => {
         if (!isScoutMatchedAdvancementFilter(scout, selectedAdvancementFilter)) {
           return false;
@@ -1842,7 +1893,7 @@ export default function AdvancementsPage() {
     getOrganizationName,
     isScoutMatchedAdvancementFilter,
     keyword,
-    scouts,
+    statusFilteredScouts,
     selectedAdvancementFilter,
   ]);
 
@@ -1861,6 +1912,10 @@ export default function AdvancementsPage() {
     .filter((scout): scout is Scout => scout !== null);
 
   const getLatestApprovablePromotionReview = (scout: Scout) => {
+    if (scout.status !== "active") {
+      return null;
+    }
+
     if (isCubScoutByGrade(scout)) {
       return null;
     }
@@ -1999,6 +2054,11 @@ export default function AdvancementsPage() {
     const failedMessages: string[] = [];
 
     for (const scout of bulkSelectedScouts) {
+      if (scout.status !== "active") {
+        failedMessages.push(`${scout.name}: 비활동 또는 졸업 상태로 판정 제외`);
+        continue;
+      }
+
       if (isCubScoutByGrade(scout)) {
         failedMessages.push(`${scout.name}: 컵스카우트 자동진급 대상`);
         continue;
@@ -2140,20 +2200,21 @@ export default function AdvancementsPage() {
     }
   };
 
-  const advancementTargetCount = advancementFilterCounts.all ?? scouts.length;
+  const advancementTargetCount =
+    advancementFilterCounts.all ?? statusFilteredScouts.length;
 
-  const promotionReadyCount = scouts.filter((scout) =>
+  const promotionReadyCount = statusFilteredScouts.filter((scout) =>
     isScoutMatchedAdvancementFilter(scout, "ready"),
   ).length;
 
-  const conditionSupportNeededCount = scouts.filter(
+  const conditionSupportNeededCount = statusFilteredScouts.filter(
     (scout) =>
       isScoutMatchedAdvancementFilter(scout, "period") ||
       isScoutMatchedAdvancementFilter(scout, "badge") ||
       isScoutMatchedAdvancementFilter(scout, "program"),
   ).length;
 
-  const notReviewedCount = scouts.filter((scout) =>
+  const notReviewedCount = statusFilteredScouts.filter((scout) =>
     isScoutMatchedAdvancementFilter(scout, "not_reviewed"),
   ).length;
 
@@ -2181,19 +2242,19 @@ export default function AdvancementsPage() {
 
   const getSummaryCardScouts = (type: SummaryCardType) => {
     if (type === "target") {
-      return scouts
+      return statusFilteredScouts
         .filter((scout) => isScoutMatchedAdvancementFilter(scout, "all"))
         .sort(compareScoutSortValues);
     }
 
     if (type === "ready") {
-      return scouts
+      return statusFilteredScouts
         .filter((scout) => isScoutMatchedAdvancementFilter(scout, "ready"))
         .sort(compareScoutSortValues);
     }
 
     if (type === "support") {
-      return scouts
+      return statusFilteredScouts
         .filter(
           (scout) =>
             isScoutMatchedAdvancementFilter(scout, "period") ||
@@ -2203,7 +2264,7 @@ export default function AdvancementsPage() {
         .sort(compareScoutSortValues);
     }
 
-    return scouts
+    return statusFilteredScouts
       .filter((scout) => isScoutMatchedAdvancementFilter(scout, "not_reviewed"))
       .sort(compareScoutSortValues);
   };
@@ -2373,23 +2434,43 @@ export default function AdvancementsPage() {
 
         <div style={advancementSearchPanelStyle}>
           <div style={advancementSearchControlStyle}>
-            <h3 style={advancementSearchTitleStyle}>검색</h3>
-
             <input
-              style={searchInputStyle}
+              style={advancementSearchInputStyle}
               type="search"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               placeholder="대원번호, 이름, 급위, 보완 항목 검색"
+              aria-label="검색"
             />
 
-            {keyword.trim().length > 0 && (
+            <label style={advancementStatusFieldStyle}>
+              대원 상태
+              <select
+                style={advancementStatusSelectStyle}
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as ScoutStatusFilter);
+                  setBulkSelectedScoutIds([]);
+                }}
+              >
+                <option value="active">활동</option>
+                <option value="inactive">비활동</option>
+                <option value="graduated">졸업</option>
+                <option value="all">전체</option>
+              </select>
+            </label>
+
+            {(keyword.trim().length > 0 || statusFilter !== "active") && (
               <button
                 type="button"
                 style={secondaryButtonStyle}
-                onClick={() => setKeyword("")}
+                onClick={() => {
+                  setKeyword("");
+                  setStatusFilter("active");
+                  setBulkSelectedScoutIds([]);
+                }}
               >
-                검색 초기화
+                검색 조건 초기화
               </button>
             )}
 
@@ -2397,7 +2478,9 @@ export default function AdvancementsPage() {
               새로고침
             </button>
 
-            <div style={advancementSearchCountStyle}>현재 {filteredScouts.length}명</div>
+            <div style={advancementSearchCountStyle}>
+              표시 {filteredScouts.length}명 / 전체 {scouts.length}명
+            </div>
           </div>
 
           {isBulkActionBarVisible && (
@@ -2559,7 +2642,20 @@ export default function AdvancementsPage() {
         {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
 
         {!loading && !errorMessage && filteredScouts.length === 0 && (
-          <EmptyState title="현재 조건에 맞는 대원이 없습니다" description="조회 구분을 변경하거나 대원 정보를 먼저 확인하세요." />
+          <EmptyState
+            title={
+              keyword.trim()
+                ? "검색 조건에 맞는 대원이 없습니다."
+                : statusFilter === "active"
+                  ? "현재 활동 중인 대원이 없습니다."
+                  : statusFilter === "inactive"
+                    ? "비활동 대원이 없습니다."
+                    : statusFilter === "graduated"
+                      ? "졸업 대원이 없습니다."
+                      : "조건에 맞는 대원이 없습니다."
+            }
+            description="조회 구분이나 대원 상태를 변경해 다시 확인해 주세요."
+          />
         )}
 
         {!loading && !errorMessage && filteredScouts.length > 0 && (
@@ -2626,7 +2722,9 @@ export default function AdvancementsPage() {
                               bulkApprovalSubmitting
                             }
                             title={
-                              isBulkReviewSelectableScout(scout)
+                              scout.status !== "active"
+                                ? "비활동 또는 졸업 대원은 신규 진급 판정 및 인가 대상에서 제외됩니다."
+                                : isBulkReviewSelectableScout(scout)
                                 ? "진급 판정 대상 선택"
                                 : "현재 급위가 없거나 다음 급위가 없어 진급 판정할 수 없습니다."
                             }
@@ -2804,6 +2902,12 @@ export default function AdvancementsPage() {
                   별도의 스카우트 진급 판정은 진행하지 않습니다.
                 </div>
               )}
+
+              {selectedScout.status !== "active" && (
+                <div style={noticeBoxStyle}>
+                  비활동 또는 졸업 대원은 신규 진급 판정 및 인가 대상에서 제외됩니다.
+                </div>
+              )}
             </div>
 
             {getMissingPriorRankHistories(selectedScout).length > 0 && (
@@ -2830,6 +2934,12 @@ export default function AdvancementsPage() {
                     type="button"
                     style={primaryButtonStyle}
                     onClick={() => handleOpenInitialBeginnerApproval(selectedScout)}
+                    disabled={selectedScout.status !== "active"}
+                    title={
+                      selectedScout.status === "active"
+                        ? "초급 인가 등록"
+                        : "비활동 또는 졸업 대원은 신규 인가 대상에서 제외됩니다."
+                    }
                   >
                     초급 인가 등록
                   </button>
@@ -2902,7 +3012,10 @@ export default function AdvancementsPage() {
                       <button
                         type="submit"
                         style={submitButtonStyle}
-                        disabled={initialApprovalSubmitting}
+                        disabled={
+                          initialApprovalSubmitting ||
+                          selectedScout.status !== "active"
+                        }
                       >
                         {initialApprovalSubmitting ? "저장 중..." : "초급 인가 저장"}
                       </button>
@@ -3052,7 +3165,10 @@ export default function AdvancementsPage() {
                   <button
                     type="submit"
                     style={primaryButtonStyle}
-                    disabled={promotionReviewSubmitting}
+                    disabled={
+                      promotionReviewSubmitting ||
+                      selectedScout.status !== "active"
+                    }
                   >
                     {promotionReviewSubmitting ? "판정 중..." : "판정 실행"}
                   </button>
@@ -3295,6 +3411,12 @@ export default function AdvancementsPage() {
                               type="button"
                               style={submitButtonStyle}
                               onClick={() => handleOpenPromotionApproval(activeSelectedReview)}
+                              disabled={selectedScout.status !== "active"}
+                              title={
+                                selectedScout.status === "active"
+                                  ? "진급 인가 등록"
+                                  : "비활동 또는 졸업 대원은 신규 인가 대상에서 제외됩니다."
+                              }
                             >
                               진급 인가 등록
                             </button>
@@ -3346,7 +3468,10 @@ export default function AdvancementsPage() {
                                   type="button"
                                   style={secondaryButtonStyle}
                                   onClick={handleClosePromotionApproval}
-                                  disabled={promotionApprovalSubmitting}
+                                  disabled={
+                                    promotionApprovalSubmitting ||
+                                    selectedScout.status !== "active"
+                                  }
                                 >
                                   취소
                                 </button>
@@ -3739,23 +3864,16 @@ const toolbarStyle: CSSProperties = {
 };
 
 const advancementSearchPanelStyle: CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: "12px",
+  padding: "8px 10px",
+  borderRadius: "10px",
   border: "1px solid #e5e7eb",
   backgroundColor: "#ffffff",
   marginBottom: "10px",
 };
 
-const advancementSearchTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "16px",
-  fontWeight: 800,
-  color: "#0f172a",
-};
-
 const advancementSearchCountStyle: CSSProperties = {
-  marginLeft: "auto",
-  padding: "7px 10px",
+  flexShrink: 0,
+  padding: "6px 10px",
   borderRadius: "999px",
   backgroundColor: "#eff6ff",
   color: "#1d4ed8",
@@ -3768,7 +3886,37 @@ const advancementSearchControlStyle: CSSProperties = {
   display: "flex",
   gap: "8px",
   alignItems: "center",
-  flexWrap: "wrap",
+  flexWrap: "nowrap",
+};
+
+const advancementSearchInputStyle: CSSProperties = {
+  flex: "1 1 auto",
+  minWidth: "180px",
+  width: "auto",
+  padding: "7px 10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+};
+
+const advancementStatusFieldStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "3px",
+  flex: "0 0 120px",
+  width: "120px",
+  color: "#334155",
+  fontSize: "12px",
+  fontWeight: 700,
+};
+
+const advancementStatusSelectStyle: CSSProperties = {
+  width: "100%",
+  padding: "7px 8px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  backgroundColor: "#ffffff",
 };
 
 const sectionTitleStyle: CSSProperties = {
@@ -3790,14 +3938,6 @@ const sectionDescriptionStyle: CSSProperties = {
   marginTop: "5px",
   marginBottom: 0,
   color: "#64748b",
-};
-
-const searchInputStyle: CSSProperties = {
-  width: "min(100%, 420px)",
-  padding: "9px 11px",
-  border: "1px solid #cbd5e1",
-  borderRadius: "8px",
-  fontSize: "14px",
 };
 
 const primaryButtonStyle: CSSProperties = {
