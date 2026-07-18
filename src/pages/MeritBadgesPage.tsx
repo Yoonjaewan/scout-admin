@@ -1875,6 +1875,28 @@ export default function MeritBadgesPage() {
               대원별 기능장 취득 내역을 확인하고 필요한 기록을 등록·수정합니다.
             </p>
           </div>
+
+          {canManageBadges && (
+            <div style={toolbarRightStyle}>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={handleOpenCreateForm}
+                disabled={
+                  Boolean(selectedScoutId) &&
+                  scoutMap.get(selectedScoutId)?.status !== "active"
+                }
+                title={
+                  selectedScoutId &&
+                  scoutMap.get(selectedScoutId)?.status !== "active"
+                    ? "비활동 또는 졸업 대원에게는 새 기능장을 등록할 수 없습니다."
+                    : "기능장 등록"
+                }
+              >
+                기능장 등록
+              </button>
+            </div>
+          )}
         </div>
 
         <div style={listToolPanelStyle}>
@@ -1956,31 +1978,39 @@ export default function MeritBadgesPage() {
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               placeholder="대원번호, 이름, 기능장명 검색"
+              aria-label="검색"
             />
 
-            <div style={listToolActionsStyle}>
-              {canManageBadges && (
-                <button
-                  type="button"
-                  style={primaryButtonStyle}
-                  onClick={handleOpenCreateForm}
-                  disabled={
-                    Boolean(selectedScoutId) &&
-                    scoutMap.get(selectedScoutId)?.status !== "active"
-                  }
-                  title={
-                    selectedScoutId &&
-                    scoutMap.get(selectedScoutId)?.status !== "active"
-                      ? "비활동 또는 졸업 대원에게는 새 기능장을 등록할 수 없습니다."
-                      : "기능장 등록"
-                  }
-                >
-                  기능장 등록
-                </button>
-              )}
+            {(keyword.trim().length > 0 ||
+              statusFilter !== "active" ||
+              selectedScoutId !== "" ||
+              selectedCategoryId !== "" ||
+              badgeWorkFilter !== "all") && (
+              <button
+                type="button"
+                style={listToolResetButtonStyle}
+                onClick={() => {
+                  setKeyword("");
+                  setStatusFilter("active");
+                  handleChangeSelectedScoutId("");
+                  setSelectedCategoryId("");
+                  setBadgeWorkFilter("all");
+                  setSelectedScoutBadgeId("");
+                  setSelectedSummaryScoutId("");
+                  setEditErrorMessage("");
+                }}
+              >
+                초기화
+              </button>
+            )}
 
-              <button type="button" style={secondaryButtonStyle} onClick={loadData}>새로고침</button>
-              <div style={listCountBadgeStyle}>현재 {filteredScoutBadges.length}건</div>
+            <button type="button" style={secondaryButtonStyle} onClick={loadData}>
+              새로고침
+            </button>
+
+            <div style={listCountInfoStyle}>
+              조회 결과{" "}
+              <span style={listCountNumberStyle}>{filteredScoutBadges.length}</span>건
             </div>
           </div>
         </div>
@@ -3131,28 +3161,37 @@ const listToolSearchInputStyle: CSSProperties = {
   ...searchInputStyle,
   flex: "1 1 220px",
   width: "auto",
+  maxWidth: "420px",
   minWidth: "180px",
   padding: "8px 10px",
   fontSize: "13.5px",
 };
 
-const listToolActionsStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "flex-end",
-  gap: "8px",
-  flex: "0 0 auto",
-  flexWrap: "nowrap",
+const listToolResetButtonStyle: CSSProperties = {
+  flexShrink: 0,
+  padding: 0,
+  border: "none",
+  backgroundColor: "transparent",
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 600,
+  cursor: "pointer",
+  textDecoration: "underline",
+  textUnderlineOffset: "2px",
+  whiteSpace: "nowrap",
 };
 
-const listCountBadgeStyle: CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: "999px",
-  backgroundColor: "#eff6ff",
-  color: "#1d4ed8",
+const listCountInfoStyle: CSSProperties = {
+  flexShrink: 0,
+  color: "#64748b",
   fontSize: "13px",
-  fontWeight: 900,
+  fontWeight: 500,
   whiteSpace: "nowrap",
+};
+
+const listCountNumberStyle: CSSProperties = {
+  color: "#334155",
+  fontWeight: 700,
 };
 
 const requiredStyle: CSSProperties = {

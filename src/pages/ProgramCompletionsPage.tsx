@@ -1351,6 +1351,19 @@ export default function ProgramCompletionsPage() {
               전체 대원을 기준으로 WSEP / MoP 이수 여부를 확인하고, 선택 대원은 일괄 등록할 수 있습니다.
             </p>
           </div>
+
+          {canManagePrograms && (
+            <div style={toolbarRightStyle}>
+              <button
+                type="button"
+                style={selectedScoutIds.length > 0 ? bulkButtonStyle : disabledBulkButtonStyle}
+                onClick={handleOpenBulkForm}
+                disabled={selectedScoutIds.length === 0}
+              >
+                선택 대원 일괄 등록
+              </button>
+            </div>
+          )}
         </div>
 
         <div style={listToolPanelStyle}>
@@ -1442,25 +1455,40 @@ export default function ProgramCompletionsPage() {
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               placeholder="대원명, 대원번호, 수료증번호 검색"
+              aria-label="검색"
             />
 
-            <div style={listToolActionsStyle}>
-              {canManagePrograms && (
-                <button
-                  type="button"
-                  style={selectedScoutIds.length > 0 ? bulkButtonStyle : disabledBulkButtonStyle}
-                  onClick={handleOpenBulkForm}
-                  disabled={selectedScoutIds.length === 0}
-                >
-                  선택 대원 일괄 등록
-                </button>
-              )}
-
-              <button type="button" style={secondaryButtonStyle} onClick={loadData}>
-                새로고침
+            {(keyword.trim().length > 0 ||
+              statusFilter !== "active" ||
+              selectedScoutId !== "" ||
+              progressFilter !== "all" ||
+              selectedProgramType !== "") && (
+              <button
+                type="button"
+                style={listToolResetButtonStyle}
+                onClick={() => {
+                  setKeyword("");
+                  setStatusFilter("active");
+                  handleChangeSelectedScoutId("");
+                  setProgressFilter("all");
+                  setSelectedProgramType("");
+                  setSelectedScoutIds([]);
+                  setSelectedCompletionId("");
+                }}
+              >
+                초기화
               </button>
+            )}
 
-              <div style={listCountBadgeStyle}>현재 {filteredScouts.length}건</div>
+            <button type="button" style={secondaryButtonStyle} onClick={loadData}>
+              새로고침
+            </button>
+
+            <div style={listCountInfoStyle}>
+              조회 결과{" "}
+              <span style={listCountNumberStyle}>{filteredScouts.length}</span>
+              명 · 전체{" "}
+              <span style={listCountNumberStyle}>{scouts.length}</span>명
             </div>
           </div>
         </div>
@@ -2311,6 +2339,14 @@ const toolbarStyle: CSSProperties = {
   marginBottom: "16px",
 };
 
+const toolbarRightStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+  gap: "8px",
+  alignItems: "center",
+};
+
 const listToolPanelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -2359,6 +2395,7 @@ const listToolSelectStyle: CSSProperties = {
 const listToolSearchInputStyle: CSSProperties = {
   flex: "1 1 220px",
   width: "auto",
+  maxWidth: "420px",
   minWidth: "180px",
   padding: "8px 10px",
   border: "1px solid #cbd5e1",
@@ -2367,23 +2404,31 @@ const listToolSearchInputStyle: CSSProperties = {
   backgroundColor: "#ffffff",
 };
 
-const listToolActionsStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "flex-end",
-  gap: "8px",
-  flex: "0 0 auto",
-  flexWrap: "nowrap",
+const listToolResetButtonStyle: CSSProperties = {
+  flexShrink: 0,
+  padding: 0,
+  border: "none",
+  backgroundColor: "transparent",
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 600,
+  cursor: "pointer",
+  textDecoration: "underline",
+  textUnderlineOffset: "2px",
+  whiteSpace: "nowrap",
 };
 
-const listCountBadgeStyle: CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: "999px",
-  backgroundColor: "#eff6ff",
-  color: "#1d4ed8",
+const listCountInfoStyle: CSSProperties = {
+  flexShrink: 0,
+  color: "#64748b",
   fontSize: "13px",
-  fontWeight: 900,
+  fontWeight: 500,
   whiteSpace: "nowrap",
+};
+
+const listCountNumberStyle: CSSProperties = {
+  color: "#334155",
+  fontWeight: 700,
 };
 
 const sectionTitleStyle: CSSProperties = {

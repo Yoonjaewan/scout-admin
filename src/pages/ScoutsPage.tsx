@@ -4326,16 +4326,28 @@ export default function ScoutsPage() {
         )}
 
         <div style={listSearchPanelStyle}>
-          <label style={searchFieldLabelStyle}>
-            검색 조건
-            <input
-              style={searchInputStyle}
-              type="search"
-              value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
-              placeholder="대원번호, 이름, 학년, 급위 검색"
-            />
-          </label>
+          <input
+            style={searchInputStyle}
+            type="search"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            placeholder="대원번호, 이름, 학년, 급위 검색"
+            aria-label="검색"
+          />
+
+          {(keyword.trim().length > 0 || sectionFilter !== "all" || statusFilter !== "active") && (
+            <button
+              type="button"
+              style={searchResetButtonStyle}
+              onClick={() => {
+                setKeyword("");
+                setSectionFilter("all");
+                setStatusFilter("active");
+              }}
+            >
+              초기화
+            </button>
+          )}
 
           <label style={filterFieldLabelStyle}>
             구분
@@ -4368,23 +4380,16 @@ export default function ScoutsPage() {
             </select>
           </label>
 
-          <div style={searchResultInfoStyle}>
-            표시 {filteredScouts.length}명 / 전체 {scouts.length}명
-          </div>
+          <button type="button" style={secondaryButtonStyle} onClick={loadData}>
+            새로고침
+          </button>
 
-          {(keyword.trim().length > 0 || sectionFilter !== "all" || statusFilter !== "active") && (
-            <button
-              type="button"
-              style={secondaryButtonStyle}
-              onClick={() => {
-                setKeyword("");
-                setSectionFilter("all");
-                setStatusFilter("active");
-              }}
-            >
-              조건 초기화
-            </button>
-          )}
+          <div style={searchResultInfoStyle}>
+            조회 결과{" "}
+            <span style={searchResultNumberStyle}>{filteredScouts.length}</span>
+            명 · 전체{" "}
+            <span style={searchResultNumberStyle}>{scouts.length}</span>명
+          </div>
         </div>
 
         {isCreateFormOpen &&
@@ -6282,47 +6287,52 @@ const toolbarRightStyle: CSSProperties = {
 
 const listSearchPanelStyle: CSSProperties = {
   display: "flex",
-  alignItems: "flex-end",
-  justifyContent: "space-between",
-  gap: "12px",
-  padding: "10px 12px",
-  marginBottom: "12px",
-  border: "1px solid #e5e7eb",
-  borderRadius: "12px",
-  backgroundColor: "#f8fafc",
   flexWrap: "wrap",
-};
-
-const searchFieldLabelStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "4px",
-  minWidth: "280px",
-  flex: "1 1 420px",
-  color: "#334155",
-  fontSize: "14px",
-  fontWeight: 800,
+  alignItems: "flex-end",
+  gap: "8px",
+  padding: "6px 10px",
+  marginBottom: "8px",
+  border: "1px solid #e5e7eb",
+  borderRadius: "10px",
+  backgroundColor: "#f8fafc",
 };
 
 const filterFieldLabelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "4px",
-  minWidth: "138px",
+  gap: "2px",
+  flex: "0 0 132px",
+  width: "132px",
   color: "#334155",
-  fontSize: "14px",
+  fontSize: "11.5px",
   fontWeight: 800,
 };
 
-const searchResultInfoStyle: CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: "8px",
-  backgroundColor: "#ffffff",
-  border: "1px solid #e5e7eb",
-  color: "#475569",
-  fontSize: "14px",
-  fontWeight: 700,
+const searchResetButtonStyle: CSSProperties = {
+  flexShrink: 0,
+  padding: 0,
+  border: "none",
+  backgroundColor: "transparent",
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 600,
+  cursor: "pointer",
+  textDecoration: "underline",
+  textUnderlineOffset: "2px",
   whiteSpace: "nowrap",
+};
+
+const searchResultInfoStyle: CSSProperties = {
+  flexShrink: 0,
+  color: "#64748b",
+  fontSize: "13px",
+  fontWeight: 500,
+  whiteSpace: "nowrap",
+};
+
+const searchResultNumberStyle: CSSProperties = {
+  color: "#334155",
+  fontWeight: 700,
 };
 
 const sectionTitleStyle: CSSProperties = {
@@ -6339,8 +6349,11 @@ const sectionDescriptionStyle: CSSProperties = {
 };
 
 const searchInputStyle: CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
+  flex: "1 1 280px",
+  width: "auto",
+  maxWidth: "520px",
+  minWidth: "220px",
+  padding: "7px 10px",
   border: "1px solid #cbd5e1",
   borderRadius: "8px",
   fontSize: "14px",
@@ -6348,12 +6361,13 @@ const searchInputStyle: CSSProperties = {
 };
 
 const filterSelectStyle: CSSProperties = {
-  minWidth: "150px",
-  height: "40px",
-  padding: "0 10px",
+  width: "100%",
+  minWidth: 0,
+  height: "34px",
+  padding: "0 8px",
   border: "1px solid #cbd5e1",
   borderRadius: "8px",
-  fontSize: "14px",
+  fontSize: "13.5px",
   backgroundColor: "#ffffff",
 };
 

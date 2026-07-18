@@ -2433,54 +2433,64 @@ export default function AdvancementsPage() {
         </section>
 
         <div style={advancementSearchPanelStyle}>
-          <div style={advancementSearchControlStyle}>
-            <input
-              style={advancementSearchInputStyle}
-              type="search"
-              value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
-              placeholder="대원번호, 이름, 급위, 보완 항목 검색"
-              aria-label="검색"
-            />
+          <input
+            style={advancementSearchInputStyle}
+            type="search"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            placeholder="대원번호, 이름, 급위, 보완 항목 검색"
+            aria-label="검색"
+          />
 
-            <label style={advancementStatusFieldStyle}>
-              대원 상태
-              <select
-                style={advancementStatusSelectStyle}
-                value={statusFilter}
-                onChange={(event) => {
-                  setStatusFilter(event.target.value as ScoutStatusFilter);
-                  setBulkSelectedScoutIds([]);
-                }}
-              >
-                <option value="active">활동</option>
-                <option value="inactive">비활동</option>
-                <option value="graduated">졸업</option>
-                <option value="all">전체</option>
-              </select>
-            </label>
-
-            {(keyword.trim().length > 0 || statusFilter !== "active") && (
-              <button
-                type="button"
-                style={secondaryButtonStyle}
-                onClick={() => {
-                  setKeyword("");
-                  setStatusFilter("active");
-                  setBulkSelectedScoutIds([]);
-                }}
-              >
-                검색 조건 초기화
-              </button>
-            )}
-
-            <button type="button" style={secondaryButtonStyle} onClick={loadData}>
-              새로고침
+          {(keyword.trim().length > 0 || statusFilter !== "active") && (
+            <button
+              type="button"
+              style={advancementSearchResetButtonStyle}
+              onClick={() => {
+                setKeyword("");
+                setStatusFilter("active");
+                setBulkSelectedScoutIds([]);
+              }}
+            >
+              초기화
             </button>
+          )}
 
-            <div style={advancementSearchCountStyle}>
-              표시 {filteredScouts.length}명 / 전체 {scouts.length}명
-            </div>
+          <label style={advancementStatusFieldStyle}>
+            대원 상태
+            <select
+              style={advancementStatusSelectStyle}
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value as ScoutStatusFilter);
+                setBulkSelectedScoutIds([]);
+              }}
+            >
+              <option value="active">활동</option>
+              <option value="inactive">비활동</option>
+              <option value="graduated">졸업</option>
+              <option value="all">전체</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            style={{ ...secondaryButtonStyle, flexShrink: 0, whiteSpace: "nowrap" }}
+            onClick={loadData}
+          >
+            새로고침
+          </button>
+
+          <div style={advancementSearchCountStyle}>
+            조회 결과{" "}
+            <span style={advancementSearchCountNumberStyle}>
+              {filteredScouts.length}
+            </span>
+            명 · 전체{" "}
+            <span style={advancementSearchCountNumberStyle}>
+              {scouts.length}
+            </span>
+            명
           </div>
 
           {isBulkActionBarVisible && (
@@ -2660,7 +2670,22 @@ export default function AdvancementsPage() {
 
         {!loading && !errorMessage && filteredScouts.length > 0 && (
           <div style={tableWrapStyle}>
-            <table style={tableStyle}>
+            <table style={advancementListTableStyle}>
+              <colgroup>
+                {canManageAdvancements && <col style={advancementColSelectStyle} />}
+                <col style={advancementColMemberNoStyle} />
+                <col style={advancementColNameStyle} />
+                {isSuperAdmin && <col style={advancementColOrganizationStyle} />}
+                <col style={advancementColGradeStyle} />
+                <col style={advancementColSectionStyle} />
+                <col style={advancementColCurrentRankStyle} />
+                <col style={advancementColNextRankStyle} />
+                <col style={advancementColExpectedDateStyle} />
+                <col style={advancementColJudgmentStyle} />
+                <col style={advancementColSupportStyle} />
+                <col style={advancementColStatusStyle} />
+                <col style={advancementColDetailStyle} />
+              </colgroup>
               <thead>
                 <tr>
                   {canManageAdvancements && (
@@ -2692,7 +2717,7 @@ export default function AdvancementsPage() {
                   {renderSortableHeader("next_rank", "다음 급위", "center")}
                   {renderSortableHeader("expected_date", "예상 진급일", "center")}
                   <th style={centerThStyle}>판정 상태</th>
-                  <th style={thStyle}>확인·보완 항목</th>
+                  <th style={supportSummaryThStyle}>확인·보완 항목</th>
                   {renderSortableHeader("status", "활동 상태", "center")}
                   <th style={centerThStyle}>상세</th>
                 </tr>
@@ -2705,6 +2730,7 @@ export default function AdvancementsPage() {
                     ? expectedDateText
                     : null;
                   const expectedDateStatus = getDateStatusLabel(expectedDate);
+                  const supportSummary = getAdvancementSupportSummary(scout);
 
                   return (
                     <tr key={scout.id} style={tableDataRowStyle}>
@@ -2754,7 +2780,9 @@ export default function AdvancementsPage() {
                         </span>
                       </td>
                       <td style={supportSummaryTdStyle}>
-                        {getAdvancementSupportSummary(scout)}
+                        <span style={supportSummaryTextStyle} title={supportSummary}>
+                          {supportSummary}
+                        </span>
                       </td>
                       <td style={centerTdStyle}>
                         <span style={getStatusBadgeStyle(scout.status)}>
@@ -3864,59 +3892,75 @@ const toolbarStyle: CSSProperties = {
 };
 
 const advancementSearchPanelStyle: CSSProperties = {
-  padding: "8px 10px",
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "flex-end",
+  gap: "8px",
+  padding: "6px 10px",
   borderRadius: "10px",
   border: "1px solid #e5e7eb",
   backgroundColor: "#ffffff",
-  marginBottom: "10px",
-};
-
-const advancementSearchCountStyle: CSSProperties = {
-  flexShrink: 0,
-  padding: "6px 10px",
-  borderRadius: "999px",
-  backgroundColor: "#eff6ff",
-  color: "#1d4ed8",
-  fontSize: "13px",
-  fontWeight: 800,
-  whiteSpace: "nowrap",
-};
-
-const advancementSearchControlStyle: CSSProperties = {
-  display: "flex",
-  gap: "8px",
-  alignItems: "center",
-  flexWrap: "nowrap",
+  marginBottom: "8px",
 };
 
 const advancementSearchInputStyle: CSSProperties = {
-  flex: "1 1 auto",
-  minWidth: "180px",
+  flex: "1 1 280px",
   width: "auto",
+  maxWidth: "520px",
+  minWidth: "220px",
   padding: "7px 10px",
   border: "1px solid #cbd5e1",
   borderRadius: "8px",
   fontSize: "14px",
+  backgroundColor: "#ffffff",
 };
 
 const advancementStatusFieldStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "3px",
-  flex: "0 0 120px",
-  width: "120px",
+  gap: "2px",
+  flex: "0 0 132px",
+  width: "132px",
   color: "#334155",
-  fontSize: "12px",
+  fontSize: "11.5px",
   fontWeight: 700,
 };
 
 const advancementStatusSelectStyle: CSSProperties = {
   width: "100%",
-  padding: "7px 8px",
+  height: "34px",
+  padding: "0 8px",
   border: "1px solid #cbd5e1",
   borderRadius: "8px",
-  fontSize: "14px",
+  fontSize: "13.5px",
   backgroundColor: "#ffffff",
+};
+
+const advancementSearchResetButtonStyle: CSSProperties = {
+  flexShrink: 0,
+  padding: "0",
+  border: "none",
+  backgroundColor: "transparent",
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 600,
+  cursor: "pointer",
+  textDecoration: "underline",
+  textUnderlineOffset: "2px",
+  whiteSpace: "nowrap",
+};
+
+const advancementSearchCountStyle: CSSProperties = {
+  flexShrink: 0,
+  color: "#64748b",
+  fontSize: "13px",
+  fontWeight: 500,
+  whiteSpace: "nowrap",
+};
+
+const advancementSearchCountNumberStyle: CSSProperties = {
+  color: "#334155",
+  fontWeight: 700,
 };
 
 const sectionTitleStyle: CSSProperties = {
@@ -4171,6 +4215,25 @@ const tableStyle: CSSProperties = {
   fontSize: "13.5px",
 };
 
+const advancementListTableStyle: CSSProperties = {
+  ...tableStyle,
+  minWidth: "1500px",
+};
+
+const advancementColSelectStyle: CSSProperties = { width: "56px" };
+const advancementColMemberNoStyle: CSSProperties = { width: "115px" };
+const advancementColNameStyle: CSSProperties = { width: "100px" };
+const advancementColOrganizationStyle: CSSProperties = { width: "130px" };
+const advancementColGradeStyle: CSSProperties = { width: "130px" };
+const advancementColSectionStyle: CSSProperties = { width: "100px" };
+const advancementColCurrentRankStyle: CSSProperties = { width: "108px" };
+const advancementColNextRankStyle: CSSProperties = { width: "112px" };
+const advancementColExpectedDateStyle: CSSProperties = { width: "160px" };
+const advancementColJudgmentStyle: CSSProperties = { width: "130px" };
+const advancementColSupportStyle: CSSProperties = { width: "240px" };
+const advancementColStatusStyle: CSSProperties = { width: "96px" };
+const advancementColDetailStyle: CSSProperties = { width: "70px" };
+
 const thStyle: CSSProperties = {
   position: "sticky",
   top: 0,
@@ -4264,7 +4327,6 @@ const expectedDateInlineStyle: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-
 const advancementStatusBadgeBaseStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
@@ -4313,13 +4375,31 @@ const advancementNeutralBadgeStyle: CSSProperties = {
   color: "#475569",
 };
 
+const supportSummaryThStyle: CSSProperties = {
+  ...thStyle,
+  minWidth: "240px",
+  whiteSpace: "nowrap",
+};
+
 const supportSummaryTdStyle: CSSProperties = {
   ...tdStyle,
-  minWidth: "170px",
+  minWidth: "240px",
+  width: "240px",
   color: "#334155",
   fontWeight: 700,
   whiteSpace: "normal",
-  lineHeight: 1.4,
+  verticalAlign: "middle",
+};
+
+const supportSummaryTextStyle: CSSProperties = {
+  display: "-webkit-box",
+  WebkitBoxOrient: "vertical",
+  WebkitLineClamp: 2,
+  overflow: "hidden",
+  whiteSpace: "normal",
+  wordBreak: "keep-all",
+  overflowWrap: "break-word",
+  lineHeight: 1.45,
 };
 
 const statusBadgeStyle: CSSProperties = {

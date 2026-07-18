@@ -219,10 +219,52 @@ function compareText(a: string, b: string) {
   return a.localeCompare(b, "ko-KR", { numeric: true, sensitivity: "base" });
 }
 
+type AttendanceOverviewLayout = "wide" | "medium" | "narrow" | "mobile";
+
+function getAttendanceOverviewLayout(width: number): AttendanceOverviewLayout {
+  if (width >= 1400) return "wide";
+  if (width >= 900) return "medium";
+  if (width >= 600) return "narrow";
+  return "mobile";
+}
+
+function getAttendanceOverviewGridStyle(
+  layout: AttendanceOverviewLayout,
+): CSSProperties {
+  if (layout === "wide") {
+    return {
+      ...attendanceOverviewGridBaseStyle,
+      gridTemplateColumns: "minmax(360px, 1.8fr) repeat(4, minmax(140px, 1fr))",
+    };
+  }
+
+  if (layout === "medium") {
+    return {
+      ...attendanceOverviewGridBaseStyle,
+      gridTemplateColumns: "repeat(4, minmax(140px, 1fr))",
+    };
+  }
+
+  if (layout === "narrow") {
+    return {
+      ...attendanceOverviewGridBaseStyle,
+      gridTemplateColumns: "repeat(2, minmax(140px, 1fr))",
+    };
+  }
+
+  return {
+    ...attendanceOverviewGridBaseStyle,
+    gridTemplateColumns: "1fr",
+  };
+}
+
 export default function MeetingsPage() {
   const meetingListRef = useRef<HTMLElement | null>(null);
   const attendanceSectionRef = useRef<HTMLElement | null>(null);
 
+  const [viewportWidth, setViewportWidth] = useState(
+    () => (typeof window !== "undefined" ? window.innerWidth : 1400),
+  );
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [ranks, setRanks] = useState<Rank[]>([]);
@@ -1373,6 +1415,31 @@ export default function MeetingsPage() {
     };
   }, [isPanelOpen]);
 
+  useEffect(() => {
+    const updateViewportWidth = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    updateViewportWidth();
+    window.addEventListener("resize", updateViewportWidth);
+
+    return () => {
+      window.removeEventListener("resize", updateViewportWidth);
+    };
+  }, []);
+
+  const attendanceOverviewLayout = getAttendanceOverviewLayout(viewportWidth);
+  const attendanceOverviewGridStyle = getAttendanceOverviewGridStyle(
+    attendanceOverviewLayout,
+  );
+  const selectedMeetingOverviewCardLayoutStyle: CSSProperties =
+    attendanceOverviewLayout === "wide"
+      ? selectedMeetingOverviewCardStyle
+      : {
+          ...selectedMeetingOverviewCardStyle,
+          gridColumn: "1 / -1",
+        };
+
   return (
     <div>
       <div style={pageHeaderStyle}>
@@ -1433,9 +1500,45 @@ export default function MeetingsPage() {
             </p>
           </div>
 
-          <div style={toolbarRightStyle}>
+          {canManageMeetings && (
+            <div style={toolbarRightStyle}>
+              <button type="button" style={primaryButtonStyle} onClick={handleOpenCreateForm}>
+                집회/활동 등록
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div style={listSearchPanelStyle}>
+          <input
+            style={listSearchInputStyle}
+            type="search"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            placeholder="집회명, 일자, 소속 검색"
+            aria-label="검색"
+          />
+
+          {(keyword.trim().length > 0 ||
+            selectedMeetingType !== "" ||
+            selectedMeetingStatus !== "") && (
+            <button
+              type="button"
+              style={listSearchResetButtonStyle}
+              onClick={() => {
+                setKeyword("");
+                setSelectedMeetingType("");
+                setSelectedMeetingStatus("");
+              }}
+            >
+              초기화
+            </button>
+          )}
+
+          <label style={listSearchFieldStyle}>
+            집회 유형
             <select
-              style={filterSelectStyle}
+              style={listSearchSelectStyle}
               value={selectedMeetingType}
               onChange={(event) => setSelectedMeetingType(event.target.value)}
             >
@@ -1446,9 +1549,12 @@ export default function MeetingsPage() {
                 </option>
               ))}
             </select>
+          </label>
 
+          <label style={listSearchFieldStyle}>
+            입력 상태
             <select
-              style={filterSelectStyle}
+              style={listSearchSelectStyle}
               value={selectedMeetingStatus}
               onChange={(event) =>
                 setSelectedMeetingStatus(
@@ -1462,24 +1568,15 @@ export default function MeetingsPage() {
               <option value="has_absence">결석 발생</option>
               <option value="attendance_target">출석률 산정 대상</option>
             </select>
+          </label>
 
-            <input
-              style={searchInputStyle}
-              type="search"
-              value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
-              placeholder="집회명, 일자, 소속 검색"
-            />
+          <button type="button" style={secondaryButtonStyle} onClick={loadData}>
+            새로고침
+          </button>
 
-            <button type="button" style={secondaryButtonStyle} onClick={loadData}>
-              새로고침
-            </button>
-
-            {canManageMeetings && (
-              <button type="button" style={primaryButtonStyle} onClick={handleOpenCreateForm}>
-                집회/활동 등록
-              </button>
-            )}
+          <div style={listSearchCountStyle}>
+            조회 결과{" "}
+            <span style={listSearchCountNumberStyle}>{filteredMeetings.length}</span>건
           </div>
         </div>
 
@@ -1627,8 +1724,8 @@ export default function MeetingsPage() {
         {selectedMeeting && (
           <>
             <div style={attendanceOverviewGridStyle}>
-              <section style={selectedMeetingOverviewCardStyle}>
-                <div>
+              <section style={selectedMeetingOverviewCardLayoutStyle}>
+                <div style={selectedMeetingTextStyle}>
                   <h3 style={selectedMeetingTitleStyle}>{selectedMeeting.title}</h3>
                   <p style={selectedMeetingDescriptionStyle}>
                     {formatDate(selectedMeeting.meeting_date)} · {getOrganizationName(selectedMeeting.organization_id)} · {MEETING_TYPE_LABELS[selectedMeeting.meeting_type] ?? selectedMeeting.meeting_type}
@@ -2271,21 +2368,77 @@ const sectionDescriptionStyle: CSSProperties = {
   lineHeight: 1.5,
 };
 
-const filterSelectStyle: CSSProperties = {
-  minWidth: "140px",
-  padding: "10px 12px",
+const listSearchPanelStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "flex-end",
+  gap: "8px",
+  padding: "6px 10px",
+  marginBottom: "8px",
+  border: "1px solid #e5e7eb",
+  borderRadius: "10px",
+  backgroundColor: "#f8fafc",
+};
+
+const listSearchFieldStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "2px",
+  flex: "0 0 150px",
+  width: "150px",
+  color: "#334155",
+  fontSize: "11.5px",
+  fontWeight: 800,
+};
+
+const listSearchSelectStyle: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  height: "34px",
+  padding: "0 8px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "13.5px",
+  backgroundColor: "#ffffff",
+};
+
+const listSearchInputStyle: CSSProperties = {
+  flex: "1 1 280px",
+  width: "auto",
+  maxWidth: "520px",
+  minWidth: "220px",
+  padding: "7px 10px",
   border: "1px solid #cbd5e1",
   borderRadius: "8px",
   fontSize: "14px",
   backgroundColor: "#ffffff",
 };
 
-const searchInputStyle: CSSProperties = {
-  width: "280px",
-  padding: "10px 12px",
-  border: "1px solid #cbd5e1",
-  borderRadius: "8px",
-  fontSize: "14px",
+const listSearchResetButtonStyle: CSSProperties = {
+  flexShrink: 0,
+  padding: 0,
+  border: "none",
+  backgroundColor: "transparent",
+  color: "#64748b",
+  fontSize: "12px",
+  fontWeight: 600,
+  cursor: "pointer",
+  textDecoration: "underline",
+  textUnderlineOffset: "2px",
+  whiteSpace: "nowrap",
+};
+
+const listSearchCountStyle: CSSProperties = {
+  flexShrink: 0,
+  color: "#64748b",
+  fontSize: "13px",
+  fontWeight: 500,
+  whiteSpace: "nowrap",
+};
+
+const listSearchCountNumberStyle: CSSProperties = {
+  color: "#334155",
+  fontWeight: 700,
 };
 
 const primaryButtonStyle: CSSProperties = {
@@ -2440,6 +2593,8 @@ const rowActionStyle: CSSProperties = {
 
 const targetBadgeStyle: CSSProperties = {
   display: "inline-flex",
+  flexShrink: 0,
+  alignSelf: "flex-start",
   padding: "4px 8px",
   borderRadius: "999px",
   backgroundColor: "#dcfce7",
@@ -2468,43 +2623,60 @@ const selectedMeetingTitleStyle: CSSProperties = {
   fontSize: "18px",
   fontWeight: 800,
   color: "#0f172a",
+  display: "-webkit-box",
+  WebkitBoxOrient: "vertical",
+  WebkitLineClamp: 2,
+  overflow: "hidden",
+  wordBreak: "keep-all",
+  overflowWrap: "break-word",
+  lineHeight: 1.35,
 };
 
 const selectedMeetingDescriptionStyle: CSSProperties = {
-  marginTop: "8px",
+  marginTop: "6px",
   marginBottom: 0,
   color: "#64748b",
-  lineHeight: 1.5,
+  lineHeight: 1.45,
+  whiteSpace: "normal",
+  wordBreak: "keep-all",
+  overflowWrap: "break-word",
 };
 
-const attendanceOverviewGridStyle: CSSProperties = {
+const attendanceOverviewGridBaseStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(320px, 1.5fr) repeat(4, minmax(120px, 1fr))",
-  gap: "8px",
+  gap: "12px",
   alignItems: "stretch",
-  marginBottom: "8px",
-  overflowX: "auto",
+  marginBottom: "10px",
 };
 
 const selectedMeetingOverviewCardStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
+  alignItems: "flex-start",
   gap: "12px",
-  minWidth: "320px",
-  padding: "10px 12px",
+  minWidth: 0,
+  padding: "12px 14px",
   border: "1px solid #e5e7eb",
   borderRadius: "9px",
   backgroundColor: "#f8fafc",
+  overflow: "hidden",
 };
 
+const selectedMeetingTextStyle: CSSProperties = {
+  flex: "1 1 auto",
+  minWidth: 0,
+};
 
 const miniSummaryCardStyle: CSSProperties = {
-  minWidth: "120px",
+  minWidth: 0,
+  minHeight: "76px",
   border: "1px solid #e5e7eb",
   borderRadius: "9px",
-  padding: "10px 12px",
+  padding: "12px 14px",
   backgroundColor: "#f8fafc",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
 };
 
 const miniSummaryTitleStyle: CSSProperties = {
@@ -2512,6 +2684,7 @@ const miniSummaryTitleStyle: CSSProperties = {
   fontSize: "13px",
   color: "#64748b",
   fontWeight: 800,
+  whiteSpace: "nowrap",
 };
 
 const miniSummaryValueStyle: CSSProperties = {
