@@ -18,6 +18,29 @@ type TestUser = {
 type CreatedCredential = TestUser & { password: string };
 type ResetFailure = { userId: string; message: string };
 
+type OrgAdminUser = {
+  id: string;
+  email: string;
+  full_name: string;
+  organization_id: string | null;
+  organization_name: string | null;
+  unit_number: string | null;
+  organization_status: string | null;
+  approval_status: string | null;
+  must_change_password: boolean;
+  can_reset_password: boolean;
+  reset_blocked_reason: string | null;
+};
+
+type OrgAdminResetResult = {
+  id: string;
+  email: string;
+  full_name: string;
+  organization_name: string | null;
+  unit_number: string | null;
+  temporary_password: string;
+};
+
 type FunctionResponse = {
   ok?: boolean;
   message?: string;
@@ -26,11 +49,58 @@ type FunctionResponse = {
   failures?: ResetFailure[];
 };
 
+type OrgAdminFunctionResponse = {
+  ok?: boolean;
+  message?: string;
+  users?: OrgAdminUser[];
+  temporary_password?: string;
+  user?: {
+    id?: string;
+    email?: string;
+    full_name?: string;
+    organization_name?: string | null;
+    unit_number?: string | null;
+  };
+};
+
+const ORG_STATUS_LABELS: Record<string, string> = {
+  active: "이용중",
+  suspended: "이용중지",
+  inactive: "이용중지",
+  closed: "이용종료",
+};
+
+const APPROVAL_STATUS_LABELS: Record<string, string> = {
+  approved: "승인",
+  pending: "승인대기",
+  rejected: "반려",
+};
+
 const ROLE_LABELS: Record<UserRole, string> = {
   org_admin: "조직관리자",
   leader: "지도자",
   viewer: "조회전용",
 };
+
+async function extractFunctionErrorMessage(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) return fallback;
+
+  let detailMessage = error.message;
+  const response = (error as { context?: Response }).context;
+  if (response) {
+    try {
+      const errorBody = (await response.clone().json()) as {
+        message?: string;
+        error?: string;
+      };
+      detailMessage = errorBody.message || errorBody.error || detailMessage;
+    } catch {
+      // 응답 본문이 JSON이 아니면 SDK 오류 문구를 사용합니다.
+    }
+  }
+
+  return detailMessage || fallback;
+}
 
 export default function UserManagementPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -52,6 +122,17 @@ export default function UserManagementPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
+  const [orgAdmins, setOrgAdmins] = useState<OrgAdminUser[]>([]);
+  const [loadingOrgAdmins, setLoadingOrgAdmins] = useState(false);
+  const [orgAdminErrorMessage, setOrgAdminErrorMessage] = useState("");
+  const [orgAdminSuccessMessage, setOrgAdminSuccessMessage] = useState("");
+  const [pendingOrgAdminReset, setPendingOrgAdminReset] = useState<OrgAdminUser | null>(null);
+  const [isOrgAdminResetConfirmOpen, setIsOrgAdminResetConfirmOpen] = useState(false);
+  const [orgAdminResetFormError, setOrgAdminResetFormError] = useState("");
+  const [orgAdminResetLoading, setOrgAdminResetLoading] = useState(false);
+  const [orgAdminResetResult, setOrgAdminResetResult] = useState<OrgAdminResetResult | null>(null);
+  const [isOrgAdminResetResultOpen, setIsOrgAdminResetResultOpen] = useState(false);
+
   const selectedOrganization = useMemo(
     () => organizations.find((item) => item.id === selectedOrganizationId) ?? null,
     [organizations, selectedOrganizationId],
@@ -64,29 +145,32 @@ export default function UserManagementPage() {
     );
 
     if (error) {
-      let detailMessage = error.message;
-
-      const response = (error as { context?: Response }).context;
-      if (response) {
-        try {
-          const errorBody = (await response.clone().json()) as {
-            message?: string;
-            error?: string;
-          };
-          detailMessage =
-            errorBody.message ||
-            errorBody.error ||
-            detailMessage;
-        } catch {
-          // 응답 본문이 JSON이 아니면 SDK 오류 문구를 사용합니다.
-        }
-      }
-
-      throw new Error(detailMessage);
+      throw new Error(await extractFunctionErrorMessage(error, "요청을 처리하지 못했습니다."));
     }
 
     if (!data?.ok) {
       throw new Error(data?.message || "요청을 처리하지 못했습니다.");
+    }
+
+    return data;
+  }, []);
+
+  const invokeOrgAdminPasswordFunction = useCallback(async (body: Record<string, unknown>) => {
+    const { data, error } = await supabase.functions.invoke<OrgAdminFunctionResponse>(
+      "manage-org-admin-password",
+      { body },
+    );
+
+    if (error) {
+      throw new Error(
+        await extractFunctionErrorMessage(error, "비밀번호를 초기화하지 못했습니다. 잠시 후 다시 시도하세요."),
+      );
+    }
+
+    if (!data?.ok) {
+      throw new Error(
+        data?.message || "비밀번호를 초기화하지 못했습니다. 잠시 후 다시 시도하세요.",
+      );
     }
 
     return data;
@@ -136,6 +220,22 @@ export default function UserManagementPage() {
     }
   }, [invokeFunction, selectedOrganizationId]);
 
+  const loadOrgAdmins = useCallback(async () => {
+    setLoadingOrgAdmins(true);
+    setOrgAdminErrorMessage("");
+    try {
+      const data = await invokeOrgAdminPasswordFunction({ action: "list" });
+      setOrgAdmins(data.users ?? []);
+    } catch (error) {
+      setOrgAdmins([]);
+      setOrgAdminErrorMessage(
+        error instanceof Error ? error.message : "소속대 관리자 목록을 불러오지 못했습니다.",
+      );
+    } finally {
+      setLoadingOrgAdmins(false);
+    }
+  }, [invokeOrgAdminPasswordFunction]);
+
   useEffect(() => {
     void loadOrganizations();
   }, [loadOrganizations]);
@@ -143,6 +243,10 @@ export default function UserManagementPage() {
   useEffect(() => {
     void loadUsers();
   }, [loadUsers]);
+
+  useEffect(() => {
+    void loadOrgAdmins();
+  }, [loadOrgAdmins]);
 
   const closeCredentialModal = () => {
     setIsCredentialModalOpen(false);
@@ -225,6 +329,108 @@ export default function UserManagementPage() {
     } finally {
       setResetPasswordFormLoading(false);
       setProcessing(false);
+    }
+  };
+
+  const openOrgAdminResetConfirm = (user: OrgAdminUser) => {
+    if (!user.can_reset_password) return;
+
+    setOrgAdminErrorMessage("");
+    setOrgAdminSuccessMessage("");
+    setOrgAdminResetFormError("");
+    setOrgAdminResetLoading(false);
+    setPendingOrgAdminReset(user);
+    setIsOrgAdminResetConfirmOpen(true);
+  };
+
+  const closeOrgAdminResetConfirm = () => {
+    if (orgAdminResetLoading) return;
+    setIsOrgAdminResetConfirmOpen(false);
+    setPendingOrgAdminReset(null);
+    setOrgAdminResetFormError("");
+    setOrgAdminResetLoading(false);
+  };
+
+  const closeOrgAdminResetResult = () => {
+    setIsOrgAdminResetResultOpen(false);
+    setOrgAdminResetResult(null);
+  };
+
+  const submitOrgAdminReset = async () => {
+    if (!pendingOrgAdminReset) {
+      setOrgAdminResetFormError("대상 사용자를 찾을 수 없습니다.");
+      return;
+    }
+
+    setOrgAdminResetLoading(true);
+    setOrgAdminResetFormError("");
+    setOrgAdminErrorMessage("");
+    setOrgAdminSuccessMessage("");
+
+    try {
+      const data = await invokeOrgAdminPasswordFunction({
+        action: "reset_password",
+        user_id: pendingOrgAdminReset.id,
+      });
+
+      const temporaryPassword = data.temporary_password?.trim() ?? "";
+      if (!temporaryPassword) {
+        throw new Error("비밀번호를 초기화하지 못했습니다. 잠시 후 다시 시도하세요.");
+      }
+
+      const resultUser = data.user;
+      setOrgAdminResetResult({
+        id: resultUser?.id || pendingOrgAdminReset.id,
+        email: resultUser?.email || pendingOrgAdminReset.email,
+        full_name: resultUser?.full_name || pendingOrgAdminReset.full_name,
+        organization_name:
+          resultUser?.organization_name ?? pendingOrgAdminReset.organization_name,
+        unit_number: resultUser?.unit_number ?? pendingOrgAdminReset.unit_number,
+        temporary_password: temporaryPassword,
+      });
+
+      setIsOrgAdminResetConfirmOpen(false);
+      setPendingOrgAdminReset(null);
+      setIsOrgAdminResetResultOpen(true);
+      setOrgAdminSuccessMessage("소속대 관리자 비밀번호를 초기화했습니다.");
+      void loadOrgAdmins();
+    } catch (error) {
+      setOrgAdminResetFormError(
+        error instanceof Error
+          ? error.message
+          : "비밀번호를 초기화하지 못했습니다. 잠시 후 다시 시도하세요.",
+      );
+    } finally {
+      setOrgAdminResetLoading(false);
+    }
+  };
+
+  const copyOrgAdminTemporaryPassword = async () => {
+    if (!orgAdminResetResult?.temporary_password) return;
+
+    try {
+      await navigator.clipboard.writeText(orgAdminResetResult.temporary_password);
+      setOrgAdminSuccessMessage("임시 비밀번호를 클립보드에 복사했습니다.");
+    } catch {
+      setOrgAdminErrorMessage("클립보드 복사에 실패했습니다. 임시 비밀번호를 직접 복사하세요.");
+    }
+  };
+
+  const copyOrgAdminResetSummary = async () => {
+    if (!orgAdminResetResult) return;
+
+    const text = [
+      `소속대: ${orgAdminResetResult.organization_name || "-"}`,
+      `이름: ${orgAdminResetResult.full_name}`,
+      `이메일: ${orgAdminResetResult.email}`,
+      `임시 비밀번호: ${orgAdminResetResult.temporary_password}`,
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setOrgAdminSuccessMessage("초기화 정보를 클립보드에 복사했습니다.");
+    } catch {
+      setOrgAdminErrorMessage("클립보드 복사에 실패했습니다. 정보를 직접 복사하세요.");
     }
   };
 
@@ -340,21 +546,221 @@ export default function UserManagementPage() {
     );
   };
 
+  const getOrganizationStatusLabel = (status: string | null | undefined) => {
+    if (!status) return "미확인";
+    return ORG_STATUS_LABELS[status] || status;
+  };
+
+  const getApprovalStatusLabel = (status: string | null | undefined) => {
+    if (!status) return "미확인";
+    return APPROVAL_STATUS_LABELS[status] || status;
+  };
+
+  const getOrgAdminAccountStatusLabel = (user: OrgAdminUser) => {
+    if (user.must_change_password) return "비밀번호 변경 필요";
+    return getApprovalStatusLabel(user.approval_status);
+  };
+
   return (
     <div>
       <header style={pageHeaderStyle}>
         <div>
           <div style={roleBadgeStyle}>최고관리자</div>
           <h1 style={titleStyle}>사용자 관리</h1>
-          <p style={descriptionStyle}>소속대별 테스트 계정을 생성하고 회수합니다.</p>
+          <p style={descriptionStyle}>
+            일반 소속대 관리자 비밀번호를 초기화하고, 소속대별 테스트 계정을 생성·회수합니다.
+          </p>
         </div>
-        <button type="button" onClick={() => void loadOrganizations()} style={secondaryButtonStyle}>
+        <button
+          type="button"
+          onClick={() => {
+            void loadOrganizations();
+            void loadOrgAdmins();
+          }}
+          style={secondaryButtonStyle}
+        >
           새로고침
         </button>
       </header>
 
+      {orgAdminErrorMessage ? <div style={errorBoxStyle}>{orgAdminErrorMessage}</div> : null}
+      {orgAdminSuccessMessage ? <div style={successBoxStyle}>{orgAdminSuccessMessage}</div> : null}
       {errorMessage ? <div style={errorBoxStyle}>{errorMessage}</div> : null}
       {successMessage ? <div style={successBoxStyle}>{successMessage}</div> : null}
+
+      <section style={panelStyle}>
+        <div style={credentialHeaderStyle}>
+          <div>
+            <h2 style={sectionTitleStyle}>일반 소속대 관리자</h2>
+            <p style={sectionDescriptionStyle}>
+              정식 소속대 관리자(org_admin) 비밀번호를 임시 비밀번호로 초기화합니다. 테스트 계정은 아래
+              테스트 계정 관리에서 처리하세요.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadOrgAdmins()}
+            disabled={loadingOrgAdmins || orgAdminResetLoading}
+            style={secondaryButtonStyle}
+          >
+            {loadingOrgAdmins ? "불러오는 중..." : "목록 새로고침"}
+          </button>
+        </div>
+
+        {loadingOrgAdmins ? (
+          <div style={emptyStyle}>소속대 관리자 목록을 불러오는 중입니다...</div>
+        ) : orgAdmins.length === 0 ? (
+          <div style={emptyStyle}>표시할 일반 소속대 관리자가 없습니다.</div>
+        ) : (
+          <div style={tableWrapStyle}>
+            <table style={{ ...tableStyle, minWidth: 980 }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>이름</th>
+                  <th style={thStyle}>이메일</th>
+                  <th style={thStyle}>소속대명</th>
+                  <th style={thStyle}>대번호</th>
+                  <th style={thStyle}>계정 상태</th>
+                  <th style={thStyle}>조직 이용 상태</th>
+                  <th style={thStyle}>비밀번호 초기화</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orgAdmins.map((user) => {
+                  const accountStatusLabel = getOrgAdminAccountStatusLabel(user);
+                  const organizationStatusLabel = getOrganizationStatusLabel(user.organization_status);
+
+                  return (
+                    <tr key={user.id}>
+                      <td style={tdStyle}>{user.full_name}</td>
+                      <td style={tdStyle}>{user.email}</td>
+                      <td style={tdStyle}>{user.organization_name || "-"}</td>
+                      <td style={tdStyle}>{user.unit_number || "-"}</td>
+                      <td style={tdStyle}>
+                        <span style={getAccountStatusStyle(accountStatusLabel)}>{accountStatusLabel}</span>
+                      </td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            ...statusBadgeStyle,
+                            backgroundColor:
+                              user.organization_status === "active" ? "#dcfce7" : "#fee2e2",
+                            color: user.organization_status === "active" ? "#166534" : "#b91c1c",
+                          }}
+                        >
+                          {organizationStatusLabel}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>
+                        {user.can_reset_password ? (
+                          <button
+                            type="button"
+                            onClick={() => openOrgAdminResetConfirm(user)}
+                            disabled={orgAdminResetLoading}
+                            style={resetButtonStyle}
+                          >
+                            비밀번호 초기화
+                          </button>
+                        ) : (
+                          <span style={{ color: "#94a3b8", fontSize: 13 }}>
+                            {user.reset_blocked_reason || "초기화 불가"}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {isOrgAdminResetConfirmOpen && pendingOrgAdminReset ? (
+        <div style={modalOverlayStyle} role="presentation" onClick={closeOrgAdminResetConfirm}>
+          <section
+            style={{ ...modalPanelStyle, maxWidth: 560 }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="소속대 관리자 비밀번호 초기화"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>소속대 관리자 비밀번호 초기화</h2>
+              <p style={sectionDescriptionStyle}>
+                {pendingOrgAdminReset.organization_name || "소속대"} 관리자
+                <br />
+                {pendingOrgAdminReset.email}
+                <br />
+                비밀번호를 임시 비밀번호로 초기화합니다.
+                <br />
+                다음 로그인 시 새 비밀번호로 변경해야 합니다.
+              </p>
+            </div>
+
+            {orgAdminResetFormError ? <div style={errorBoxStyle}>{orgAdminResetFormError}</div> : null}
+
+            <div style={modalFooterStyle}>
+              <button
+                type="button"
+                onClick={closeOrgAdminResetConfirm}
+                disabled={orgAdminResetLoading}
+                style={secondaryButtonStyle}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitOrgAdminReset()}
+                disabled={orgAdminResetLoading}
+                style={primaryButtonStyle}
+              >
+                {orgAdminResetLoading ? "초기화 중..." : "비밀번호 초기화"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isOrgAdminResetResultOpen && orgAdminResetResult ? (
+        <div style={modalOverlayStyle} role="presentation" onClick={closeOrgAdminResetResult}>
+          <section
+            style={{ ...modalPanelStyle, maxWidth: 560 }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="소속대 관리자 임시 비밀번호"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>소속대 관리자 임시 비밀번호</h2>
+              <p style={sectionDescriptionStyle}>
+                임시 비밀번호는 이 화면에서만 확인할 수 있습니다.
+                <br />
+                사용자는 다음 로그인 시 새 비밀번호로 변경해야 합니다.
+              </p>
+            </div>
+
+            <article style={credentialCardStyle}>
+              <span>소속대명: <b>{orgAdminResetResult.organization_name || "-"}</b></span>
+              <span>사용자 이름: <b>{orgAdminResetResult.full_name}</b></span>
+              <span>이메일: <b>{orgAdminResetResult.email}</b></span>
+              <span>임시 비밀번호: <b>{orgAdminResetResult.temporary_password}</b></span>
+            </article>
+
+            <div style={modalFooterStyle}>
+              <button type="button" onClick={() => void copyOrgAdminTemporaryPassword()} style={copyButtonStyle}>
+                임시 비밀번호 복사
+              </button>
+              <button type="button" onClick={() => void copyOrgAdminResetSummary()} style={copyButtonStyle}>
+                전체 정보 복사
+              </button>
+              <button type="button" onClick={closeOrgAdminResetResult} style={primaryButtonStyle}>
+                확인
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <section style={panelStyle}>
         <div style={sectionHeaderStyle}>
