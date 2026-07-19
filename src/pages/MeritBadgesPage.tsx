@@ -3,11 +3,16 @@ import type { CSSProperties, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { EmptyState, PageHelpButton } from "../components/common/CommonFeedback";
+import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { getSeoulTodayText } from "../lib/businessDate";
 import {
   buildPromotionBadgeReflectionMap,
   getBadgePromotionDisplay,
 } from "../lib/promotionBadgeReflection";
+import {
+  formatGradeShort,
+  isMeritBadgeTargetGrade,
+} from "../lib/scoutDisplayFormat";
 import {
   getLatestRankApprovalDate,
   getSurvivalBadgeRegistrationState,
@@ -263,6 +268,19 @@ function getBadgeTypeLabel(badge: Badge | null) {
   }
 
   return "기타";
+}
+
+/** 취득현황 목록 표시 전용. 정렬·DB 값은 원본 label을 유지한다. */
+function formatPromotionReflectionShort(label: string) {
+  if (label.endsWith(" 반영")) {
+    return label.slice(0, -3).trimEnd() || label;
+  }
+
+  if (label === "사용 이력 확인") {
+    return "이력확인";
+  }
+
+  return label;
 }
 
 export default function MeritBadgesPage() {
@@ -550,23 +568,26 @@ export default function MeritBadgesPage() {
     }
   }, [scouts, searchParams]);
 
-  const handleChangeSelectedScoutId = (value: string) => {
-    const nextSearchParams = new URLSearchParams(searchParams);
+  const handleChangeSelectedScoutId = useCallback(
+    (value: string) => {
+      const nextSearchParams = new URLSearchParams(searchParams);
 
-    if (value) {
-      nextSearchParams.set("scoutId", value);
-    } else {
-      nextSearchParams.delete("scoutId");
-    }
+      if (value) {
+        nextSearchParams.set("scoutId", value);
+      } else {
+        nextSearchParams.delete("scoutId");
+      }
 
-    setSearchParams(nextSearchParams);
-    setSelectedScoutId(value);
-    setSelectedScoutBadgeId("");
-    setIsCreateFormOpen(false);
-    setIsEditFormOpen(false);
-    setFormErrorMessage("");
-    setEditErrorMessage("");
-  };
+      setSearchParams(nextSearchParams);
+      setSelectedScoutId(value);
+      setSelectedScoutBadgeId("");
+      setIsCreateFormOpen(false);
+      setIsEditFormOpen(false);
+      setFormErrorMessage("");
+      setEditErrorMessage("");
+    },
+    [searchParams, setSearchParams],
+  );
 
   const organizationNameMap = useMemo(() => {
     return new Map(
@@ -861,7 +882,9 @@ export default function MeritBadgesPage() {
   const statusFilteredScouts = useMemo(
     () =>
       scouts.filter(
-        (scout) => statusFilter === "all" || scout.status === statusFilter,
+        (scout) =>
+          isMeritBadgeTargetGrade(scout.grade) &&
+          (statusFilter === "all" || scout.status === statusFilter),
       ),
     [scouts, statusFilter],
   );
@@ -971,6 +994,10 @@ export default function MeritBadgesPage() {
     const rows: MeritBadgeListRow[] = [];
 
     for (const scout of scouts) {
+      if (!isMeritBadgeTargetGrade(scout.grade)) {
+        continue;
+      }
+
       if (statusFilter !== "all" && scout.status !== statusFilter) {
         continue;
       }
@@ -1045,6 +1072,69 @@ export default function MeritBadgesPage() {
   const filteredRecordCount = useMemo(() => {
     return filteredMeritBadgeListRows.filter((row) => row.kind === "record").length;
   }, [filteredMeritBadgeListRows]);
+
+  const isSelectedRecordDetailOpen = Boolean(
+    selectedScoutBadge && !isCreateFormOpen && !isEditFormOpen,
+  );
+
+  useEffect(() => {
+    if (!selectedScoutId || scouts.length === 0) return;
+
+    const scout = scoutMap.get(selectedScoutId);
+    if (!scout) return;
+    if (!isMeritBadgeTargetGrade(scout.grade)) {
+      handleChangeSelectedScoutId("");
+    }
+  }, [handleChangeSelectedScoutId, scoutMap, scouts.length, selectedScoutId]);
+
+  useEffect(() => {
+    if (!selectedScoutBadgeId || scoutBadges.length === 0) return;
+
+    const scoutBadge =
+      scoutBadges.find((row) => row.id === selectedScoutBadgeId) ?? null;
+    if (!scoutBadge) return;
+
+    const scout = scoutMap.get(scoutBadge.scout_id);
+    if (!scout) return;
+    if (!isMeritBadgeTargetGrade(scout.grade)) {
+      setSelectedScoutBadgeId("");
+    }
+  }, [scoutBadges, scoutMap, selectedScoutBadgeId]);
+
+  useEffect(() => {
+    if (!selectedSummaryScoutId || scouts.length === 0) return;
+
+    const scout = scoutMap.get(selectedSummaryScoutId);
+    if (!scout) return;
+    if (!isMeritBadgeTargetGrade(scout.grade)) {
+      setSelectedSummaryScoutId("");
+    }
+  }, [scoutMap, scouts.length, selectedSummaryScoutId]);
+
+  const handleCloseSelectedRecordDetail = useCallback(() => {
+    setSelectedScoutBadgeId("");
+    setEditErrorMessage("");
+  }, []);
+
+  const handleOpenSelectedRecordDetail = useCallback(
+    (scoutBadgeId: string) => {
+      const scoutBadge =
+        scoutBadges.find((row) => row.id === scoutBadgeId) ?? null;
+      const scout = scoutBadge
+        ? scoutMap.get(scoutBadge.scout_id) ?? null
+        : null;
+
+      if (!scout || !isMeritBadgeTargetGrade(scout.grade)) {
+        return;
+      }
+
+      setSelectedScoutBadgeId((current) =>
+        current === scoutBadgeId ? "" : scoutBadgeId,
+      );
+      setEditErrorMessage("");
+    },
+    [scoutBadges, scoutMap],
+  );
 
   const handleOpenCreateForm = (scoutIdOverride?: string) => {
     if (!canManageBadges) return;
@@ -1479,6 +1569,19 @@ export default function MeritBadgesPage() {
     sortConfig,
   ]);
 
+  const {
+    topRef: listScrollTopRef,
+    bottomRef: listScrollBottomRef,
+    showTopScrollbar: showListTopScrollbar,
+    handleTopScroll: handleListTopScroll,
+    handleBottomScroll: handleListBottomScroll,
+  } = useSyncedHorizontalScroll(
+    sortedMeritBadgeListRows.length,
+    isSuperAdmin,
+    canManageBadges,
+    loading,
+  );
+
   const sortedSelectedSummaryScoutBadges = useMemo(() => {
     return selectedSummaryScoutBadges
       .map((scoutBadge, index) => ({ scoutBadge, index }))
@@ -1546,12 +1649,17 @@ export default function MeritBadgesPage() {
     return sortConfig.direction === "asc" ? "▲" : "▼";
   };
 
-  const renderSortableHeader = (key: MeritBadgeSortKey, label: string) => {
+  const renderSortableHeader = (
+    key: MeritBadgeSortKey,
+    label: string,
+    title?: string,
+  ) => {
     const isActive = sortConfig.key === key;
 
     return (
       <th
         style={thStyle}
+        title={title}
         aria-sort={
           isActive
             ? sortConfig.direction === "asc"
@@ -1564,7 +1672,7 @@ export default function MeritBadgesPage() {
           type="button"
           style={sortableHeaderButtonStyle}
           onClick={() => handleSort(key)}
-          title={`${label} 기준 정렬`}
+          title={title ? `${title} · ${label} 기준 정렬` : `${label} 기준 정렬`}
         >
           <span>{label}</span>
           <span style={isActive ? activeSortIndicatorStyle : sortIndicatorStyle}>
@@ -1747,6 +1855,34 @@ export default function MeritBadgesPage() {
   }, [isBadgeDrawerOpen]);
 
   useEffect(() => {
+    if (!isSelectedRecordDetailOpen || isBadgeDrawerOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isBadgeDrawerOpen, isSelectedRecordDetailOpen]);
+
+  useEffect(() => {
+    if (!isSelectedRecordDetailOpen || isBadgeDrawerOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        handleCloseSelectedRecordDetail();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    handleCloseSelectedRecordDetail,
+    isBadgeDrawerOpen,
+    isSelectedRecordDetailOpen,
+  ]);
+
+  useEffect(() => {
     if (!isCreateFormOpen || !formErrorMessage) return;
 
     const frameId = window.requestAnimationFrame(() => {
@@ -1828,19 +1964,9 @@ export default function MeritBadgesPage() {
           <div>
             <h2 style={sectionTitleStyle}>대원별 기능장 보유 현황</h2>
             <p style={sectionDescriptionStyle}>
-              대원별 등록된 기능장 수를 요약합니다. 카드를 선택하면 해당 대원의 기능장 취득 내역을 바로 확인할 수 있습니다.
+              스카우트·벤처 대원의 기능장 보유 수와 진급 충족 상태를 확인합니다.
             </p>
           </div>
-
-          {selectedSummaryScout && (
-            <button
-              type="button"
-              style={secondaryButtonStyle}
-              onClick={() => setSelectedSummaryScoutId("")}
-            >
-              상세 닫기
-            </button>
-          )}
         </div>
 
         <div style={miniCardGridStyle}>
@@ -1890,19 +2016,24 @@ export default function MeritBadgesPage() {
                   {selectedSummaryScout.name} 기능장 보유 상세
                 </h3>
                 <p style={formDescriptionStyle}>
-                  대원번호 {selectedSummaryScout.member_no ?? "번호 없음"} · {selectedSummaryScout.school_name ?? "소속대 미입력"} · {selectedSummaryScout.grade ?? "학년 미입력"}
+                  대원번호 {selectedSummaryScout.member_no ?? "번호 없음"} ·{" "}
+                  {selectedSummaryScout.school_name ?? "소속대 미입력"} ·{" "}
+                  <span title={selectedSummaryScout.grade ?? undefined}>
+                    {formatGradeShort(selectedSummaryScout.grade) ||
+                      selectedSummaryScout.grade ||
+                      "학년 미입력"}
+                  </span>
                 </p>
               </div>
 
-              <div style={toolbarRightStyle}>
-                <button
-                  type="button"
-                  style={secondaryButtonStyle}
-                  onClick={() => handleChangeSelectedScoutId(selectedSummaryScout.id)}
-                >
-                  이 대원 기록만 보기
-                </button>
-              </div>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={() => setSelectedSummaryScoutId("")}
+                aria-label={`${selectedSummaryScout.name} 기능장 보유 상세 접기`}
+              >
+                상세 접기
+              </button>
             </div>
 
             <div style={summaryStatsGridStyle}>
@@ -1962,11 +2093,15 @@ export default function MeritBadgesPage() {
                         <tr
                           key={`summary-${scoutBadge.id}`}
                           style={selectedScoutBadgeId === scoutBadge.id ? selectedTrStyle : clickableTrStyle}
-                          onClick={() =>
-                            setSelectedScoutBadgeId((current) =>
-                              current === scoutBadge.id ? "" : scoutBadge.id,
-                            )
-                          }
+                          tabIndex={0}
+                          aria-label={`${getBadgeName(scoutBadge.badge_id)} 기능장 기록 상세 보기`}
+                          onClick={() => handleOpenSelectedRecordDetail(scoutBadge.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              handleOpenSelectedRecordDetail(scoutBadge.id);
+                            }
+                          }}
                           title="행을 클릭하면 선택 기록 상세를 열거나 닫을 수 있습니다."
                         >
                           <td style={tdStyle}>{getBadgeCategoryName(scoutBadge.badge_id)}</td>
@@ -2017,7 +2152,9 @@ export default function MeritBadgesPage() {
           <div>
             <h2 style={sectionTitleStyle}>기능장 취득 현황</h2>
             <p style={sectionDescriptionStyle}>
-              대원별 기능장 취득 내역을 확인하고 필요한 기록을 등록·수정합니다.
+              중학교·고등학교 대원의 기능장 취득 내역을 확인하고 필요한 기록을
+              등록·수정합니다. 목록 행을 클릭하면 선택 기록 상세를 확인할 수
+              있습니다.
             </p>
           </div>
 
@@ -2077,7 +2214,8 @@ export default function MeritBadgesPage() {
                 {scouts
                   .filter(
                     (scout) =>
-                      statusFilter === "all" || scout.status === statusFilter,
+                      isMeritBadgeTargetGrade(scout.grade) &&
+                      (statusFilter === "all" || scout.status === statusFilter),
                   )
                   .map((scout) => (
                   <option key={scout.id} value={scout.id}>
@@ -2167,115 +2305,6 @@ export default function MeritBadgesPage() {
           <div style={errorBoxStyle}>{editErrorMessage}</div>
         )}
 
-        {selectedScoutBadge && !isCreateFormOpen && !isEditFormOpen && (
-          <section style={selectedDetailCardStyle}>
-            <div style={formHeaderStyle}>
-              <div>
-                <h3 style={formTitleStyle}>선택 기록 상세</h3>
-                <p style={formDescriptionStyle}>
-                  목록 행을 클릭하면 이 영역에 선택한 기능장 취득 기록이 표시됩니다.
-                </p>
-              </div>
-
-              <div style={toolbarRightStyle}>
-                {selectedBadgeReflection && (
-                  <span
-                    style={
-                      selectedBadgeReflection.source === "usage_record"
-                        ? unusedBadgeStyle
-                        : usedBadgeStyle
-                    }
-                  >
-                    {selectedBadgeReflection.label}
-                  </span>
-                )}
-                {canManageBadges && (
-                  <>
-                    <button
-                      type="button"
-                      style={secondaryButtonStyle}
-                      onClick={() => handleOpenEditForm(selectedScoutBadge)}
-                      disabled={selectedBadgeIsUsed || submitting || deletingId !== ""}
-                    >
-                      수정
-                    </button>
-                    <button
-                      type="button"
-                      style={dangerButtonStyle}
-                      onClick={() => handleArchiveScoutBadge(selectedScoutBadge)}
-                      disabled={selectedBadgeIsUsed || deletingId === selectedScoutBadge.id}
-                    >
-                      {deletingId === selectedScoutBadge.id ? "삭제 중..." : "삭제"}
-                    </button>
-                  </>
-                )}
-
-                <button
-                  type="button"
-                  style={secondaryButtonStyle}
-                  onClick={() => {
-                    setSelectedScoutBadgeId("");
-                    setEditErrorMessage("");
-                  }}
-                >
-                  상세 닫기
-                </button>
-              </div>
-            </div>
-
-            <div style={detailGridStyle}>
-              <div style={detailItemStyle}>
-                <div style={detailLabelStyle}>대원</div>
-                <div style={detailValueStyle}>
-                  {selectedScout?.member_no ?? "번호없음"} · {selectedScout?.name ?? "-"}
-                </div>
-              </div>
-              {isSuperAdmin && selectedScout && (
-                <div style={detailItemStyle}>
-                  <div style={detailLabelStyle}>소속</div>
-                  <div style={detailValueStyle}>{getOrganizationName(selectedScout.organization_id)}</div>
-                </div>
-              )}
-              <div style={detailItemStyle}>
-                <div style={detailLabelStyle}>분류</div>
-                <div style={detailValueStyle}>{getBadgeCategoryName(selectedScoutBadge.badge_id)}</div>
-              </div>
-              <div style={detailItemStyle}>
-                <div style={detailLabelStyle}>기능장</div>
-                <div style={detailValueStyle}>{getBadgeName(selectedScoutBadge.badge_id)}</div>
-              </div>
-              <div style={detailItemStyle}>
-                <div style={detailLabelStyle}>구분</div>
-                <div style={detailValueStyle}>{getBadgeTypeLabel(selectedBadge)}</div>
-              </div>
-              <div style={detailItemStyle}>
-                <div style={detailLabelStyle}>인정 기준</div>
-                <div style={detailValueStyle}>{selectedBadge ? getSpecialRuleLabel(selectedBadge.special_rule) : "-"}</div>
-              </div>
-              <div style={detailItemStyle}>
-                <div style={detailLabelStyle}>취득일</div>
-                <div style={detailValueStyle}>{formatDate(selectedScoutBadge.acquired_at)}</div>
-              </div>
-              <div style={detailItemStyle}>
-                <div style={detailLabelStyle}>인가일</div>
-                <div style={detailValueStyle}>{formatDate(selectedScoutBadge.approved_at)}</div>
-              </div>
-              <div style={detailItemStyle}>
-                <div style={detailLabelStyle}>지도자 / 강사명</div>
-                <div style={detailValueStyle}>{selectedScoutBadge.instructor_name ?? "-"}</div>
-              </div>
-              <div style={detailItemStyle}>
-                <div style={detailLabelStyle}>확인</div>
-                <div style={detailValueStyle}>{selectedScoutBadge.leader_confirmed ? "확인" : "미확인"}</div>
-              </div>
-              <div style={detailItemWideStyle}>
-                <div style={detailLabelStyle}>비고</div>
-                <div style={detailValueStyle}>{selectedScoutBadge.note ?? "-"}</div>
-              </div>
-            </div>
-          </section>
-        )}
-
         {loading && <div style={emptyStateStyle}>기능장 정보를 불러오는 중입니다...</div>}
 
         {!loading && errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
@@ -2294,52 +2323,201 @@ export default function MeritBadgesPage() {
         )}
 
         {!loading && !errorMessage && filteredTargetScoutCount > 0 && (
-          <div style={tableWrapStyle}>
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  {renderSortableHeader("member_no", "대원번호")}
-                  {renderSortableHeader("name", "이름")}
-                  {isSuperAdmin && renderSortableHeader("organization", "소속")}
-                  <th style={thStyle}>현재 급위</th>
-                  <th style={thStyle}>다음 급위</th>
-                  {renderSortableHeader("category", "기능장 분류")}
-                  {renderSortableHeader("badge", "기능장")}
-                  {renderSortableHeader("badge_type", "필수 여부")}
-                  {renderSortableHeader("acquired_at", "취득일")}
-                  {renderSortableHeader("approved_at", "인가일")}
-                  {renderSortableHeader("leader_confirmed", "확인")}
-                  {renderSortableHeader("usage", "진급 반영")}
-                  {renderSortableHeader("note", "비고")}
-                  {canManageBadges && <th style={thStyle}>관리</th>}
-                </tr>
-              </thead>
+          <div style={listTableShellStyle}>
+            {showListTopScrollbar ? (
+              <div
+                ref={listScrollTopRef}
+                style={listTopScrollStyle}
+                onScroll={handleListTopScroll}
+                aria-hidden="true"
+              >
+                <div style={listTopScrollInnerStyle} />
+              </div>
+            ) : null}
+            <div
+              ref={listScrollBottomRef}
+              style={listTableBodyScrollStyle}
+              onScroll={handleListBottomScroll}
+            >
+              <table style={meritBadgeListTableStyle}>
+                <colgroup>
+                  <col style={meritColMemberNoStyle} />
+                  <col style={meritColNameStyle} />
+                  {isSuperAdmin && <col style={meritColOrganizationStyle} />}
+                  <col style={meritColRankStyle} />
+                  <col style={meritColRankStyle} />
+                  <col style={meritColCategoryStyle} />
+                  <col style={meritColBadgeStyle} />
+                  <col style={meritColBadgeTypeStyle} />
+                  <col style={meritColDateStyle} />
+                  <col style={meritColDateStyle} />
+                  <col style={meritColConfirmStyle} />
+                  <col style={meritColUsageStyle} />
+                  <col style={meritColNoteStyle} />
+                  {canManageBadges && <col style={meritColManageStyle} />}
+                </colgroup>
+                <thead>
+                  <tr>
+                    {renderSortableHeader("member_no", "대원번호")}
+                    {renderSortableHeader("name", "이름")}
+                    {isSuperAdmin && renderSortableHeader("organization", "소속")}
+                    <th style={thStyle}>현재 급위</th>
+                    <th style={thStyle}>다음 급위</th>
+                    {renderSortableHeader("category", "분류", "기능장 분류")}
+                    {renderSortableHeader("badge", "기능장")}
+                    {renderSortableHeader("badge_type", "필수", "필수 여부")}
+                    {renderSortableHeader("acquired_at", "취득일")}
+                    {renderSortableHeader("approved_at", "인가일")}
+                    {renderSortableHeader("leader_confirmed", "확인")}
+                    {renderSortableHeader("usage", "반영", "진급 반영")}
+                    {renderSortableHeader("note", "비고")}
+                    {canManageBadges && <th style={thStyle}>관리</th>}
+                  </tr>
+                </thead>
 
-              <tbody>
-                {sortedMeritBadgeListRows.map((row) => {
-                  if (row.kind === "empty") {
-                    const { scout } = row;
-                    const progress = scoutProgressMap.get(scout.id);
+                <tbody>
+                  {sortedMeritBadgeListRows.map((row) => {
+                    if (row.kind === "empty") {
+                      const { scout } = row;
+                      const progress = scoutProgressMap.get(scout.id);
+
+                      return (
+                        <tr key={`empty-${scout.id}`} style={trStyle}>
+                          <td style={tdStyle}>{scout.member_no ?? "-"}</td>
+                          <td style={strongTdStyle}>{scout.name}</td>
+                          {isSuperAdmin && (
+                            <td style={clipTdStyle} title={getOrganizationName(scout.organization_id)}>
+                              {getOrganizationName(scout.organization_id)}
+                            </td>
+                          )}
+                          <td style={tdStyle}>
+                            {progress?.currentRank?.rank_name ?? "미등록"}
+                          </td>
+                          <td style={tdStyle}>
+                            {progress?.nextRank?.rank_name ?? "최종급위"}
+                          </td>
+                          <td style={tdStyle} colSpan={8}>
+                            <span style={emptyRecordHintStyle}>
+                              등록된 기능장 기록이 없습니다.
+                            </span>
+                          </td>
+                          {canManageBadges && (
+                            <td style={tdStyle}>
+                              <div style={rowActionStyle}>
+                                <button
+                                  type="button"
+                                  style={smallButtonStyle}
+                                  onClick={() => handleOpenCreateForm(scout.id)}
+                                  disabled={
+                                    scout.status !== "active" ||
+                                    submitting ||
+                                    deletingId !== ""
+                                  }
+                                  title={
+                                    scout.status !== "active"
+                                      ? "비활동 또는 졸업 대원에게는 새 기능장을 등록할 수 없습니다."
+                                      : "기능장 등록"
+                                  }
+                                >
+                                  기능장 등록
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    }
+
+                    const { scout, scoutBadge } = row;
+                    const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
+                    const isSelected = selectedScoutBadgeId === scoutBadge.id;
+                    const isUsed = usedScoutBadgeIdSet.has(scoutBadge.id);
+                    const reflection = getBadgePromotionDisplay(
+                      scoutBadge.id,
+                      promotionReflectionMap,
+                      usedScoutBadgeIdSet,
+                    );
+                    const reflectionLabel = reflection?.label ?? "미반영";
+                    const reflectionShort =
+                      formatPromotionReflectionShort(reflectionLabel);
+                    const categoryName = getBadgeCategoryName(scoutBadge.badge_id);
+                    const noteText = scoutBadge.note?.trim() || "-";
 
                     return (
-                      <tr key={`empty-${scout.id}`} style={trStyle}>
+                      <tr
+                        key={scoutBadge.id}
+                        style={isSelected ? selectedTrStyle : clickableTrStyle}
+                        tabIndex={0}
+                        aria-label={`${scout.name} ${getBadgeName(scoutBadge.badge_id)} 기능장 기록 상세 보기`}
+                        onClick={() => handleOpenSelectedRecordDetail(scoutBadge.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            handleOpenSelectedRecordDetail(scoutBadge.id);
+                          }
+                        }}
+                      >
                         <td style={tdStyle}>{scout.member_no ?? "-"}</td>
                         <td style={strongTdStyle}>{scout.name}</td>
                         {isSuperAdmin && (
-                          <td style={tdStyle}>
+                          <td
+                            style={clipTdStyle}
+                            title={getOrganizationName(scout.organization_id)}
+                          >
                             {getOrganizationName(scout.organization_id)}
                           </td>
                         )}
                         <td style={tdStyle}>
-                          {progress?.currentRank?.rank_name ?? "미등록"}
+                          {scoutProgressMap.get(scout.id)?.currentRank?.rank_name ??
+                            "미등록"}
                         </td>
                         <td style={tdStyle}>
-                          {progress?.nextRank?.rank_name ?? "최종급위"}
+                          {scoutProgressMap.get(scout.id)?.nextRank?.rank_name ??
+                            "최종급위"}
                         </td>
-                        <td style={tdStyle} colSpan={8}>
-                          <span style={emptyRecordHintStyle}>
-                            등록된 기능장 기록이 없습니다.
+                        <td style={clipTdStyle} title={categoryName}>
+                          {categoryName}
+                        </td>
+                        <td style={strongTdStyle}>
+                          {getBadgeName(scoutBadge.badge_id)}
+                        </td>
+                        <td style={tdStyle}>
+                          <span
+                            style={getBadgeTypeBadgeStyle(badge)}
+                            title={getBadgeTypeLabel(badge)}
+                          >
+                            {getBadgeTypeLabel(badge)}
                           </span>
+                        </td>
+                        <td style={tdStyle}>{formatDate(scoutBadge.acquired_at)}</td>
+                        <td style={tdStyle}>{formatDate(scoutBadge.approved_at)}</td>
+                        <td style={tdStyle}>
+                          {scoutBadge.leader_confirmed ? (
+                            <span style={confirmedBadgeStyle}>확인</span>
+                          ) : (
+                            <span style={unconfirmedBadgeStyle}>미확인</span>
+                          )}
+                        </td>
+                        <td style={tdStyle}>
+                          {reflection ? (
+                            <span
+                              style={
+                                reflection.source === "usage_record"
+                                  ? unusedBadgeStyle
+                                  : usedBadgeStyle
+                              }
+                              title={reflectionLabel}
+                            >
+                              {reflectionShort}
+                            </span>
+                          ) : (
+                            <span style={unusedBadgeStyle} title="미반영">
+                              미반영
+                            </span>
+                          )}
+                        </td>
+                        <td style={clipTdStyle} title={noteText === "-" ? undefined : noteText}>
+                          {noteText}
                         </td>
                         {canManageBadges && (
                           <td style={tdStyle}>
@@ -2347,134 +2525,197 @@ export default function MeritBadgesPage() {
                               <button
                                 type="button"
                                 style={smallButtonStyle}
-                                onClick={() => handleOpenCreateForm(scout.id)}
-                                disabled={
-                                  scout.status !== "active" ||
-                                  submitting ||
-                                  deletingId !== ""
-                                }
-                                title={
-                                  scout.status !== "active"
-                                    ? "비활동 또는 졸업 대원에게는 새 기능장을 등록할 수 없습니다."
-                                    : "기능장 등록"
-                                }
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleOpenEditForm(scoutBadge);
+                                }}
+                                disabled={isUsed || submitting || deletingId !== ""}
                               >
-                                기능장 등록
+                                수정
+                              </button>
+                              <button
+                                type="button"
+                                style={smallDangerButtonStyle}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleArchiveScoutBadge(scoutBadge);
+                                }}
+                                disabled={isUsed || deletingId === scoutBadge.id}
+                              >
+                                {deletingId === scoutBadge.id ? "처리중" : "삭제"}
                               </button>
                             </div>
                           </td>
                         )}
                       </tr>
                     );
-                  }
-
-                  const { scout, scoutBadge } = row;
-                  const badge = badgeMap.get(scoutBadge.badge_id) ?? null;
-                  const isSelected = selectedScoutBadgeId === scoutBadge.id;
-                  const isUsed = usedScoutBadgeIdSet.has(scoutBadge.id);
-                  const reflection = getBadgePromotionDisplay(
-                    scoutBadge.id,
-                    promotionReflectionMap,
-                    usedScoutBadgeIdSet,
-                  );
-
-                  return (
-                    <tr
-                      key={scoutBadge.id}
-                      style={isSelected ? selectedTrStyle : clickableTrStyle}
-                      onClick={() =>
-                        setSelectedScoutBadgeId((current) =>
-                          current === scoutBadge.id ? "" : scoutBadge.id,
-                        )
-                      }
-                    >
-                      <td style={tdStyle}>{scout.member_no ?? "-"}</td>
-                      <td style={strongTdStyle}>{scout.name}</td>
-                      {isSuperAdmin && (
-                        <td style={tdStyle}>
-                          {getOrganizationName(scout.organization_id)}
-                        </td>
-                      )}
-                      <td style={tdStyle}>
-                        {scoutProgressMap.get(scout.id)?.currentRank?.rank_name ??
-                          "미등록"}
-                      </td>
-                      <td style={tdStyle}>
-                        {scoutProgressMap.get(scout.id)?.nextRank?.rank_name ??
-                          "최종급위"}
-                      </td>
-                      <td style={tdStyle}>
-                        {getBadgeCategoryName(scoutBadge.badge_id)}
-                      </td>
-                      <td style={strongTdStyle}>
-                        {getBadgeName(scoutBadge.badge_id)}
-                      </td>
-                      <td style={tdStyle}>
-                        <span style={getBadgeTypeBadgeStyle(badge)}>
-                          {getBadgeTypeLabel(badge)}
-                        </span>
-                      </td>
-                      <td style={tdStyle}>{formatDate(scoutBadge.acquired_at)}</td>
-                      <td style={tdStyle}>{formatDate(scoutBadge.approved_at)}</td>
-                      <td style={tdStyle}>
-                        {scoutBadge.leader_confirmed ? (
-                          <span style={confirmedBadgeStyle}>확인</span>
-                        ) : (
-                          <span style={unconfirmedBadgeStyle}>미확인</span>
-                        )}
-                      </td>
-                      <td style={tdStyle}>
-                        {reflection ? (
-                          <span
-                            style={
-                              reflection.source === "usage_record"
-                                ? unusedBadgeStyle
-                                : usedBadgeStyle
-                            }
-                          >
-                            {reflection.label}
-                          </span>
-                        ) : (
-                          <span style={unusedBadgeStyle}>미반영</span>
-                        )}
-                      </td>
-                      <td style={tdStyle}>{scoutBadge.note ?? "-"}</td>
-                      {canManageBadges && (
-                        <td style={tdStyle}>
-                          <div style={rowActionStyle}>
-                            <button
-                              type="button"
-                              style={smallButtonStyle}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleOpenEditForm(scoutBadge);
-                              }}
-                              disabled={isUsed || submitting || deletingId !== ""}
-                            >
-                              수정
-                            </button>
-                            <button
-                              type="button"
-                              style={smallDangerButtonStyle}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleArchiveScoutBadge(scoutBadge);
-                              }}
-                              disabled={isUsed || deletingId === scoutBadge.id}
-                            >
-                              {deletingId === scoutBadge.id ? "처리중" : "삭제"}
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </section>
+
+      {isSelectedRecordDetailOpen &&
+        selectedScoutBadge &&
+        createPortal(
+          <div
+            style={recordDetailModalBackdropStyle}
+            onMouseDown={handleCloseSelectedRecordDetail}
+          >
+            <div
+              style={recordDetailModalStyle}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="merit-badge-record-detail-title"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div style={recordDetailModalHeaderStyle}>
+                <div>
+                  <h3
+                    id="merit-badge-record-detail-title"
+                    style={formTitleStyle}
+                  >
+                    선택 기록 상세
+                  </h3>
+                  <p style={formDescriptionStyle}>
+                    선택한 기능장 취득 기록의 상세 정보입니다.
+                  </p>
+                </div>
+
+                <div style={toolbarRightStyle}>
+                  {selectedBadgeReflection && (
+                    <span
+                      style={
+                        selectedBadgeReflection.source === "usage_record"
+                          ? unusedBadgeStyle
+                          : usedBadgeStyle
+                      }
+                    >
+                      {selectedBadgeReflection.label}
+                    </span>
+                  )}
+                  {canManageBadges && (
+                    <>
+                      <button
+                        type="button"
+                        style={secondaryButtonStyle}
+                        onClick={() => handleOpenEditForm(selectedScoutBadge)}
+                        disabled={
+                          selectedBadgeIsUsed ||
+                          submitting ||
+                          deletingId !== ""
+                        }
+                      >
+                        수정
+                      </button>
+                      <button
+                        type="button"
+                        style={dangerButtonStyle}
+                        onClick={() =>
+                          handleArchiveScoutBadge(selectedScoutBadge)
+                        }
+                        disabled={
+                          selectedBadgeIsUsed ||
+                          deletingId === selectedScoutBadge.id
+                        }
+                      >
+                        {deletingId === selectedScoutBadge.id
+                          ? "삭제 중..."
+                          : "삭제"}
+                      </button>
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    style={recordDetailModalCloseButtonStyle}
+                    onClick={handleCloseSelectedRecordDetail}
+                    aria-label="선택 기록 상세 닫기"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
+              <div style={detailGridStyle}>
+                <div style={detailItemStyle}>
+                  <div style={detailLabelStyle}>대원</div>
+                  <div style={detailValueStyle}>
+                    {selectedScout?.member_no ?? "번호없음"} ·{" "}
+                    {selectedScout?.name ?? "-"}
+                  </div>
+                </div>
+                {isSuperAdmin && selectedScout && (
+                  <div style={detailItemStyle}>
+                    <div style={detailLabelStyle}>소속</div>
+                    <div style={detailValueStyle}>
+                      {getOrganizationName(selectedScout.organization_id)}
+                    </div>
+                  </div>
+                )}
+                <div style={detailItemStyle}>
+                  <div style={detailLabelStyle}>분류</div>
+                  <div style={detailValueStyle}>
+                    {getBadgeCategoryName(selectedScoutBadge.badge_id)}
+                  </div>
+                </div>
+                <div style={detailItemStyle}>
+                  <div style={detailLabelStyle}>기능장</div>
+                  <div style={detailValueStyle}>
+                    {getBadgeName(selectedScoutBadge.badge_id)}
+                  </div>
+                </div>
+                <div style={detailItemStyle}>
+                  <div style={detailLabelStyle}>구분</div>
+                  <div style={detailValueStyle}>
+                    {getBadgeTypeLabel(selectedBadge)}
+                  </div>
+                </div>
+                <div style={detailItemStyle}>
+                  <div style={detailLabelStyle}>인정 기준</div>
+                  <div style={detailValueStyle}>
+                    {selectedBadge
+                      ? getSpecialRuleLabel(selectedBadge.special_rule)
+                      : "-"}
+                  </div>
+                </div>
+                <div style={detailItemStyle}>
+                  <div style={detailLabelStyle}>취득일</div>
+                  <div style={detailValueStyle}>
+                    {formatDate(selectedScoutBadge.acquired_at)}
+                  </div>
+                </div>
+                <div style={detailItemStyle}>
+                  <div style={detailLabelStyle}>인가일</div>
+                  <div style={detailValueStyle}>
+                    {formatDate(selectedScoutBadge.approved_at)}
+                  </div>
+                </div>
+                <div style={detailItemStyle}>
+                  <div style={detailLabelStyle}>지도자 / 강사명</div>
+                  <div style={detailValueStyle}>
+                    {selectedScoutBadge.instructor_name ?? "-"}
+                  </div>
+                </div>
+                <div style={detailItemStyle}>
+                  <div style={detailLabelStyle}>확인</div>
+                  <div style={detailValueStyle}>
+                    {selectedScoutBadge.leader_confirmed ? "확인" : "미확인"}
+                  </div>
+                </div>
+                <div style={detailItemWideStyle}>
+                  <div style={detailLabelStyle}>비고</div>
+                  <div style={detailValueStyle}>
+                    {selectedScoutBadge.note ?? "-"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {isBadgeDrawerOpen && createPortal(
         <div
@@ -3288,14 +3529,6 @@ const submitButtonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-const formHeaderStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: "16px",
-  marginBottom: "16px",
-};
-
 const formTitleStyle: CSSProperties = {
   margin: 0,
   color: "#0f172a",
@@ -3422,12 +3655,49 @@ const emptyStateStyle: CSSProperties = {
   backgroundColor: "#f8fafc",
 };
 
-const selectedDetailCardStyle: CSSProperties = {
-  border: "1px solid #e5e7eb",
-  borderRadius: "12px",
+const recordDetailModalBackdropStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 9000,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "24px",
+  backgroundColor: "rgba(15, 23, 42, 0.45)",
+};
+
+const recordDetailModalStyle: CSSProperties = {
+  width: "min(720px, calc(100vw - 48px))",
+  maxHeight: "84vh",
+  overflowY: "auto",
+  borderRadius: "14px",
+  backgroundColor: "#ffffff",
+  boxShadow: "0 24px 80px rgba(15, 23, 42, 0.25)",
   padding: "18px",
-  backgroundColor: "#f8fafc",
-  marginBottom: "20px",
+};
+
+const recordDetailModalHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "12px",
+  marginBottom: "16px",
+  paddingBottom: "12px",
+  borderBottom: "1px solid #e5e7eb",
+};
+
+const recordDetailModalCloseButtonStyle: CSSProperties = {
+  width: "36px",
+  height: "36px",
+  borderRadius: "999px",
+  border: "1px solid #cbd5e1",
+  backgroundColor: "#ffffff",
+  color: "#334155",
+  fontSize: "22px",
+  fontWeight: 800,
+  lineHeight: 1,
+  cursor: "pointer",
+  flexShrink: 0,
 };
 
 const detailGridStyle: CSSProperties = {
@@ -3466,14 +3736,58 @@ const tableWrapStyle: CSSProperties = {
   overflowX: "auto",
 };
 
+const listTableShellStyle: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "10px",
+  overflow: "hidden",
+  backgroundColor: "#ffffff",
+};
+
+const listTopScrollStyle: CSSProperties = {
+  overflowX: "auto",
+  overflowY: "hidden",
+  height: "14px",
+  borderBottom: "1px solid #e5e7eb",
+  backgroundColor: "#f8fafc",
+};
+
+const listTopScrollInnerStyle: CSSProperties = {
+  height: "1px",
+};
+
+const listTableBodyScrollStyle: CSSProperties = {
+  overflowX: "auto",
+  overflowY: "visible",
+};
+
 const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
   minWidth: "1240px",
 };
 
+/** 기능장 취득현황 목록: 폭 축소 (표시 전용) */
+const meritBadgeListTableStyle: CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  minWidth: "1020px",
+};
+
+const meritColMemberNoStyle: CSSProperties = { width: "88px" };
+const meritColNameStyle: CSSProperties = { width: "80px" };
+const meritColOrganizationStyle: CSSProperties = { width: "96px" };
+const meritColRankStyle: CSSProperties = { width: "72px" };
+const meritColCategoryStyle: CSSProperties = { width: "72px" };
+const meritColBadgeStyle: CSSProperties = { width: "110px" };
+const meritColBadgeTypeStyle: CSSProperties = { width: "56px" };
+const meritColDateStyle: CSSProperties = { width: "88px" };
+const meritColConfirmStyle: CSSProperties = { width: "56px" };
+const meritColUsageStyle: CSSProperties = { width: "72px" };
+const meritColNoteStyle: CSSProperties = { width: "80px" };
+const meritColManageStyle: CSSProperties = { width: "108px" };
+
 const thStyle: CSSProperties = {
-  padding: "9px 10px",
+  padding: "8px 8px",
   borderBottom: "1px solid #e5e7eb",
   backgroundColor: "#f8fafc",
   color: "#334155",
@@ -3511,12 +3825,19 @@ const activeSortIndicatorStyle: CSSProperties = {
 };
 
 const tdStyle: CSSProperties = {
-  padding: "8px 10px",
+  padding: "7px 8px",
   borderBottom: "1px solid #e5e7eb",
   color: "#475569",
   fontSize: "13.5px",
   verticalAlign: "middle",
   whiteSpace: "nowrap",
+};
+
+const clipTdStyle: CSSProperties = {
+  ...tdStyle,
+  maxWidth: "96px",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 const strongTdStyle: CSSProperties = {

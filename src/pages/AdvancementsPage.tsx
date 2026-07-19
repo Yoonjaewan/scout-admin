@@ -4,8 +4,16 @@ import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { EmptyState, PageHelpButton } from "../components/common/CommonFeedback";
 import { SuperAdminOrganizationFilter } from "../components/common/SuperAdminOrganizationFilter";
+import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { getSeoulTodayText } from "../lib/businessDate";
 import { fetchOrganizationsForFilter } from "../lib/organizationFilter";
+import {
+  formatGradeShort,
+  formatScoutTypeShort,
+  getScoutSectionLabelByGrade,
+  getScoutSectionSortOrder,
+  isElementarySchoolGrade,
+} from "../lib/scoutDisplayFormat";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -127,6 +135,7 @@ type AdvancementSortKey =
   | "organization"
   | "school_name"
   | "grade"
+  | "section"
   | "current_rank"
   | "next_rank"
   | "expected_date"
@@ -309,10 +318,6 @@ function getGradeNumber(value: string | null | undefined) {
   return Number.isFinite(gradeNumber) ? gradeNumber : null;
 }
 
-function isElementarySchoolGrade(value: string | null | undefined) {
-  return Boolean(value?.replace(/\s/g, "").includes("초등학교"));
-}
-
 function getCubRankNameByGrade(value: string | null | undefined) {
   if (!isElementarySchoolGrade(value)) return "";
 
@@ -333,6 +338,11 @@ function getNextCubRankNameByGrade(value: string | null | undefined) {
 
 function isCubScoutByGrade(scout: { grade: string | null }) {
   return isElementarySchoolGrade(scout.grade);
+}
+
+function formatSupportItemsShort(items: string[]) {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items[0]} 외 ${items.length - 1}건`;
 }
 
 function getCubGrowthStageIndex(rankName: string) {
@@ -1590,6 +1600,7 @@ export default function AdvancementsPage() {
     if (key === "organization") return getOrganizationName(scout.organization_id);
     if (key === "school_name") return scout.school_name ?? "";
     if (key === "grade") return getGradeSortOrder(scout.grade);
+    if (key === "section") return getScoutSectionSortOrder(scout.grade);
     if (key === "current_rank") {
       return scout.current_rank_id
         ? rankByIdMap.get(scout.current_rank_id)?.sort_order ?? 9999
@@ -1780,15 +1791,17 @@ export default function AdvancementsPage() {
   };
 
   const getAdvancementSupportSummary = (scout: Scout) => {
-    if (isCubScoutByGrade(scout)) return "학년 기준 자동 적용";
-    if (!scout.current_rank_id) return "현재급위와 인가일 등록";
+    const asSummary = (text: string) => ({ display: text, full: text });
+
+    if (isCubScoutByGrade(scout)) return asSummary("학년 기준 자동 적용");
+    if (!scout.current_rank_id) return asSummary("현재급위와 인가일 등록");
 
     const nextRank = getNextRank(scout);
-    if (!nextRank) return "추가 진급 없음";
+    if (!nextRank) return asSummary("추가 진급 없음");
 
     const latestReview = getLatestCurrentStepReview(scout);
-    if (!latestReview) return "진급 판정 실행";
-    if (isReviewPassedForApproval(latestReview)) return "인가 처리 가능";
+    if (!latestReview) return asSummary("진급 판정 실행");
+    if (isReviewPassedForApproval(latestReview)) return asSummary("인가 처리 가능");
 
     const items: string[] = [];
     if (!latestReview.period_passed) items.push("활동기간");
@@ -1801,7 +1814,12 @@ export default function AdvancementsPage() {
       items.push("출석률");
     }
 
-    return items.length > 0 ? items.join(", ") : "조건 재확인";
+    if (items.length === 0) return asSummary("조건 재확인");
+
+    return {
+      display: formatSupportItemsShort(items),
+      full: items.join(", "),
+    };
   };
 
   const isScoutMatchedAdvancementFilter = useCallback(
@@ -1905,7 +1923,8 @@ export default function AdvancementsPage() {
           scout.name,
           scout.school_name,
           scout.grade,
-          isCubScoutByGrade(scout) ? "컵스카우트" : "스카우트",
+          getScoutSectionLabelByGrade(scout.grade),
+          formatScoutTypeShort(getScoutSectionLabelByGrade(scout.grade)),
           getCurrentRankDisplay(scout),
           getNextRankDisplay(scout),
           getExpectedDateDisplay(scout),
@@ -1930,6 +1949,19 @@ export default function AdvancementsPage() {
     statusFilteredScouts,
     selectedAdvancementFilter,
   ]);
+
+  const {
+    topRef: listScrollTopRef,
+    bottomRef: listScrollBottomRef,
+    showTopScrollbar: showListTopScrollbar,
+    handleTopScroll: handleListTopScroll,
+    handleBottomScroll: handleListBottomScroll,
+  } = useSyncedHorizontalScroll(
+    filteredScouts.length,
+    isSuperAdmin,
+    canManageAdvancements,
+    loading,
+  );
 
   useEffect(() => {
     const scoutIdSet = new Set(scouts.map((scout) => scout.id));
@@ -2360,6 +2392,21 @@ export default function AdvancementsPage() {
 
   return (
     <div>
+      <style>{`
+        tr.advancement-data-row {
+          cursor: pointer;
+          background-color: #ffffff;
+          transition: background-color 0.12s ease;
+        }
+        tr.advancement-data-row:hover {
+          background-color: #f1f5f9;
+        }
+        tr.advancement-data-row:focus-visible {
+          outline: 2px solid #2563eb;
+          outline-offset: -2px;
+          background-color: #eff6ff;
+        }
+      `}</style>
       <div style={pageHeaderStyle}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -2748,7 +2795,22 @@ export default function AdvancementsPage() {
         )}
 
         {!loading && !errorMessage && filteredScouts.length > 0 && (
-          <div style={tableWrapStyle}>
+          <div style={listTableShellStyle}>
+            {showListTopScrollbar ? (
+              <div
+                ref={listScrollTopRef}
+                style={listTopScrollStyle}
+                onScroll={handleListTopScroll}
+                aria-hidden="true"
+              >
+                <div style={listTopScrollInnerStyle} />
+              </div>
+            ) : null}
+            <div
+              ref={listScrollBottomRef}
+              style={listTableBodyScrollStyle}
+              onScroll={handleListBottomScroll}
+            >
             <table style={advancementListTableStyle}>
               <colgroup>
                 {canManageAdvancements && <col style={advancementColSelectStyle} />}
@@ -2791,7 +2853,7 @@ export default function AdvancementsPage() {
                   {renderSortableHeader("name", "이름")}
                   {isSuperAdmin && renderSortableHeader("organization", "소속 조직")}
                   {renderSortableHeader("grade", "학년", "center")}
-                  <th style={centerThStyle}>구분</th>
+                  {renderSortableHeader("section", "구분", "center")}
                   {renderSortableHeader("current_rank", "현재 급위", "center")}
                   {renderSortableHeader("next_rank", "다음 급위", "center")}
                   {renderSortableHeader("expected_date", "예상 진급일", "center")}
@@ -2810,9 +2872,26 @@ export default function AdvancementsPage() {
                     : null;
                   const expectedDateStatus = getDateStatusLabel(expectedDate);
                   const supportSummary = getAdvancementSupportSummary(scout);
+                  const gradeOriginal = scout.grade?.trim() || "";
+                  const gradeShort = formatGradeShort(scout.grade) || "-";
+                  const sectionOriginal = getScoutSectionLabelByGrade(scout.grade);
+                  const sectionShort = formatScoutTypeShort(sectionOriginal);
 
                   return (
-                    <tr key={scout.id} style={tableDataRowStyle}>
+                    <tr
+                      key={scout.id}
+                      className="advancement-data-row"
+                      style={tableDataRowStyle}
+                      tabIndex={0}
+                      aria-label={`${scout.name} 진급 상세 보기`}
+                      onClick={() => handleOpenScoutDetailModal(scout)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleOpenScoutDetailModal(scout);
+                        }
+                      }}
+                    >
                       {canManageAdvancements && (
                         <td style={centerTdStyle} onClick={(event) => event.stopPropagation()}>
                           <input
@@ -2841,8 +2920,12 @@ export default function AdvancementsPage() {
                       {isSuperAdmin && (
                         <td style={tdStyle}>{getOrganizationName(scout.organization_id)}</td>
                       )}
-                      <td style={centerTdStyle}>{scout.grade ?? "-"}</td>
-                      <td style={centerTdStyle}>{isCubScoutByGrade(scout) ? "컵스카우트" : "스카우트"}</td>
+                      <td style={centerTdStyle} title={gradeOriginal || undefined}>
+                        {gradeShort}
+                      </td>
+                      <td style={centerTdStyle} title={sectionOriginal}>
+                        {sectionShort}
+                      </td>
                       <td style={centerTdStyle}>{getCurrentRankDisplay(scout)}</td>
                       <td style={centerTdStyle}>{getNextRankDisplay(scout)}</td>
                       <td style={centerTdStyle}>
@@ -2859,8 +2942,12 @@ export default function AdvancementsPage() {
                         </span>
                       </td>
                       <td style={supportSummaryTdStyle}>
-                        <span style={supportSummaryTextStyle} title={supportSummary}>
-                          {supportSummary}
+                        <span
+                          style={supportSummaryTextStyle}
+                          title={supportSummary.full}
+                          aria-label={supportSummary.full}
+                        >
+                          {supportSummary.display}
                         </span>
                       </td>
                       <td style={centerTdStyle}>
@@ -2868,10 +2955,11 @@ export default function AdvancementsPage() {
                           {SCOUT_STATUS_LABELS[scout.status]}
                         </span>
                       </td>
-                      <td style={centerTdStyle}>
+                      <td style={centerTdStyle} onClick={(event) => event.stopPropagation()}>
                         <button
                           type="button"
                           style={smallButtonStyle}
+                          aria-label={`${scout.name} 진급 상세 보기`}
                           onClick={() => handleOpenScoutDetailModal(scout)}
                         >
                           상세
@@ -2882,6 +2970,7 @@ export default function AdvancementsPage() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </section>
@@ -3857,7 +3946,7 @@ const modalCloseButtonStyle: CSSProperties = {
 };
 
 const tableDataRowStyle: CSSProperties = {
-  backgroundColor: "#ffffff",
+  cursor: "pointer",
 };
 
 const pageHeaderStyle: CSSProperties = {
@@ -4406,12 +4495,37 @@ const bulkFixedErrorMessageStyle: CSSProperties = {
   lineHeight: 1.45,
 };
 
-const tableWrapStyle: CSSProperties = {
-  maxHeight: "660px",
-  overflowX: "auto",
-  overflowY: "auto",
+const listTableShellStyle: CSSProperties = {
   border: "1px solid #e5e7eb",
   borderRadius: "10px",
+  overflow: "hidden",
+  backgroundColor: "#ffffff",
+};
+
+const listTopScrollStyle: CSSProperties = {
+  overflowX: "auto",
+  overflowY: "hidden",
+  height: "14px",
+  borderBottom: "1px solid #e5e7eb",
+  backgroundColor: "#f8fafc",
+};
+
+const listTopScrollInnerStyle: CSSProperties = {
+  height: "1px",
+};
+
+/** 모달 등 공용 테이블 래퍼 */
+const tableWrapStyle: CSSProperties = {
+  overflowX: "auto",
+  overflowY: "visible",
+  border: "1px solid #e5e7eb",
+  borderRadius: "10px",
+};
+
+/** 목록 본문 가로 스크롤 (외곽 border는 listTableShellStyle) */
+const listTableBodyScrollStyle: CSSProperties = {
+  overflowX: "auto",
+  overflowY: "visible",
 };
 
 const tableStyle: CSSProperties = {
@@ -4422,22 +4536,22 @@ const tableStyle: CSSProperties = {
 
 const advancementListTableStyle: CSSProperties = {
   ...tableStyle,
-  minWidth: "1500px",
+  minWidth: "1120px",
 };
 
-const advancementColSelectStyle: CSSProperties = { width: "56px" };
-const advancementColMemberNoStyle: CSSProperties = { width: "115px" };
-const advancementColNameStyle: CSSProperties = { width: "100px" };
-const advancementColOrganizationStyle: CSSProperties = { width: "130px" };
-const advancementColGradeStyle: CSSProperties = { width: "130px" };
-const advancementColSectionStyle: CSSProperties = { width: "100px" };
-const advancementColCurrentRankStyle: CSSProperties = { width: "108px" };
-const advancementColNextRankStyle: CSSProperties = { width: "112px" };
-const advancementColExpectedDateStyle: CSSProperties = { width: "160px" };
-const advancementColJudgmentStyle: CSSProperties = { width: "130px" };
-const advancementColSupportStyle: CSSProperties = { width: "240px" };
-const advancementColStatusStyle: CSSProperties = { width: "96px" };
-const advancementColDetailStyle: CSSProperties = { width: "70px" };
+const advancementColSelectStyle: CSSProperties = { width: "48px" };
+const advancementColMemberNoStyle: CSSProperties = { width: "96px" };
+const advancementColNameStyle: CSSProperties = { width: "88px" };
+const advancementColOrganizationStyle: CSSProperties = { width: "110px" };
+const advancementColGradeStyle: CSSProperties = { width: "52px" };
+const advancementColSectionStyle: CSSProperties = { width: "72px" };
+const advancementColCurrentRankStyle: CSSProperties = { width: "96px" };
+const advancementColNextRankStyle: CSSProperties = { width: "100px" };
+const advancementColExpectedDateStyle: CSSProperties = { width: "120px" };
+const advancementColJudgmentStyle: CSSProperties = { width: "100px" };
+const advancementColSupportStyle: CSSProperties = { width: "140px" };
+const advancementColStatusStyle: CSSProperties = { width: "72px" };
+const advancementColDetailStyle: CSSProperties = { width: "64px" };
 
 const thStyle: CSSProperties = {
   position: "sticky",
@@ -4582,28 +4696,26 @@ const advancementNeutralBadgeStyle: CSSProperties = {
 
 const supportSummaryThStyle: CSSProperties = {
   ...thStyle,
-  minWidth: "240px",
+  minWidth: "140px",
   whiteSpace: "nowrap",
 };
 
 const supportSummaryTdStyle: CSSProperties = {
   ...tdStyle,
-  minWidth: "240px",
-  width: "240px",
+  minWidth: "140px",
+  width: "140px",
   color: "#334155",
   fontWeight: 700,
-  whiteSpace: "normal",
+  whiteSpace: "nowrap",
   verticalAlign: "middle",
 };
 
 const supportSummaryTextStyle: CSSProperties = {
-  display: "-webkit-box",
-  WebkitBoxOrient: "vertical",
-  WebkitLineClamp: 2,
+  display: "inline-block",
+  maxWidth: "100%",
   overflow: "hidden",
-  whiteSpace: "normal",
-  wordBreak: "keep-all",
-  overflowWrap: "break-word",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
   lineHeight: 1.45,
 };
 
