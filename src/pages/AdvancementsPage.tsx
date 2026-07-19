@@ -3249,70 +3249,125 @@ export default function AdvancementsPage() {
               </div>
             )}
 
-            <div style={expectedCardStyle}>
-              <h3 style={subTitleStyle}>다음 진급 정보</h3>
-
-              {(() => {
-                const nextRank = getNextRank(selectedScout);
-                const requirement = getRequirementForTransition(
-                  selectedScout.current_rank_id,
-                  nextRank,
-                );
-                const currentStepReview = nextRank
-                  ? [...selectedScoutReviews]
-                      .filter(
-                        (review) =>
-                          review.from_rank_id === selectedScout.current_rank_id &&
-                          review.to_rank_id === nextRank.id,
-                      )
-                      .sort((a, b) => {
-                        const bKey = `${b.review_date} ${b.created_at ?? ""}`;
-                        const aKey = `${a.review_date} ${a.created_at ?? ""}`;
-                        return bKey.localeCompare(aKey);
-                      })[0] ?? null
-                  : null;
-                const periodBaseDate = currentStepReview?.base_date ?? null;
-                const availableDate = currentStepReview?.available_at ?? null;
+            {isCubScoutByGrade(selectedScout) ? (
+              (() => {
+                const currentCubStage =
+                  getCubRankNameByGrade(selectedScout.grade) ||
+                  getCurrentRankDisplay(selectedScout);
+                const nextCubStage = getNextCubGrowthStage(currentCubStage);
+                const isHighestCubStage =
+                  currentCubStage.includes("무지개") || !nextCubStage;
 
                 return (
-                  <>
+                  <div style={expectedCardStyle}>
+                    <h3 style={subTitleStyle}>다음 성장 단계</h3>
+
                     <div style={expectedGridStyle}>
                       <div style={expectedItemStyle}>
-                        <div style={expectedLabelStyle}>다음 급위</div>
+                        <div style={expectedLabelStyle}>다음 단계</div>
                         <div style={expectedValueStyle}>
-                          {nextRank ? nextRank.rank_name : "최종급위"}
+                          {isHighestCubStage ? "없음" : nextCubStage}
                         </div>
                       </div>
 
                       <div style={expectedItemStyle}>
-                        <div style={expectedLabelStyle}>예상 진급일</div>
+                        <div style={expectedLabelStyle}>진급 방식</div>
                         <div style={expectedValueStyle}>
-                          {availableDate ?? "판정 후 확인"}
+                          {isHighestCubStage
+                            ? "컵스카우트 최고 단계"
+                            : "학년 기준 자동진급"}
                         </div>
                       </div>
 
-                      <div style={expectedItemStyle}>
-                        <div style={expectedLabelStyle}>기간 산정 기준일</div>
-                        <div style={expectedValueStyle}>
-                          {periodBaseDate ? formatDate(periodBaseDate) : "판정 후 확인"}
+                      {!isHighestCubStage ? (
+                        <div style={expectedItemStyle}>
+                          <div style={expectedLabelStyle}>예상 시기</div>
+                          <div style={expectedValueStyle}>다음 학년 진급 시</div>
                         </div>
-                      </div>
+                      ) : null}
 
                       <div style={expectedItemStyle}>
-                        <div style={expectedLabelStyle}>필요 활동기간</div>
-                        <div style={expectedValueStyle}>
-                          {requirement ? `${requirement.required_months}개월` : getMissingRequirementDisplay(nextRank)}
-                        </div>
+                        <div style={expectedLabelStyle}>별도 판정</div>
+                        <div style={expectedValueStyle}>없음</div>
                       </div>
                     </div>
 
                     <p style={compactHelpTextStyle}>
-                      기간 산정 기준일은 이전 단계의 기간 충족일과 기능장 최종 충족일 중 더 늦은 날짜입니다. 예상 진급일은 최신 판정 결과를 기준으로 표시합니다.
+                      컵스카우트 급위는 학년 기준으로 자동 적용되며 별도의 진급 판정은 하지
+                      않습니다.
                     </p>
-                  </>
+                  </div>
                 );
-              })()}
-            </div>
+              })()
+            ) : (
+              <div style={expectedCardStyle}>
+                <h3 style={subTitleStyle}>다음 진급 정보</h3>
+
+                {(() => {
+                  const nextRank = getNextRank(selectedScout);
+                  const requirement = getRequirementForTransition(
+                    selectedScout.current_rank_id,
+                    nextRank,
+                  );
+                  const currentStepReview = nextRank
+                    ? [...selectedScoutReviews]
+                        .filter(
+                          (review) =>
+                            review.from_rank_id === selectedScout.current_rank_id &&
+                            review.to_rank_id === nextRank.id,
+                        )
+                        .sort((a, b) => {
+                          const bKey = `${b.review_date} ${b.created_at ?? ""}`;
+                          const aKey = `${a.review_date} ${a.created_at ?? ""}`;
+                          return bKey.localeCompare(aKey);
+                        })[0] ?? null
+                    : null;
+                  const periodBaseDate = currentStepReview?.base_date ?? null;
+                  const availableDate = currentStepReview?.available_at ?? null;
+
+                  return (
+                    <>
+                      <div style={expectedGridStyle}>
+                        <div style={expectedItemStyle}>
+                          <div style={expectedLabelStyle}>다음 급위</div>
+                          <div style={expectedValueStyle}>
+                            {nextRank ? nextRank.rank_name : "최종급위"}
+                          </div>
+                        </div>
+
+                        <div style={expectedItemStyle}>
+                          <div style={expectedLabelStyle}>예상 진급일</div>
+                          <div style={expectedValueStyle}>
+                            {availableDate ?? "판정 후 확인"}
+                          </div>
+                        </div>
+
+                        <div style={expectedItemStyle}>
+                          <div style={expectedLabelStyle}>기간 산정 기준일</div>
+                          <div style={expectedValueStyle}>
+                            {periodBaseDate ? formatDate(periodBaseDate) : "판정 후 확인"}
+                          </div>
+                        </div>
+
+                        <div style={expectedItemStyle}>
+                          <div style={expectedLabelStyle}>필요 활동기간</div>
+                          <div style={expectedValueStyle}>
+                            {requirement
+                              ? `${requirement.required_months}개월`
+                              : getMissingRequirementDisplay(nextRank)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <p style={compactHelpTextStyle}>
+                        기간 산정 기준일은 이전 단계의 기간 충족일과 기능장 최종 충족일 중 더
+                        늦은 날짜입니다. 예상 진급일은 최신 판정 결과를 기준으로 표시합니다.
+                      </p>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
 
             {canManageAdvancements && !isCubScoutByGrade(selectedScout) && selectedScout.current_rank_id && getNextRank(selectedScout) && (
               <div style={reviewActionCardStyle}>
