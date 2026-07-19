@@ -296,6 +296,9 @@ const CUB_RANK_BY_GRADE_NUMBER: Record<number, string> = {
   6: "무지개",
 };
 
+/** 컵스카우트 성장 단계 표시 순서 (학년 매핑과 별도, UI용) */
+const CUB_GROWTH_STAGES = ["다람쥐", "토끼", "사슴", "곰", "무지개"] as const;
+
 function getGradeNumber(value: string | null | undefined) {
   if (!value) return null;
 
@@ -330,6 +333,18 @@ function getNextCubRankNameByGrade(value: string | null | undefined) {
 
 function isCubScoutByGrade(scout: { grade: string | null }) {
   return isElementarySchoolGrade(scout.grade);
+}
+
+function getCubGrowthStageIndex(rankName: string) {
+  return CUB_GROWTH_STAGES.findIndex(
+    (stage) => rankName === stage || rankName.includes(stage),
+  );
+}
+
+function getNextCubGrowthStage(rankName: string) {
+  const index = getCubGrowthStageIndex(rankName);
+  if (index < 0 || index >= CUB_GROWTH_STAGES.length - 1) return "";
+  return CUB_GROWTH_STAGES[index + 1];
 }
 
 function toMissingItems(value: unknown): MissingItem[] {
@@ -3141,27 +3156,98 @@ export default function AdvancementsPage() {
               </div>
             )}
 
-            <div style={progressCardStyle}>
-              <h3 style={subTitleStyle}>급위 진행 현황</h3>
+            {isCubScoutByGrade(selectedScout) ? (
+              (() => {
+                const currentCubStage =
+                  getCubRankNameByGrade(selectedScout.grade) ||
+                  getCurrentRankDisplay(selectedScout);
+                const currentStageIndex = getCubGrowthStageIndex(currentCubStage);
+                const nextCubStage = getNextCubGrowthStage(currentCubStage);
+                const isHighestCubStage =
+                  currentCubStage.includes("무지개") || !nextCubStage;
 
-              <div style={progressWrapStyle}>
-                {sortedRanks.map((rank) => {
-                  const stepState = getRankStepState(selectedScout, rank);
+                return (
+                  <div style={progressCardStyle}>
+                    <h3 style={subTitleStyle}>성장 진행현황</h3>
 
-                  return (
-                    <div key={rank.id} style={progressStepStyle}>
-                      <div style={getProgressCircleStyle(stepState)}>
-                        {stepState === "completed" ? "✓" : rank.sort_order}
+                    <div style={progressWrapStyle}>
+                      {CUB_GROWTH_STAGES.map((stage, index) => {
+                        const stepState: RankStepState =
+                          currentStageIndex < 0
+                            ? "pending"
+                            : index < currentStageIndex
+                              ? "completed"
+                              : index === currentStageIndex
+                                ? "current"
+                                : index === currentStageIndex + 1
+                                  ? "next"
+                                  : "pending";
+
+                        return (
+                          <div
+                            key={stage}
+                            style={{
+                              ...progressStepStyle,
+                              ...(stepState === "current"
+                                ? {
+                                    border: "1px solid #93c5fd",
+                                    backgroundColor: "#eff6ff",
+                                  }
+                                : null),
+                            }}
+                          >
+                            <div style={getProgressCircleStyle(stepState)}>
+                              {stepState === "completed" ? "✓" : index + 1}
+                            </div>
+                            <div style={progressRankNameStyle}>{stage}</div>
+                            <div style={getProgressLabelStyle(stepState)}>
+                              {getRankStepLabel(stepState)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ ...expectedGridStyle, marginTop: 10 }}>
+                      <div style={expectedItemStyle}>
+                        <div style={expectedLabelStyle}>현재</div>
+                        <div style={expectedValueStyle}>
+                          {currentCubStage || "-"}
+                        </div>
                       </div>
-                      <div style={progressRankNameStyle}>{rank.rank_name}</div>
-                      <div style={getProgressLabelStyle(stepState)}>
-                        {getRankStepLabel(stepState)}
+                      <div style={expectedItemStyle}>
+                        <div style={expectedLabelStyle}>다음 단계</div>
+                        <div style={expectedValueStyle}>
+                          {isHighestCubStage ? "없음" : nextCubStage}
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+                );
+              })()
+            ) : (
+              <div style={progressCardStyle}>
+                <h3 style={subTitleStyle}>급위 진행 현황</h3>
+
+                <div style={progressWrapStyle}>
+                  {sortedRanks.map((rank) => {
+                    const stepState = getRankStepState(selectedScout, rank);
+
+                    return (
+                      <div key={rank.id} style={progressStepStyle}>
+                        <div style={getProgressCircleStyle(stepState)}>
+                          {stepState === "completed" ? "✓" : rank.sort_order}
+                        </div>
+                        <div style={progressRankNameStyle}>{rank.rank_name}</div>
+                        <div style={getProgressLabelStyle(stepState)}>
+                          {getRankStepLabel(stepState)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             <div style={expectedCardStyle}>
               <h3 style={subTitleStyle}>다음 진급 정보</h3>
