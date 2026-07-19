@@ -3,7 +3,9 @@ import type { CSSProperties, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { EmptyState, PageHelpButton } from "../components/common/CommonFeedback";
+import { SuperAdminOrganizationFilter } from "../components/common/SuperAdminOrganizationFilter";
 import { getSeoulTodayText } from "../lib/businessDate";
+import { fetchOrganizationsForFilter } from "../lib/organizationFilter";
 import { supabase } from "../lib/supabase";
 
 type UserRole = "super_admin" | "org_admin" | "leader" | "viewer";
@@ -47,6 +49,7 @@ type Rank = {
 type Organization = {
   id: string;
   name: string;
+  unit_number: string | null;
 };
 
 type RankHistory = {
@@ -564,6 +567,8 @@ export default function AdvancementsPage() {
 
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<ScoutStatusFilter>("active");
+  /** super_admin 소속대 필터. "" = 전체 소속대 (로컬 state, 전체 대원 통합관리와 동일) */
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [sortState, setSortState] = useState<AdvancementSortState>({
     key: "member_no",
     direction: "asc",
@@ -638,7 +643,7 @@ export default function AdvancementsPage() {
     setPromotionApprovalErrorMessage("");
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setErrorMessage("");
 
@@ -705,11 +710,8 @@ export default function AdvancementsPage() {
       return;
     }
 
-    const { data: organizationData, error: organizationError } = await supabase
-      .from("organizations")
-      .select("id, name")
-      .is("deleted_at", null)
-      .order("name", { ascending: true });
+    const { organizations: organizationData, error: organizationError } =
+      await fetchOrganizationsForFilter();
 
     if (organizationError) {
       console.error("조직 목록 조회 오류:", organizationError.message);
@@ -750,6 +752,10 @@ export default function AdvancementsPage() {
       scoutQuery = scoutQuery.eq("organization_id", currentProfile.organization_id);
       historyQuery = historyQuery.eq("organization_id", currentProfile.organization_id);
       reviewQuery = reviewQuery.eq("organization_id", currentProfile.organization_id);
+    } else if (selectedOrganizationId) {
+      scoutQuery = scoutQuery.eq("organization_id", selectedOrganizationId);
+      historyQuery = historyQuery.eq("organization_id", selectedOrganizationId);
+      reviewQuery = reviewQuery.eq("organization_id", selectedOrganizationId);
     }
 
     const { data: scoutData, error: scoutError } = await scoutQuery;
@@ -781,11 +787,24 @@ export default function AdvancementsPage() {
 
     setRanks((rankData ?? []) as Rank[]);
     setRankRequirements((requirementData ?? []) as RankRequirement[]);
-    setOrganizations((organizationData ?? []) as Organization[]);
+    setOrganizations(organizationData as Organization[]);
     setScouts((scoutData ?? []) as unknown as Scout[]);
     setRankHistories((historyData ?? []) as unknown as RankHistory[]);
     setPromotionReviews((reviewData ?? []) as unknown as PromotionReview[]);
     setLoading(false);
+  }, [selectedOrganizationId]);
+
+  const handleOrganizationFilterChange = (organizationId: string) => {
+    setSelectedOrganizationId(organizationId);
+    setBulkSelectedScoutIds([]);
+    setSelectedScoutId(null);
+    setSelectedReviewId(null);
+    setIsScoutDetailModalOpen(false);
+    setSelectedSummaryCardType(null);
+    setBulkReviewResultMessage("");
+    setBulkReviewErrorMessage("");
+    setBulkApprovalResultMessage("");
+    setBulkApprovalErrorMessage("");
   };
 
   const handleOpenInitialBeginnerApproval = (scout: Scout) => {
@@ -1093,8 +1112,8 @@ export default function AdvancementsPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [loadData]);
 
   useEffect(() => {
     if (!isScoutDetailModalOpen && !selectedSummaryCardType) return;
@@ -2460,6 +2479,16 @@ export default function AdvancementsPage() {
         </section>
 
         <div style={advancementSearchPanelStyle}>
+          <SuperAdminOrganizationFilter
+            visible={isSuperAdmin}
+            value={selectedOrganizationId}
+            onChange={handleOrganizationFilterChange}
+            organizations={organizations}
+            disabled={loading}
+            label="소속대"
+            allOptionLabel="전체 소속대"
+          />
+
           <input
             style={advancementSearchInputStyle}
             type="search"
@@ -2681,17 +2710,25 @@ export default function AdvancementsPage() {
         {!loading && !errorMessage && filteredScouts.length === 0 && (
           <EmptyState
             title={
-              keyword.trim()
-                ? "검색 조건에 맞는 대원이 없습니다."
-                : statusFilter === "active"
-                  ? "현재 활동 중인 대원이 없습니다."
-                  : statusFilter === "inactive"
-                    ? "비활동 대원이 없습니다."
-                    : statusFilter === "graduated"
-                      ? "졸업 대원이 없습니다."
-                      : "조건에 맞는 대원이 없습니다."
+              isSuperAdmin && selectedOrganizationId && scouts.length === 0
+                ? "선택한 소속대에 등록된 대원이 없습니다."
+                : keyword.trim()
+                  ? "검색 조건에 맞는 대원이 없습니다."
+                  : selectedAdvancementFilter !== "all"
+                    ? "선택한 조건에 해당하는 진급 현황이 없습니다."
+                    : statusFilter === "active"
+                      ? "현재 활동 중인 대원이 없습니다."
+                      : statusFilter === "inactive"
+                        ? "비활동 대원이 없습니다."
+                        : statusFilter === "graduated"
+                          ? "졸업 대원이 없습니다."
+                          : "조건에 맞는 대원이 없습니다."
             }
-            description="조회 구분이나 대원 상태를 변경해 다시 확인해 주세요."
+            description={
+              isSuperAdmin && selectedOrganizationId && scouts.length === 0
+                ? "다른 소속대를 선택하거나 전체 소속대로 다시 확인해 주세요."
+                : "조회 구분이나 대원 상태를 변경해 다시 확인해 주세요."
+            }
           />
         )}
 
