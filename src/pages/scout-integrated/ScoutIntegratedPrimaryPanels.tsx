@@ -652,9 +652,9 @@ export function OverviewPanel({
       <section style={contentCardStyle}>
         <div style={overviewSectionHeaderStyle}>
           <div>
-            <h3 style={contentTitleStyle}>기록 품질</h3>
+            <h3 style={contentTitleStyle}>확인 및 처리 필요사항</h3>
             <p style={contentDescriptionStyle}>
-              지금 수정해야 하는 기록을 우선 확인합니다.
+              현재 선택한 대원에게 추가 확인이나 처리가 필요한 항목입니다.
             </p>
           </div>
         </div>
@@ -672,7 +672,7 @@ export function OverviewPanel({
             label={
               badgeApprovalMissingCount > 0
                 ? "⚠ 기능장 승인 누락"
-                : "기능장 승인"
+                : "기능장 기록 확인"
             }
             count={badgeApprovalMissingCount}
             onClick={onMoveToBadges}
@@ -681,14 +681,14 @@ export function OverviewPanel({
             label={
               programApprovalMissingCount > 0
                 ? "⚠ 프로그램 승인 누락"
-                : "프로그램 승인"
+                : "프로그램 이수 확인"
             }
             count={programApprovalMissingCount}
             onClick={onMoveToPrograms}
           />
           <RecordCheckRow
             label={
-              notEnteredCount > 0 ? "⚠ 출석 입력 필요" : "출석 입력"
+              notEnteredCount > 0 ? "⚠ 출석 입력 필요" : "출석 기록 확인"
             }
             count={notEnteredCount}
             onClick={onMoveToAttendance}
@@ -697,7 +697,7 @@ export function OverviewPanel({
             label={
               promotionReviewMissingCount > 0
                 ? "⚠ 진급 판정 필요"
-                : "진급 판정"
+                : "진급 조건 확인"
             }
             count={promotionReviewMissingCount}
             onClick={onMoveToAdvancement}

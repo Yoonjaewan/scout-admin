@@ -38,7 +38,9 @@ import {
   recentRecordRowStyle,
   recentRecordValueStyle,
   recordCheckGoodStyle,
+  recordCheckLabelStyle,
   recordCheckRowStyle,
+  recordCheckStatusStyle,
   recordCheckWarningStyle,
   summaryFilterCardStyle,
   summaryFilterCountStyle,
@@ -175,7 +177,26 @@ export function RecentRecordRow({ label, value }: { label: string; value: string
 }
 
 export function RecordCheckRow({ label, count, onClick }: { label: string; count: number; onClick: () => void }) {
-  return <button type="button" style={recordCheckRowStyle} onClick={onClick}><span>{label}</span><strong style={count > 0 ? recordCheckWarningStyle : recordCheckGoodStyle}>{count > 0 ? `${count}건` : "이상 없음"}</strong></button>;
+  const statusText = count > 0 ? `${count}건` : "처리할 내용 없음";
+
+  return (
+    <button
+      type="button"
+      style={recordCheckRowStyle}
+      onClick={onClick}
+      aria-label={`${label}, ${statusText}`}
+    >
+      <span style={recordCheckLabelStyle}>{label}</span>
+      <strong
+        style={{
+          ...(count > 0 ? recordCheckWarningStyle : recordCheckGoodStyle),
+          ...recordCheckStatusStyle,
+        }}
+      >
+        {statusText}
+      </strong>
+    </button>
+  );
 }
 
 export function DetailedConditionCard({ title, passed, rows }: { title: string; passed: boolean; rows: Array<[string, string]> }) {
