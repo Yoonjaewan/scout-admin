@@ -1026,7 +1026,7 @@ export const recordCheckRowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: "12px",
+  gap: "8px",
   border: "1px solid #e2e8f0",
   borderRadius: "9px",
   backgroundColor: "#f8fafc",
@@ -1036,6 +1036,20 @@ export const recordCheckRowStyle: CSSProperties = {
   fontWeight: 800,
   textAlign: "left",
   cursor: "pointer",
+  boxSizing: "border-box",
+  minWidth: 0,
+};
+
+export const recordCheckLabelStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  lineHeight: 1.35,
+};
+
+export const recordCheckStatusStyle: CSSProperties = {
+  flexShrink: 0,
+  whiteSpace: "nowrap",
+  fontSize: "12.5px",
 };
 
 export const recordCheckGridStyle: CSSProperties = {
