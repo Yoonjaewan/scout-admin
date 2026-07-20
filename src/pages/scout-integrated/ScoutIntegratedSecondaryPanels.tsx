@@ -186,6 +186,7 @@ function getNonBeomLeaderActionMessage(
 export function ProgramPanel({
   completions,
   isBeomTarget,
+  isCubScout = false,
   targetRankName,
   canManage,
   actionMessage,
@@ -197,6 +198,7 @@ export function ProgramPanel({
 }: {
   completions: ProgramCompletion[];
   isBeomTarget: boolean;
+  isCubScout?: boolean;
   targetRankName: string;
   canManage: boolean;
   actionMessage: string;
@@ -206,6 +208,7 @@ export function ProgramPanel({
   onEdit: (completion: ProgramCompletion) => void;
   onDelete: (completion: ProgramCompletion) => void;
 }) {
+  const effectiveBeomTarget = isCubScout ? false : isBeomTarget;
   const wsep = completions.find((completion) => completion.program_type === "WSEP") ?? null;
   const mop = completions.find((completion) => completion.program_type === "MoP") ?? null;
   const hasAnyProgram = completions.some((completion) => Boolean(completion.approved_at));
@@ -213,36 +216,44 @@ export function ProgramPanel({
   const missingCertificateCount = completions.filter((completion) => !completion.certificate_no).length;
   const hasTargetRankLabel = hasDisplayTargetRankName(targetRankName);
 
-  const summaryTitle = isBeomTarget
-    ? "범 진급 프로그램 준비 현황"
-    : "프로그램 이수 기록 (참고)";
-  const summaryDescription = isBeomTarget
-    ? hasTargetRankLabel
-      ? `다음 급위 ${targetRankName} 진급에 필요한 프로그램을 확인합니다. WSEP 또는 MoP 중 승인 완료된 프로그램 1건이 있으면 프로그램 조건을 충족합니다.`
-      : "WSEP 또는 MoP 중 승인 완료된 프로그램 1건이 있으면 프로그램 조건을 충족합니다."
-    : hasTargetRankLabel
-      ? `현재 다음 급위 ${targetRankName}에서는 프로그램 조건이 적용되지 않습니다.`
-      : "등록된 프로그램 기록을 참고용으로 확인합니다.";
-  const summaryStatusLabel = isBeomTarget
-    ? hasAnyProgram
-      ? "프로그램 조건 충족"
+  const summaryTitle = isCubScout
+    ? "프로그램 이수 현황"
+    : effectiveBeomTarget
+      ? "범 진급 프로그램 준비 현황"
+      : "프로그램 이수 기록 (참고)";
+  const summaryDescription = isCubScout
+    ? "등록된 프로그램 이수 기록을 확인합니다."
+    : effectiveBeomTarget
+      ? hasTargetRankLabel
+        ? `다음 급위 ${targetRankName} 진급에 필요한 프로그램을 확인합니다. WSEP 또는 MoP 중 승인 완료된 프로그램 1건이 있으면 프로그램 조건을 충족합니다.`
+        : "WSEP 또는 MoP 중 승인 완료된 프로그램 1건이 있으면 프로그램 조건을 충족합니다."
+      : hasTargetRankLabel
+        ? `현재 다음 급위 ${targetRankName}에서는 프로그램 조건이 적용되지 않습니다.`
+        : "등록된 프로그램 기록을 참고용으로 확인합니다.";
+  const summaryStatusLabel = isCubScout
+    ? completions.length > 0
+      ? "이수 기록"
+      : "기록 없음"
+    : effectiveBeomTarget
+      ? hasAnyProgram
+        ? "프로그램 조건 충족"
+        : completions.length > 0
+          ? "승인 필요"
+          : "등록 필요"
       : completions.length > 0
-        ? "승인 필요"
-        : "등록 필요"
-    : completions.length > 0
-      ? "참고 기록"
-      : "현재 단계 해당 없음";
-  const summaryStatusStyle = isBeomTarget
+        ? "참고 기록"
+        : "현재 단계 해당 없음";
+  const summaryStatusStyle = effectiveBeomTarget
     ? getConditionStyle(hasAnyProgram)
     : getConditionStyle(null);
-  const summarySectionStyle = isBeomTarget
+  const summarySectionStyle = effectiveBeomTarget
     ? programSummaryCardStyle
     : contentCardStyle;
-  const tableEmptyMessage = isBeomTarget
+  const tableEmptyMessage = effectiveBeomTarget
     ? "WSEP 또는 MoP 중 하나의 이수 기록을 등록해 주세요."
     : "등록된 프로그램 이수 기록이 없습니다.";
 
-  const beomSummaryItems = isBeomTarget
+  const beomSummaryItems = effectiveBeomTarget
     ? [
         {
           label: "프로그램 조건",
@@ -274,17 +285,27 @@ export function ProgramPanel({
       ]
     : [];
 
-  const leaderAction = isBeomTarget
-    ? getBeomLeaderActionMessage(
-        completions,
-        hasAnyProgram,
-        missingCertificateCount,
-      )
-    : getNonBeomLeaderActionMessage(
-        completions,
-        missingApprovalCount,
-        missingCertificateCount,
-      );
+  const leaderAction = isCubScout
+    ? {
+        tone: (completions.length > 0 ? "complete" : "neutral") as
+          | "complete"
+          | "neutral",
+        message:
+          completions.length > 0
+            ? "등록된 프로그램 이수 기록을 확인합니다."
+            : "등록된 프로그램 이수 기록이 없습니다.",
+      }
+    : effectiveBeomTarget
+      ? getBeomLeaderActionMessage(
+          completions,
+          hasAnyProgram,
+          missingCertificateCount,
+        )
+      : getNonBeomLeaderActionMessage(
+          completions,
+          missingApprovalCount,
+          missingCertificateCount,
+        );
 
   return (
     <div style={overviewStackStyle}>
@@ -298,7 +319,7 @@ export function ProgramPanel({
         </div>
         {actionMessage && <div style={successMessageStyle}>{actionMessage}</div>}
         {errorMessage && <div style={errorBoxStyle}>{errorMessage}</div>}
-        {isBeomTarget && (
+        {effectiveBeomTarget && (
           <div style={programSummaryGridStyle}>
             {beomSummaryItems.map((item) => (
               <div key={item.label} style={infoItemStyle}>
@@ -323,7 +344,7 @@ export function ProgramPanel({
         <ProgramStatusCard
           programType="WSEP"
           completion={wsep}
-          isRequiredForCurrentStage={isBeomTarget}
+          isRequiredForCurrentStage={effectiveBeomTarget}
           programConditionMet={hasAnyProgram}
           canManage={canManage}
           deletingId={deletingId}
@@ -334,7 +355,7 @@ export function ProgramPanel({
         <ProgramStatusCard
           programType="MoP"
           completion={mop}
-          isRequiredForCurrentStage={isBeomTarget}
+          isRequiredForCurrentStage={effectiveBeomTarget}
           programConditionMet={hasAnyProgram}
           canManage={canManage}
           deletingId={deletingId}
@@ -361,7 +382,7 @@ export function ProgramPanel({
         )}
       </section>
 
-      {isBeomTarget && (
+      {effectiveBeomTarget && (
         <div style={programCompactNoticeStyle}>
           범 진급 신청 시 이수일·승인일·수료증번호를 증빙자료와 함께 확인해
           주세요.
@@ -446,6 +467,7 @@ export function AttendancePanel({
   rows,
   recentHistoryItems,
   isBeomTarget,
+  isCubScout = false,
   attendanceRequiredForBeom,
   attendancePassed,
   attendanceRate,
@@ -454,12 +476,17 @@ export function AttendancePanel({
   rows: Attendance[];
   recentHistoryItems: RecentAttendanceHistoryItem[];
   isBeomTarget: boolean;
+  isCubScout?: boolean;
   attendanceRequiredForBeom: boolean;
   attendancePassed: boolean;
   attendanceRate: number | null;
   targetRankName: string;
 }) {
   const navigate = useNavigate();
+  const effectiveBeomTarget = isCubScout ? false : isBeomTarget;
+  const effectiveAttendanceRequired = isCubScout
+    ? false
+    : attendanceRequiredForBeom;
   const summary = getAttendanceSummary(rows);
   const notEnteredCount = rows.filter((row) => row.status === "not_entered").length;
   const absentCount = rows.filter((row) => row.status === "absent").length;
@@ -469,40 +496,56 @@ export function AttendancePanel({
   }, {});
   const hasTargetRankLabel = hasDisplayTargetRankName(targetRankName);
 
-  const summaryTitle = isBeomTarget
-    ? "범 진급 출석 준비 현황"
-    : "출석 기록 (참고)";
-  const summaryDescription = isBeomTarget
-    ? hasTargetRankLabel
-      ? `다음 급위 ${targetRankName} 진급에 필요한 출석 상태를 확인합니다.`
-      : "다음 급위 진급에 필요한 출석 상태를 확인합니다."
-    : "현재 단계에서는 출석률이 진급 조건에 적용되지 않습니다.";
-  const summaryStatusLabel = isBeomTarget
-    ? attendancePassed
-      ? "출석 조건 충족"
-      : "출석 확인 필요"
-    : "현재 단계 해당 없음";
-  const summaryStatusStyle = isBeomTarget
+  const summaryTitle = isCubScout
+    ? "출석 활동 현황"
+    : effectiveBeomTarget
+      ? "범 진급 출석 준비 현황"
+      : "출석 기록 (참고)";
+  const summaryDescription = isCubScout
+    ? "최근 출석률과 출석·결석·미입력 기록을 확인합니다."
+    : effectiveBeomTarget
+      ? hasTargetRankLabel
+        ? `다음 급위 ${targetRankName} 진급에 필요한 출석 상태를 확인합니다.`
+        : "다음 급위 진급에 필요한 출석 상태를 확인합니다."
+      : "현재 단계에서는 출석률이 진급 조건에 적용되지 않습니다.";
+  const summaryStatusLabel = isCubScout
+    ? rows.length > 0
+      ? "출석 기록"
+      : "기록 없음"
+    : effectiveBeomTarget
+      ? attendancePassed
+        ? "출석 조건 충족"
+        : "출석 확인 필요"
+      : "현재 단계 해당 없음";
+  const summaryStatusStyle = effectiveBeomTarget
     ? getConditionStyle(attendancePassed)
     : getConditionStyle(null);
-  const summarySectionStyle = isBeomTarget
+  const summarySectionStyle = effectiveBeomTarget
     ? programSummaryCardStyle
     : contentCardStyle;
-  const emptyMessage = isBeomTarget
-    ? "출석 기록이 없습니다. 집회/출석 관리에서 출석을 입력해 주세요."
-    : "등록된 출석 기록이 없습니다.";
-  const noticeMessage = isBeomTarget
-    ? "출석률 80% 이상이면 범 진급 출석 조건을 충족합니다."
-    : "출석 기록은 활동 관리 참고 자료입니다.";
+  const emptyMessage = isCubScout
+    ? "등록된 출석 기록이 없습니다."
+    : effectiveBeomTarget
+      ? "출석 기록이 없습니다. 집회/출석 관리에서 출석을 입력해 주세요."
+      : "등록된 출석 기록이 없습니다.";
+  const noticeMessage = isCubScout
+    ? "출석 기록은 활동 관리용으로 확인합니다."
+    : effectiveBeomTarget
+      ? "출석률 80% 이상이면 범 진급 출석 조건을 충족합니다."
+      : "출석 기록은 활동 관리 참고 자료입니다.";
 
-  const rateSummaryValue =
-    !isBeomTarget || !attendanceRequiredForBeom
+  const rateSummaryValue = isCubScout
+    ? attendanceRate === null
+      ? "기록 없음"
+      : `${attendanceRate}%`
+    : !effectiveBeomTarget || !effectiveAttendanceRequired
       ? "참고 지표"
       : attendanceRate !== null && attendanceRate >= 80
         ? "충족"
         : "확인 필요";
-  const rateSummaryTone =
-    !isBeomTarget || !attendanceRequiredForBeom
+  const rateSummaryTone = isCubScout
+    ? ("good" as const)
+    : !effectiveBeomTarget || !effectiveAttendanceRequired
       ? ("good" as const)
       : attendanceRate !== null && attendanceRate >= 80
         ? ("good" as const)
@@ -544,7 +587,7 @@ export function AttendancePanel({
             title: `결석 ${absentCount}건이 있습니다.`,
             detail: "확인해 주세요.",
           }
-        : isBeomTarget && !attendancePassed
+        : effectiveBeomTarget && !attendancePassed
           ? {
               tone: "warning" as const,
               title: "범 진급 출석 조건을 충족하지 않았습니다.",
@@ -656,7 +699,7 @@ export function AttendancePanel({
           출석률 분모에서 제외됩니다.
         </div>
 
-        {isBeomTarget && attendanceRequiredForBeom && (
+        {effectiveBeomTarget && effectiveAttendanceRequired && (
           <p style={{ ...contentDescriptionStyle, margin: "10px 0 0" }}>
             범 진급 기준 80% · 현재{" "}
             <strong
@@ -671,10 +714,16 @@ export function AttendancePanel({
           </p>
         )}
 
-        {isBeomTarget && !attendanceRequiredForBeom && (
+        {effectiveBeomTarget && !effectiveAttendanceRequired && (
           <p style={{ ...contentDescriptionStyle, margin: "10px 0 0" }}>
             범 진급 출석률: 참고 지표. 현재 출석률은 진급 판정에 반영되지
             않습니다.
+          </p>
+        )}
+
+        {isCubScout && (
+          <p style={{ ...contentDescriptionStyle, margin: "10px 0 0" }}>
+            {noticeMessage}
           </p>
         )}
       </section>

@@ -9,12 +9,19 @@ import { useSearchParams } from "react-router-dom";
 import { PageHelpButton } from "../components/common/CommonFeedback";
 import { getSeoulTodayText } from "../lib/businessDate";
 import { buildPromotionBadgeReflectionMap } from "../lib/promotionBadgeReflection";
+import { isCubScoutByGrade } from "../lib/scoutDisplayFormat";
 import {
   getLatestRankApprovalDate,
   getSurvivalBadgeRegistrationState,
   mapBadgeRegistrationError,
 } from "../lib/survivalBadgeValidation";
 import { supabase } from "../lib/supabase";
+import {
+  CubAdvancementPanel,
+  CubHobbyPanel,
+  CubOverviewPanel,
+  CubProfileBanner,
+} from "./scout-integrated/ScoutIntegratedCubViews";
 import {
   RankProgressOverview,
   ReadinessProgressItem,
@@ -1358,6 +1365,9 @@ export default function ScoutIntegratedPage() {
   const selectedReadiness = selectedScout
     ? (scoutReadinessMap.get(selectedScout.id) ?? null)
     : null;
+  const isSelectedCub = Boolean(
+    selectedScout && isCubScoutByGrade(selectedScout.grade),
+  );
 
   const targetRankName = selectedReadiness?.targetRank?.rank_name ?? "-";
 
@@ -2549,106 +2559,125 @@ export default function ScoutIntegratedPage() {
                   </div>
                 </div>
 
-                {selectedReadiness && (
-                  <div
-                    style={selectedReadinessBannerStyle(
-                      selectedReadiness.status,
-                    )}
-                  >
-                    <div>
-                      <span style={selectedReadinessEyebrowStyle}>
-                        다음 진급 준비 상태
-                      </span>
-                      <strong style={selectedReadinessTitleStyle}>
-                        {selectedReadiness.status === "ready"
-                          ? "현재 진급 가능"
-                          : selectedReadiness.status === "needs_attention"
-                            ? `현재 진급 불가 · 보완 ${selectedReadiness.missingLabels.length}건`
-                            : "진급 판정 필요"}
-                      </strong>
-                      <span style={selectedReadinessDetailStyle}>
-                        {currentRankName} → {targetRankName}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      style={selectedReadinessActionStyle}
-                      onClick={() => setActiveTab("advancement")}
+                {isSelectedCub ? (
+                  <CubProfileBanner
+                    scout={selectedScout}
+                    ranks={data.ranks}
+                    onMoveToAdvancement={() => setActiveTab("advancement")}
+                  />
+                ) : (
+                  selectedReadiness && (
+                    <div
+                      style={selectedReadinessBannerStyle(
+                        selectedReadiness.status,
+                      )}
                     >
-                      진급 업무 확인
-                    </button>
-                  </div>
+                      <div>
+                        <span style={selectedReadinessEyebrowStyle}>
+                          다음 진급 준비 상태
+                        </span>
+                        <strong style={selectedReadinessTitleStyle}>
+                          {selectedReadiness.status === "ready"
+                            ? "현재 진급 가능"
+                            : selectedReadiness.status === "needs_attention"
+                              ? `현재 진급 불가 · 보완 ${selectedReadiness.missingLabels.length}건`
+                              : "진급 판정 필요"}
+                        </strong>
+                        <span style={selectedReadinessDetailStyle}>
+                          {currentRankName} → {targetRankName}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        style={selectedReadinessActionStyle}
+                        onClick={() => setActiveTab("advancement")}
+                      >
+                        진급 업무 확인
+                      </button>
+                    </div>
+                  )
                 )}
 
-                <div>
-                  <div style={{ margin: "10px 0 6px", fontSize: "13px", fontWeight: 800, color: "#475569" }}>진급조건 체크</div>
-                  <div style={{ ...readinessProgressGridStyle, gap: "6px" }}> 
-                  <ReadinessProgressItem
-                    label="활동기간"
-                    passed={selectedReadiness?.periodPassed ?? false}
-                    pending={!selectedReadiness?.latestReview}
-                    detail={
-                      selectedReadiness?.latestReview
-                        ? selectedReadiness.periodPassed
-                          ? "충족"
-                          : formatDate(
-                              selectedReadiness.latestReview.available_at,
-                            )
-                        : "판정 필요"
-                    }
-                  />
-                  <ReadinessProgressItem
-                    label="필수 기능장"
-                    passed={selectedReadiness?.requiredPassed ?? false}
-                    detail={
-                      selectedReadiness
-                        ? `${selectedReadiness.stageSummary.requiredOwned}/${selectedReadiness.stageSummary.requiredTotal}개`
-                        : "-"
-                    }
-                  />
-                  <ReadinessProgressItem
-                    label="일반 기능장"
-                    passed={selectedReadiness?.generalPassed ?? false}
-                    detail={
-                      selectedReadiness
-                        ? `${selectedReadiness.stageSummary.generalOwned}/${selectedReadiness.stageSummary.generalRequired}개`
-                        : "-"
-                    }
-                  />
-                  <ReadinessProgressItem
-                    label="프로그램"
-                    passed={selectedReadiness?.programPassed ?? false}
-                    pending={!selectedReadiness?.isBeomTarget}
-                    detail={
-                      selectedReadiness?.isBeomTarget
-                        ? selectedReadiness.programPassed
-                          ? "충족"
-                          : "미이수"
-                        : "해당 없음"
-                    }
-                  />
-                  <ReadinessProgressItem
-                    label="출석"
-                    passed={selectedReadiness?.attendancePassed ?? false}
-                    pending={
-                      !selectedReadiness?.isBeomTarget ||
-                      !selectedReadiness?.attendanceRequiredForBeom
-                    }
-                    detail={
-                      !selectedReadiness?.isBeomTarget
-                        ? "해당 없음"
-                        : !selectedReadiness.attendanceRequiredForBeom
-                          ? "참고 지표"
-                          : selectedReadiness.attendanceSummary.rate === null
-                            ? "기록 없음"
-                            : `${selectedReadiness.attendanceSummary.rate}%`
-                    }
-                  />
+                {!isSelectedCub && (
+                  <div>
+                    <div
+                      style={{
+                        margin: "10px 0 6px",
+                        fontSize: "13px",
+                        fontWeight: 800,
+                        color: "#475569",
+                      }}
+                    >
+                      진급조건 체크
+                    </div>
+                    <div style={{ ...readinessProgressGridStyle, gap: "6px" }}>
+                      <ReadinessProgressItem
+                        label="활동기간"
+                        passed={selectedReadiness?.periodPassed ?? false}
+                        pending={!selectedReadiness?.latestReview}
+                        detail={
+                          selectedReadiness?.latestReview
+                            ? selectedReadiness.periodPassed
+                              ? "충족"
+                              : formatDate(
+                                  selectedReadiness.latestReview.available_at,
+                                )
+                            : "판정 필요"
+                        }
+                      />
+                      <ReadinessProgressItem
+                        label="필수 기능장"
+                        passed={selectedReadiness?.requiredPassed ?? false}
+                        detail={
+                          selectedReadiness
+                            ? `${selectedReadiness.stageSummary.requiredOwned}/${selectedReadiness.stageSummary.requiredTotal}개`
+                            : "-"
+                        }
+                      />
+                      <ReadinessProgressItem
+                        label="일반 기능장"
+                        passed={selectedReadiness?.generalPassed ?? false}
+                        detail={
+                          selectedReadiness
+                            ? `${selectedReadiness.stageSummary.generalOwned}/${selectedReadiness.stageSummary.generalRequired}개`
+                            : "-"
+                        }
+                      />
+                      <ReadinessProgressItem
+                        label="프로그램"
+                        passed={selectedReadiness?.programPassed ?? false}
+                        pending={!selectedReadiness?.isBeomTarget}
+                        detail={
+                          selectedReadiness?.isBeomTarget
+                            ? selectedReadiness.programPassed
+                              ? "충족"
+                              : "미이수"
+                            : "해당 없음"
+                        }
+                      />
+                      <ReadinessProgressItem
+                        label="출석"
+                        passed={selectedReadiness?.attendancePassed ?? false}
+                        pending={
+                          !selectedReadiness?.isBeomTarget ||
+                          !selectedReadiness?.attendanceRequiredForBeom
+                        }
+                        detail={
+                          !selectedReadiness?.isBeomTarget
+                            ? "해당 없음"
+                            : !selectedReadiness.attendanceRequiredForBeom
+                              ? "참고 지표"
+                              : selectedReadiness.attendanceSummary.rate === null
+                                ? "기록 없음"
+                                : `${selectedReadiness.attendanceSummary.rate}%`
+                        }
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
               </section>
 
-              {selectedReadiness && (
+              {!isSelectedCub && selectedReadiness && (
                 <section style={compactPriorityStyle}>
                   <div style={compactPriorityHeaderStyle}>
                     <h3 style={compactPriorityTitleStyle}>지금 확인할 사항</h3>
@@ -2740,95 +2769,124 @@ export default function ScoutIntegratedPage() {
                 </nav>
               </section>
 
-              {activeTab === "overview" && (
-                <>
-                  <OverviewPanel
+              {activeTab === "overview" &&
+                (isSelectedCub ? (
+                  <CubOverviewPanel
+                    scout={selectedScout}
+                    ranks={data.ranks}
+                    histories={selectedRankHistories}
+                    programs={selectedPrograms}
+                    attendanceRows={selectedAttendance}
+                    onMoveToPrograms={() => setActiveTab("programs")}
+                    onMoveToAttendance={() => setActiveTab("attendance")}
+                  />
+                ) : (
+                  <>
+                    <OverviewPanel
+                      scout={selectedScout}
+                      ranks={data.ranks}
+                      rankRequirements={data.rankRequirements}
+                      rankRequiredBadges={data.rankRequiredBadges}
+                      latestReview={latestReview}
+                      promotionReviews={selectedReviews}
+                      histories={selectedRankHistories}
+                      scoutBadges={selectedScoutBadges}
+                      badgeMap={badgeMap}
+                      programs={selectedPrograms}
+                      attendanceRows={selectedAttendance}
+                      attendanceRate={attendanceSummary.rate}
+                      attendanceRequiredForBeom={Boolean(
+                        organizationAttendanceRequiredMap.get(
+                          selectedScout.organization_id,
+                        ),
+                      )}
+                      onMoveToAdvancement={() => setActiveTab("advancement")}
+                      onMoveToBadges={() => setActiveTab("badges")}
+                      onMoveToPrograms={() => setActiveTab("programs")}
+                      onMoveToAttendance={() => setActiveTab("attendance")}
+                      showPriority={false}
+                    />
+                    <RankProgressOverview
+                      scout={selectedScout}
+                      ranks={data.ranks}
+                      histories={selectedRankHistories}
+                      targetRank={selectedReadiness?.targetRank ?? null}
+                    />
+                  </>
+                ))}
+
+              {activeTab === "advancement" &&
+                (isSelectedCub ? (
+                  <CubAdvancementPanel
+                    scout={selectedScout}
+                    ranks={data.ranks}
+                  />
+                ) : (
+                  <AdvancementPanel
                     scout={selectedScout}
                     ranks={data.ranks}
                     rankRequirements={data.rankRequirements}
                     rankRequiredBadges={data.rankRequiredBadges}
                     latestReview={latestReview}
-                    promotionReviews={selectedReviews}
                     histories={selectedRankHistories}
                     scoutBadges={selectedScoutBadges}
                     badgeMap={badgeMap}
                     programs={selectedPrograms}
                     attendanceRows={selectedAttendance}
-                    attendanceRate={attendanceSummary.rate}
                     attendanceRequiredForBeom={Boolean(
-                      organizationAttendanceRequiredMap.get(selectedScout.organization_id),
+                      organizationAttendanceRequiredMap.get(
+                        selectedScout.organization_id,
+                      ),
                     )}
-                    onMoveToAdvancement={() => setActiveTab("advancement")}
-                    onMoveToBadges={() => setActiveTab("badges")}
-                    onMoveToPrograms={() => setActiveTab("programs")}
-                    onMoveToAttendance={() => setActiveTab("attendance")}
-                    showPriority={false}
+                    canManage={canManageAdvancements}
+                    reviewDate={promotionReviewDate}
+                    approvalDate={promotionApprovalDate}
+                    approvalNote={promotionApprovalNote}
+                    reviewSubmitting={promotionReviewSubmitting}
+                    approvalSubmitting={promotionApprovalSubmitting}
+                    reviewError={promotionReviewError}
+                    approvalError={promotionApprovalError}
+                    actionMessage={promotionActionMessage}
+                    onReviewDateChange={setPromotionReviewDate}
+                    onApprovalDateChange={setPromotionApprovalDate}
+                    onApprovalNoteChange={setPromotionApprovalNote}
+                    onRunReview={handleRunPromotionReview}
+                    onApprove={handleApprovePromotion}
                   />
-                  <RankProgressOverview
+                ))}
+
+              {activeTab === "badges" &&
+                (isSelectedCub ? (
+                  <CubHobbyPanel scout={selectedScout} ranks={data.ranks} />
+                ) : (
+                  <BadgePanel
                     scout={selectedScout}
                     ranks={data.ranks}
-                    histories={selectedRankHistories}
-                    targetRank={selectedReadiness?.targetRank ?? null}
+                    rankRequirements={data.rankRequirements}
+                    rankRequiredBadges={data.rankRequiredBadges}
+                    scoutBadges={selectedScoutBadges}
+                    badgeMap={badgeMap}
+                    categoryMap={categoryMap}
+                    usedScoutBadgeIdSet={usedScoutBadgeIdSet}
+                    promotionReflectionMap={promotionReflectionMap}
+                    canManage={canManageBadges}
+                    formError={badgePanelError}
+                    deletingId={badgeDeletingId}
+                    onCreate={handleOpenCreateBadge}
+                    onEdit={handleOpenEditBadge}
+                    onDelete={handleDeleteBadge}
                   />
-                </>
-              )}
-
-              {activeTab === "advancement" && (
-                <AdvancementPanel
-                  scout={selectedScout}
-                  ranks={data.ranks}
-                  rankRequirements={data.rankRequirements}
-                  rankRequiredBadges={data.rankRequiredBadges}
-                  latestReview={latestReview}
-                  histories={selectedRankHistories}
-                  scoutBadges={selectedScoutBadges}
-                  badgeMap={badgeMap}
-                  programs={selectedPrograms}
-                  attendanceRows={selectedAttendance}
-                  attendanceRequiredForBeom={Boolean(
-                    organizationAttendanceRequiredMap.get(selectedScout.organization_id),
-                  )}
-                  canManage={canManageAdvancements}
-                  reviewDate={promotionReviewDate}
-                  approvalDate={promotionApprovalDate}
-                  approvalNote={promotionApprovalNote}
-                  reviewSubmitting={promotionReviewSubmitting}
-                  approvalSubmitting={promotionApprovalSubmitting}
-                  reviewError={promotionReviewError}
-                  approvalError={promotionApprovalError}
-                  actionMessage={promotionActionMessage}
-                  onReviewDateChange={setPromotionReviewDate}
-                  onApprovalDateChange={setPromotionApprovalDate}
-                  onApprovalNoteChange={setPromotionApprovalNote}
-                  onRunReview={handleRunPromotionReview}
-                  onApprove={handleApprovePromotion}
-                />
-              )}
-
-              {activeTab === "badges" && (
-                <BadgePanel
-                  scout={selectedScout}
-                  ranks={data.ranks}
-                  rankRequirements={data.rankRequirements}
-                  rankRequiredBadges={data.rankRequiredBadges}
-                  scoutBadges={selectedScoutBadges}
-                  badgeMap={badgeMap}
-                  categoryMap={categoryMap}
-                  usedScoutBadgeIdSet={usedScoutBadgeIdSet}
-                  promotionReflectionMap={promotionReflectionMap}
-                  canManage={canManageBadges}
-                  formError={badgePanelError}
-                  deletingId={badgeDeletingId}
-                  onCreate={handleOpenCreateBadge}
-                  onEdit={handleOpenEditBadge}
-                  onDelete={handleDeleteBadge}
-                />
-              )}
+                ))}
 
               {activeTab === "programs" && (
                 <ProgramPanel
                   completions={selectedPrograms}
-                  isBeomTarget={selectedReadiness?.isBeomTarget ?? false}
+                  isBeomTarget={
+                    isSelectedCub
+                      ? false
+                      : (selectedReadiness?.isBeomTarget ?? false)
+                  }
+                  isCubScout={isSelectedCub}
                   targetRankName={targetRankName}
                   canManage={canManagePrograms}
                   actionMessage={programActionMessage}
@@ -2844,12 +2902,23 @@ export default function ScoutIntegratedPage() {
                 <AttendancePanel
                   rows={selectedAttendance}
                   recentHistoryItems={selectedRecentAttendanceHistory}
-                  isBeomTarget={selectedReadiness?.isBeomTarget ?? false}
-                  attendanceRequiredForBeom={
-                    selectedReadiness?.attendanceRequiredForBeom ?? false
+                  isBeomTarget={
+                    isSelectedCub
+                      ? false
+                      : (selectedReadiness?.isBeomTarget ?? false)
                   }
-                  attendancePassed={selectedReadiness?.attendancePassed ?? false}
-                  attendanceRate={selectedReadiness?.attendanceSummary.rate ?? null}
+                  isCubScout={isSelectedCub}
+                  attendanceRequiredForBeom={
+                    isSelectedCub
+                      ? false
+                      : (selectedReadiness?.attendanceRequiredForBeom ?? false)
+                  }
+                  attendancePassed={
+                    selectedReadiness?.attendancePassed ?? false
+                  }
+                  attendanceRate={
+                    selectedReadiness?.attendanceSummary.rate ?? null
+                  }
                   targetRankName={targetRankName}
                 />
               )}

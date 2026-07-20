@@ -1,15 +1,3 @@
-export function isElementarySchoolGrade(value: string | null | undefined) {
-  return Boolean(value?.replace(/\s/g, "").includes("초등학교"));
-}
-
-export function isMiddleSchoolGrade(value: string | null | undefined) {
-  return Boolean(value?.replace(/\s/g, "").includes("중학교"));
-}
-
-export function isHighSchoolGrade(value: string | null | undefined) {
-  return Boolean(value?.replace(/\s/g, "").includes("고등학교"));
-}
-
 /** 공백 제거 후 `초등학교|중학교|고등학교` + 숫자 + `학년` 형식 여부 */
 function matchSchoolGradeFormat(grade: string | null | undefined) {
   if (!grade?.trim()) return null;
@@ -22,6 +10,79 @@ function matchSchoolGradeFormat(grade: string | null | undefined) {
     school: match[1] as "초등학교" | "중학교" | "고등학교",
     gradeNumber: match[2],
   };
+}
+
+export function isElementarySchoolGrade(value: string | null | undefined) {
+  const matched = matchSchoolGradeFormat(value);
+  if (matched) return matched.school === "초등학교";
+  return Boolean(value?.replace(/\s/g, "").includes("초등학교"));
+}
+
+export function isMiddleSchoolGrade(value: string | null | undefined) {
+  const matched = matchSchoolGradeFormat(value);
+  if (matched) return matched.school === "중학교";
+  return Boolean(value?.replace(/\s/g, "").includes("중학교"));
+}
+
+export function isHighSchoolGrade(value: string | null | undefined) {
+  const matched = matchSchoolGradeFormat(value);
+  if (matched) return matched.school === "고등학교";
+  return Boolean(value?.replace(/\s/g, "").includes("고등학교"));
+}
+
+/** 현재 컵스카우트(초등 표준 학년) 여부 */
+export function isCubScoutByGrade(grade: string | null | undefined) {
+  return matchSchoolGradeFormat(grade)?.school === "초등학교";
+}
+
+export const CUB_RANK_BY_GRADE_NUMBER: Record<number, string> = {
+  1: "다람쥐",
+  2: "다람쥐",
+  3: "토끼",
+  4: "사슴",
+  5: "곰",
+  6: "무지개",
+};
+
+/** 컵스카우트 성장 단계 표시 순서 */
+export const CUB_GROWTH_STAGES = [
+  "다람쥐",
+  "토끼",
+  "사슴",
+  "곰",
+  "무지개",
+] as const;
+
+export type CubGrowthStage = (typeof CUB_GROWTH_STAGES)[number];
+
+export function getCubRankNameByGrade(grade: string | null | undefined) {
+  const matched = matchSchoolGradeFormat(grade);
+  if (matched?.school !== "초등학교") return "";
+
+  const gradeNumber = Number(matched.gradeNumber);
+  if (!Number.isFinite(gradeNumber)) return "";
+
+  return CUB_RANK_BY_GRADE_NUMBER[gradeNumber] ?? "";
+}
+
+export function getNextCubRankNameByGrade(grade: string | null | undefined) {
+  const matched = matchSchoolGradeFormat(grade);
+  if (matched?.school !== "초등학교") return "";
+
+  const gradeNumber = Number(matched.gradeNumber);
+  if (!Number.isFinite(gradeNumber) || gradeNumber >= 6) return "";
+
+  return CUB_RANK_BY_GRADE_NUMBER[gradeNumber + 1] ?? "";
+}
+
+export function getCubGrowthStageIndex(stageName: string) {
+  return CUB_GROWTH_STAGES.findIndex((stage) => stageName.includes(stage));
+}
+
+export function getNextCubGrowthStage(currentStage: string) {
+  const index = getCubGrowthStageIndex(currentStage);
+  if (index < 0 || index >= CUB_GROWTH_STAGES.length - 1) return "";
+  return CUB_GROWTH_STAGES[index + 1];
 }
 
 /** 목록 표시 전용. DB/폼 값은 변경하지 않는다. */
